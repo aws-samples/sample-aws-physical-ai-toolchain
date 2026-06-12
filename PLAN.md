@@ -9,12 +9,17 @@
 
 ## Vision
 
-A modular, CDK-deployable reference architecture for Physical AI on AWS. Customers choose their complexity level:
+A modular, CDK-deployable reference architecture for Physical AI on AWS. The platform implements the industry-standard pipeline for training robust robot policies:
 
-- **Path A (Simple):** GR00T/π0 fine-tuning from existing robot data on SageMaker. No EKS, no OSMO. Deploy in 5 minutes, train in hours.
-- **Path B (Full):** Isaac Lab RL training orchestrated by OSMO on EKS. Cosmos scene generation, multi-stage pipelines, GPU autoscaling. Deploy in 20 minutes.
+1. **Imitation Learning** — Fine-tune a foundation model (GR00T) on teleoperation demonstrations
+2. **RL Refinement** — Improve the policy in simulation (Isaac Lab) to handle variations it hasn't seen
+3. **Domain Randomization** — Use Cosmos to generate diverse scenes so the policy transfers to real hardware
+4. **Edge Deployment** — Deploy the final model to physical robots via Greengrass
 
-Both paths output the same artifact: a model deployable to edge hardware via Greengrass.
+These stages form a **pipeline**, not independent paths. A customer can stop at any stage:
+- Stage 1 alone gets you a working policy (~70-80% success) in hours
+- Stages 1+2+3 get you a production-grade policy (~95% success) in days
+- Stage 4 puts it on hardware
 
 ---
 
@@ -26,45 +31,54 @@ Both paths output the same artifact: a model deployable to edge hardware via Gre
 │  S3 (datasets, models)  │  ECR (containers)  │  IAM (roles)             │
 └──────────────────────────┬──────────────────────────────────────────────┘
                            │
-       ┌───────────────────┼───────────────────┐
-       │                   │                   │
-┌──────▼──────────┐ ┌──────▼──────────┐ ┌──────▼──────────┐
-│  Path A (V1)    │ │  Path B (V2)    │ │  Path C (V3)    │
-│  Imitation      │ │  Simulation     │ │  Scale          │
-│  Learning       │ │                 │ │                 │
-│                 │ │ Cosmos (scenes) │ │ OSMO on EKS     │
-│ SageMaker       │ │ Isaac Lab (RL)  │ │ Multi-node      │
-│ Pipeline:       │ │                 │ │ distributed     │
-│  Train GR00T    │ │ SageMaker /     │ │ training        │
-│  → Eval         │ │ AWS Batch       │ │                 │
-│  → Register     │ │ (single GPU)    │ │ (100+ envs)    │
-└────────┬────────┘ └────────┬────────┘ └────────┬────────┘
-         │                   │                   │
-         └───────────────────┼───────────────────┘
+                           ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                     SageMaker Pipeline (orchestrator)                     │
+│                                                                          │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐               │
+│  │  Stage 1     │    │  Stage 2     │    │  Stage 3     │               │
+│  │  GR00T       │───▶│  Cosmos      │───▶│  Isaac Lab   │               │
+│  │  Fine-tune   │    │  Scene Gen   │    │  RL Refine   │               │
+│  │  (imitation) │    │  (synthetic  │    │  (improve    │               │
+│  │              │    │   data)      │    │   robustness)│               │
+│  └──────┬───────┘    └──────────────┘    └──────┬───────┘               │
+│         │                                       │                        │
+│         ▼ (good enough?)                        ▼                        │
+│  ┌──────────────┐                        ┌──────────────┐               │
+│  │  Evaluate    │                        │  Evaluate    │               │
+│  │  (MSE or     │                        │  (sim rollout│               │
+│  │   rollout)   │                        │   success %) │               │
+│  └──────┬───────┘                        └──────┬───────┘               │
+│         │                                       │                        │
+│         └───────────────────┬───────────────────┘                        │
+│                             ▼                                            │
+│                      ┌──────────────┐                                    │
+│                      │  Register    │                                    │
+│                      │  Model       │                                    │
+│                      └──────────────┘                                    │
+└─────────────────────────────────────────────────────────────────────────┘
                              │
-                      ┌──────▼──────┐
-                      │ Model       │
-                      │ Registry    │
-                      └──────┬──────┘
-                             │
-                      ┌──────▼──────┐  (optional)
-                      │    Edge     │
-                      │ Greengrass  │
-                      │ → Jetson    │
-                      └─────────────┘
+                             ▼
+                      ┌──────────────┐  (optional)
+                      │    Edge      │
+                      │  Greengrass  │
+                      │  → Jetson    │
+                      └──────────────┘
 ```
 
-### Path A — What's deployed today (us-east-1):
+**All stages run on SageMaker** (Training Jobs + Processing Jobs). No EKS needed unless you need 100+ parallel sim environments at scale (OSMO path, deferred to V3).
+
+### What's deployed today (us-east-1):
 - **S3:** `physical-ai-dev-datasets-802782083985` (datasets + model output)
 - **ECR:** `physical-ai/groot-training` (training container, pushed)
 - **IAM:** `physical-ai-dev-sagemaker-role` (SM execution role)
-- **Pipeline:** `groot-finetune-pipeline` (train → register model)
+- **Pipeline:** `groot-finetune-pipeline` (Stage 1: train → register)
 - **Model Registry:** `groot-models` (versioned model packages)
 
 Deploy command:
 ```bash
-cdk deploy --context mode=simple   # Path A only (Foundation stack)
-cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
+cdk deploy --context mode=simple   # Foundation stack only
+cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 ```
 
 ---
@@ -95,7 +109,7 @@ cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 
 ## Build Order
 
-### Phase 1: Path A — GR00T on SageMaker (V1 launch) ← CURRENT FOCUS
+### Phase 1: Stage 1 — GR00T Imitation Learning (V1) ← CURRENT FOCUS
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
@@ -113,28 +127,39 @@ cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 
 **Note on 6c (eval video):** Clone the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container, install via `uv sync`, then use `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. Not on PyPI — install from source. Good task for a contributor.
 
-### Phase 2: Simulation + Synthetic Data (V2)
+### Phase 2: Stage 2+3 — Cosmos Scene Gen + Isaac Lab RL Refinement (V2)
+
+The key insight: Isaac Lab RL isn't a separate training path — it **refines** the policy from Stage 1. Cosmos generates scene variations so the refined policy generalizes to real hardware.
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Isaac Lab RL training on SageMaker (no EKS needed) | 🔲 | Existing env + scripts, just needs container on SM/Batch |
-| 11 | Cosmos scene generation on SageMaker/Batch | 🔲 | `generate_scenes.py` exists, needs Cosmos API access |
-| 12 | Build Isaac Lab container, push to ECR | 🔲 | Dockerfile exists, untested |
-| 13 | Build Isaac Sim container (for Cosmos), push to ECR | 🔲 | Dockerfile exists, untested |
-| 14 | Pipeline: Cosmos scenes → Isaac train → eval → register | 🔲 | Extend `pipeline.py` or new SM Pipeline |
+| 10 | Build Cosmos scene generation container, push to ECR | 🔲 | `containers/isaac-sim/Dockerfile` exists, uses Cosmos API |
+| 11 | Build Isaac Lab RL container, push to ECR | 🔲 | `containers/isaac-lab/Dockerfile` exists |
+| 12 | Test Cosmos scene gen as SageMaker Processing Job | 🔲 | Input: base scene → Output: N variations to S3 |
+| 13 | Test Isaac Lab RL refinement as SageMaker Training Job | 🔲 | Input: GR00T checkpoint + scenes → Output: refined model |
+| 14 | Extend SM Pipeline: scenes → RL refine → eval → register | 🔲 | Full pipeline with conditional registration |
 | 15 | Workshop Lab 2 docs | 🔲 | |
 
-**Key insight:** Isaac Lab and Cosmos both run as single GPU jobs. They don't need EKS or OSMO — a SageMaker Training Job or AWS Batch job works fine. OSMO is only needed if you want multi-node distributed training or complex DAG orchestration across hundreds of jobs. For V2, SageMaker Pipeline is the orchestrator.
+**Pipeline flow (V2):**
+```
+SM Pipeline:
+  Step 1: [Processing] Cosmos generates scene variations from base task
+  Step 2: [Training]   GR00T fine-tune on teleop demos (existing Stage 1)
+  Step 3: [Training]   Isaac Lab RL loads Stage 1 model, refines in sim with Cosmos scenes
+  Step 4: [Processing] Evaluate refined policy (sim rollout success rate)
+  Step 5: [Condition]  If success_rate > 90%...
+  Step 6: [Register]   Register production-ready model
+```
 
-### Phase 2b: OSMO on EKS (V3 — only if needed for scale)
+### Phase 2b: OSMO on EKS (V3 — scale path, deferred)
+
+Only needed when single-GPU RL refinement isn't enough (100+ parallel environments, distributed training, multi-robot fleet policies).
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 16 | Wire EKS + OSMO stacks behind `mode=full` flag | ✅ | CDK synths all 5 stacks |
+| 16 | EKS + OSMO stacks (mode=full) | ✅ | CDK synths, previously deployed and tested |
 | 17 | Fix OSMO Helm deployment | 🔲 | Helm chart not publicly stable |
-| 18 | Submit OSMO workflow, validate multi-stage pipeline | 🔲 | `workflows/pick-and-place.yaml` ready |
-
-**When to use OSMO:** 100+ parallel sim environments, distributed RL, or complex multi-stage pipelines with branching logic. Not needed for single-job training or small-scale scene generation.
+| 18 | Submit OSMO workflow with distributed Isaac Lab | 🔲 | `workflows/pick-and-place.yaml` ready |
 
 ### Phase 3: Edge Deployment
 
@@ -170,31 +195,30 @@ cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 
 ## Workshop / Immersion Day Structure
 
-This repo doubles as a hands-on workshop. Each phase maps to a lab:
+This repo doubles as a hands-on workshop. Each lab maps to a pipeline stage:
 
 ### Lab 0: Prerequisites (30 min)
 - AWS account setup, GPU quota request
-- Install CDK, Docker, NGC account
+- Install CDK, Docker, HuggingFace account
 - Clone repo
 
-### Lab 1: Train Your First Robot Policy (2 hrs) — Path A
+### Lab 1: Train Your First Robot Policy (2 hrs) — Stage 1
 - Deploy foundation stack (`cdk deploy --context mode=simple`)
 - Explore the demo dataset (LeRobot format)
 - Build + push training container
-- Launch SageMaker training job
-- Monitor loss curve in CloudWatch/MLflow
-- Download eval video, interpret results
-- **Checkpoint:** "I trained a GR00T model on AWS"
+- Launch SageMaker training job (or trigger pipeline)
+- Review eval report (action prediction error)
+- **Checkpoint:** "I have a fine-tuned GR00T model that predicts robot actions"
 
-### Lab 2: Simulation-Based Training at Scale (3 hrs) — Path B
-- Deploy full stack (`cdk deploy --context mode=full`)
-- Explore the Isaac Lab RL environment code
-- Submit OSMO workflow (scene gen → train → eval → export)
-- Compare RL-trained policy vs. imitation-learned policy
-- **Checkpoint:** "I ran a multi-stage sim training pipeline with OSMO"
+### Lab 2: Refine in Simulation (3 hrs) — Stages 2+3
+- Generate scene variations with Cosmos
+- Load Stage 1 model into Isaac Lab sim environment
+- Run RL refinement (policy improves via reward signal)
+- Compare success rate: Stage 1 model vs. refined model
+- **Checkpoint:** "My policy went from 70% to 95% success rate in sim"
 
-### Lab 3: Deploy to Edge (1.5 hrs)
-- Export trained model to TensorRT
+### Lab 3: Deploy to Edge (1.5 hrs) — Stage 4
+- Export refined model to TensorRT
 - Deploy Greengrass component to a simulated device (or real Jetson)
 - Verify ROS2 inference node publishes joint commands
 - **Checkpoint:** "My trained model is running on edge hardware"
@@ -202,13 +226,13 @@ This repo doubles as a hands-on workshop. Each phase maps to a lab:
 ### Lab 4: Extend the Platform (1 hr) — Self-guided
 - Modify the RL environment (change reward, add obstacles)
 - Try a different robot (swap URDF)
-- Enable Cosmos scene generation
-- Connect the CLI / IDE skills
+- Add more Cosmos scene variations
+- Run the full pipeline end-to-end
 
 ### Key workshop design principles:
-- Each lab is **independent** — you can skip Lab 2 if you only want Path A
+- Labs are **incremental** — each builds on the previous (but Lab 1 works standalone)
 - Each lab has a clear **checkpoint** (verifiable outcome)
-- All labs work **without physical hardware** (sim only)
+- All labs work **without physical hardware** (sim only, except Lab 3 with real Jetson)
 - Labs are structured as: **Concept (10 min) → Deploy (15 min) → Experiment (rest)**
 - Code is annotated with `# WORKSHOP NOTE:` comments at decision points
 
@@ -295,7 +319,9 @@ If you're a new builder joining this repo:
 
 ## Decisions Made (2026-06-12)
 
-- **OSMO deferred** — Helm chart not stable, expensive to keep EKS running. Path B code stays in repo as reference.
+- **Pipeline, not paths** — Isaac Lab RL refines the GR00T imitation model, it doesn't replace it. This is industry standard practice (imitation → RL refinement → domain randomization). The original "Path A vs Path B" framing was wrong.
+- **SageMaker for everything (V1/V2)** — Isaac Lab and Cosmos both run as single-GPU SageMaker jobs. No EKS needed. Same orchestrator (SM Pipeline), same IAM, same monitoring. Consistent developer experience.
+- **OSMO deferred to V3** — Only needed for 100+ parallel sim environments at scale. The code exists in the repo but isn't needed until customers outgrow single-GPU training.
 - **Eval report over eval video for V1** — Action prediction error (MSE on held-out episodes) validates training without needing sim. Real sim rollout video requires Isaac-GR00T SDK from source.
-- **boto3 for Pipeline definition** — SageMaker Python SDK v3 restructured the workflow module. Using boto3 `create_pipeline` API directly is more stable and has no package dependency issues.
+- **boto3 for Pipeline definition** — SageMaker Python SDK v3 restructured the workflow module. Using boto3 `create_pipeline` API directly is more stable.
 - **100-step smoke tests** — Full training (5000 steps, 11 hrs, $79) is for final demos. 100-step runs (~15 min, ~$2) validate the pipeline.
