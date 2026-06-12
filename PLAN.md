@@ -21,34 +21,37 @@ Both paths output the same artifact: a model deployable to edge hardware via Gre
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    Foundation Stack (always deployed)             │
-│  S3 (datasets, models)  │  ECR (containers)  │  IAM (roles)     │
-└──────────────────────────┬──────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    Foundation Stack (always deployed)                     │
+│  S3 (datasets, models)  │  ECR (containers)  │  IAM (roles)             │
+└──────────────────────────┬──────────────────────────────────────────────┘
                            │
-           ┌───────────────┼───────────────┐
-           │                               │
-    ┌──────▼──────────────┐         ┌──────▼──────┐
-    │   Path A (V1)       │         │   Path B    │
-    │   SageMaker         │         │  (deferred) │
-    │                     │         │             │
-    │ ┌─────────────────┐ │         │ EKS + OSMO  │
-    │ │ SM Pipeline     │ │         │ Isaac Lab   │
-    │ │  Train → Eval   │ │         │ Cosmos      │
-    │ │  → Register     │ │         └─────────────┘
-    │ └────────┬────────┘ │
-    │          │          │
-    │ ┌────────▼────────┐ │
-    │ │ Model Registry  │ │
-    │ │ (groot-models)  │ │
-    │ └────────┬────────┘ │
-    └──────────┼──────────┘
-               │
-        ┌──────▼──────┐  (optional)
-        │    Edge     │
-        │ Greengrass  │
-        │ → Jetson    │
-        └─────────────┘
+       ┌───────────────────┼───────────────────┐
+       │                   │                   │
+┌──────▼──────────┐ ┌──────▼──────────┐ ┌──────▼──────────┐
+│  Path A (V1)    │ │  Path B (V2)    │ │  Path C (V3)    │
+│  Imitation      │ │  Simulation     │ │  Scale          │
+│  Learning       │ │                 │ │                 │
+│                 │ │ Cosmos (scenes) │ │ OSMO on EKS     │
+│ SageMaker       │ │ Isaac Lab (RL)  │ │ Multi-node      │
+│ Pipeline:       │ │                 │ │ distributed     │
+│  Train GR00T    │ │ SageMaker /     │ │ training        │
+│  → Eval         │ │ AWS Batch       │ │                 │
+│  → Register     │ │ (single GPU)    │ │ (100+ envs)    │
+└────────┬────────┘ └────────┬────────┘ └────────┬────────┘
+         │                   │                   │
+         └───────────────────┼───────────────────┘
+                             │
+                      ┌──────▼──────┐
+                      │ Model       │
+                      │ Registry    │
+                      └──────┬──────┘
+                             │
+                      ┌──────▼──────┐  (optional)
+                      │    Edge     │
+                      │ Greengrass  │
+                      │ → Jetson    │
+                      └─────────────┘
 ```
 
 ### Path A — What's deployed today (us-east-1):
@@ -66,7 +69,7 @@ cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 
 ---
 
-## What Already Exists (from prior work)
+## What Already Exists
 
 ### From this repo (`aws-physical-ai-toolchain`):
 - ✅ CDK: Network, Storage, EKS, OSMO, Edge stacks (all synthesize)
@@ -103,41 +106,52 @@ cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 | 5 | Bundle demo dataset (download script + docs) | ✅ | `lerobot/aloha_sim_insertion_human`, 87 MB |
 | 6a | End-to-end smoke test: deploy → train → model to S3 | ✅ | 100-step job completed successfully |
 | 6b | Eval report: action prediction error on held-out data | 🚧 | Code done, container pushed, awaiting test run |
-| 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Blocked on SDK availability (see note below) |
+| 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Needs SDK installed from source in container (see note) |
 | 7 | Workshop Lab 1 docs | ✅ | `workshop/lab-1-train-groot.md` |
 | 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
 | 9 | Polish README + getting-started for GitLab review | 🔲 | |
 
-**Note on 6c (eval video):** Requires cloning the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container and using their `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. The SDK is not on PyPI — must install from source via `uv sync`. Good task for a contributor.
+**Note on 6c (eval video):** Clone the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container, install via `uv sync`, then use `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. Not on PyPI — install from source. Good task for a contributor.
 
-### Phase 2: Path B — Isaac Lab + OSMO on EKS (deferred)
+### Phase 2: Simulation + Synthetic Data (V2)
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Wire EKS + OSMO stacks behind `mode=full` flag | ✅ | CDK synths all 5 stacks |
-| 11 | Fix OSMO Helm deployment | 🔲 | Helm chart not publicly stable yet |
-| 12 | Build Isaac Sim + Isaac Lab containers | 🔲 | Dockerfiles exist, untested on ECR |
-| 13 | Submit OSMO workflow, validate training | 🔲 | `workflows/pick-and-place.yaml` ready |
-| 14 | Workshop Lab 2 docs | 🔲 | |
+| 10 | Isaac Lab RL training on SageMaker (no EKS needed) | 🔲 | Existing env + scripts, just needs container on SM/Batch |
+| 11 | Cosmos scene generation on SageMaker/Batch | 🔲 | `generate_scenes.py` exists, needs Cosmos API access |
+| 12 | Build Isaac Lab container, push to ECR | 🔲 | Dockerfile exists, untested |
+| 13 | Build Isaac Sim container (for Cosmos), push to ECR | 🔲 | Dockerfile exists, untested |
+| 14 | Pipeline: Cosmos scenes → Isaac train → eval → register | 🔲 | Extend `pipeline.py` or new SM Pipeline |
+| 15 | Workshop Lab 2 docs | 🔲 | |
 
-**Why deferred:** OSMO Helm chart requires NGC access and isn't publicly stable. EKS cluster with GPU nodes costs ~$100/day to keep running. Path B code exists in the repo (CDK stacks, training scripts, Dockerfiles, workflow YAML) but hasn't been end-to-end tested. Reviewers can read the code and architecture; running it requires a live cluster.
+**Key insight:** Isaac Lab and Cosmos both run as single GPU jobs. They don't need EKS or OSMO — a SageMaker Training Job or AWS Batch job works fine. OSMO is only needed if you want multi-node distributed training or complex DAG orchestration across hundreds of jobs. For V2, SageMaker Pipeline is the orchestrator.
+
+### Phase 2b: OSMO on EKS (V3 — only if needed for scale)
+
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 16 | Wire EKS + OSMO stacks behind `mode=full` flag | ✅ | CDK synths all 5 stacks |
+| 17 | Fix OSMO Helm deployment | 🔲 | Helm chart not publicly stable |
+| 18 | Submit OSMO workflow, validate multi-stage pipeline | 🔲 | `workflows/pick-and-place.yaml` ready |
+
+**When to use OSMO:** 100+ parallel sim environments, distributed RL, or complex multi-stage pipelines with branching logic. Not needed for single-job training or small-scale scene generation.
 
 ### Phase 3: Edge Deployment
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 15 | Test Edge stack deployment (IoT Core + Greengrass) | 🔲 | CDK exists: `edge-stack.ts` |
-| 16 | Build inference container, push to ECR | 🔲 | Dockerfile exists (Jetson + x86) |
-| 17 | Test Greengrass component deployment | 🔲 | Needs Jetson or simulated device |
-| 18 | Workshop Lab 3 docs | 🔲 | |
+| 19 | Test Edge stack deployment (IoT Core + Greengrass) | 🔲 | CDK exists: `edge-stack.ts` |
+| 20 | Build inference container, push to ECR | 🔲 | Dockerfile exists (Jetson + x86) |
+| 21 | Test Greengrass component deployment | 🔲 | Needs Jetson or simulated device |
+| 22 | Workshop Lab 3 docs | 🔲 | |
 
 ### Phase 4: Developer Experience
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 19 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
-| 20 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
-| 21 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
+| 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
+| 24 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
+| 25 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
 
 ---
 
