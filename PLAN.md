@@ -3,7 +3,7 @@
 **Status:** Active development
 **Last updated:** 2026-06-12
 **Owner:** devris
-**Repo:** aws-physical-ai-toolchain
+**Repo:** aws-physical-ai-toolchain (internal GitLab — setup pending)
 
 ---
 
@@ -14,7 +14,7 @@ A modular, CDK-deployable reference architecture for Physical AI on AWS. Custome
 - **Path A (Simple):** GR00T/π0 fine-tuning from existing robot data on SageMaker. No EKS, no OSMO. Deploy in 5 minutes, train in hours.
 - **Path B (Full):** Isaac Lab RL training orchestrated by OSMO on EKS. Cosmos scene generation, multi-stage pipelines, GPU autoscaling. Deploy in 20 minutes.
 
-Both paths output the same artifact: a TensorRT model deployable to edge hardware via Greengrass.
+Both paths output the same artifact: a model deployable to edge hardware via Greengrass.
 
 ---
 
@@ -22,40 +22,46 @@ Both paths output the same artifact: a TensorRT model deployable to edge hardwar
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Foundation (always deployed)                   │
-│  S3 (datasets, models, checkpoints) │ ECR (containers) │ IAM    │
+│                    Foundation Stack (always deployed)             │
+│  S3 (datasets, models)  │  ECR (containers)  │  IAM (roles)     │
 └──────────────────────────┬──────────────────────────────────────┘
                            │
            ┌───────────────┼───────────────┐
            │                               │
-    ┌──────▼──────┐                 ┌──────▼──────┐
-    │   Path A    │                 │   Path B    │
-    │  (simple)   │                 │   (full)    │
-    │             │                 │             │
-    │ SageMaker   │                 │ EKS + OSMO  │
-    │ Training    │                 │ Isaac Lab   │
-    │ Jobs        │                 │ Cosmos      │
-    └──────┬──────┘                 └──────┬──────┘
-           │                               │
-           └───────────────┬───────────────┘
-                           │
-                    ┌──────▼──────┐
-                    │   Output    │
-                    │ model.trt   │
-                    │ in S3       │
-                    └──────┬──────┘
-                           │
-                    ┌──────▼──────┐  (optional)
-                    │    Edge     │
-                    │ Greengrass  │
-                    │ → Jetson    │
-                    └─────────────┘
+    ┌──────▼──────────────┐         ┌──────▼──────┐
+    │   Path A (V1)       │         │   Path B    │
+    │   SageMaker         │         │  (deferred) │
+    │                     │         │             │
+    │ ┌─────────────────┐ │         │ EKS + OSMO  │
+    │ │ SM Pipeline     │ │         │ Isaac Lab   │
+    │ │  Train → Eval   │ │         │ Cosmos      │
+    │ │  → Register     │ │         └─────────────┘
+    │ └────────┬────────┘ │
+    │          │          │
+    │ ┌────────▼────────┐ │
+    │ │ Model Registry  │ │
+    │ │ (groot-models)  │ │
+    │ └────────┬────────┘ │
+    └──────────┼──────────┘
+               │
+        ┌──────▼──────┐  (optional)
+        │    Edge     │
+        │ Greengrass  │
+        │ → Jetson    │
+        └─────────────┘
 ```
+
+### Path A — What's deployed today (us-east-1):
+- **S3:** `physical-ai-dev-datasets-802782083985` (datasets + model output)
+- **ECR:** `physical-ai/groot-training` (training container, pushed)
+- **IAM:** `physical-ai-dev-sagemaker-role` (SM execution role)
+- **Pipeline:** `groot-finetune-pipeline` (train → register model)
+- **Model Registry:** `groot-models` (versioned model packages)
 
 Deploy command:
 ```bash
-cdk deploy --context mode=simple   # Path A only
-cdk deploy --context mode=full     # Path A + B
+cdk deploy --context mode=simple   # Path A only (Foundation stack)
+cdk deploy --context mode=full     # Path A + B (adds Network, EKS, OSMO)
 ```
 
 ---
@@ -86,51 +92,52 @@ cdk deploy --context mode=full     # Path A + B
 
 ## Build Order
 
-### Phase 1: Path A — GR00T on SageMaker (V1 launch)
+### Phase 1: Path A — GR00T on SageMaker (V1 launch) ← CURRENT FOCUS
 
-| # | Task | Source | Status |
-|---|------|--------|--------|
-| 1 | Restructure CDK with `mode` context flag | New | ✅ |
-| 2 | Create `foundation-stack.ts` (S3, ECR, SageMaker role) | Port from hackathon `physical-ai-stack.ts` | ✅ |
-| 3 | Create training launch script + upload helpers | New | ✅ |
-| 4 | Build GR00T training container + push to ECR | Port from hackathon CodeBuild pattern | ✅ |
-| 5 | Bundle demo dataset (download script + docs) | New | ✅ |
-| 6a | End-to-end test: deploy → train → model to S3 | — | ✅ |
-| 6b | Add eval video generation to training container | — | 🔲 |
-| 7 | Workshop Lab 1 docs | New | ✅ |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 1 | Restructure CDK with `mode` context flag | ✅ | `app.ts` routes simple/full |
+| 2 | Create `foundation-stack.ts` (S3, ECR, SageMaker role) | ✅ | Deployed to us-east-1 |
+| 3 | Create training launch script + upload helpers | ✅ | `launch_training.py`, `upload_dataset.py` |
+| 4 | Build GR00T training container + push to ECR | ✅ | 7.1 GB image, pushed |
+| 5 | Bundle demo dataset (download script + docs) | ✅ | `lerobot/aloha_sim_insertion_human`, 87 MB |
+| 6a | End-to-end smoke test: deploy → train → model to S3 | ✅ | 100-step job completed successfully |
+| 6b | Eval report: action prediction error on held-out data | 🚧 | Code done, container pushed, awaiting test run |
+| 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Blocked on SDK availability (see note below) |
+| 7 | Workshop Lab 1 docs | ✅ | `workshop/lab-1-train-groot.md` |
+| 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
+| 9 | Polish README + getting-started for GitLab review | 🔲 | |
 
-### Phase 2: Production Pipeline + Isaac Lab (V2)
+**Note on 6c (eval video):** Requires cloning the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container and using their `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. The SDK is not on PyPI — must install from source via `uv sync`. Good task for a contributor.
 
-| # | Task | Source | Status |
-|---|------|--------|--------|
-| 8 | Wire EKS + OSMO stacks behind `mode=full` flag | Existing code, refactor `app.ts` | ✅ |
-| 9 | Add SageMaker Pipeline: train → eval → register model | New | 🔲 |
-| 10 | Integrate Isaac-GR00T SDK for real model eval (sim rollout video) | Isaac-GR00T GitHub repo | 🔲 |
-| 11 | Build Isaac Sim + Isaac Lab containers, push to ECR | Existing Dockerfiles | 🔲 |
-| 12 | OSMO Helm deployment (when Helm chart is publicly stable) | Continue from TODO Phase 4 | 🔲 |
-| 13 | Workshop Lab 2 docs | New | 🔲 |
+### Phase 2: Path B — Isaac Lab + OSMO on EKS (deferred)
 
-**Note on ordering:** Tasks 9-10 extend Path A (SageMaker-based, no EKS needed).
-Tasks 11-12 are Path B (EKS + OSMO) and are deferred until NVIDIA stabilizes the
-OSMO Helm chart and Isaac-GR00T SDK is on PyPI. The code for Path B exists in the
-repo (CDK stacks, training scripts, Dockerfiles) but hasn't been end-to-end tested.
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 10 | Wire EKS + OSMO stacks behind `mode=full` flag | ✅ | CDK synths all 5 stacks |
+| 11 | Fix OSMO Helm deployment | 🔲 | Helm chart not publicly stable yet |
+| 12 | Build Isaac Sim + Isaac Lab containers | 🔲 | Dockerfiles exist, untested on ECR |
+| 13 | Submit OSMO workflow, validate training | 🔲 | `workflows/pick-and-place.yaml` ready |
+| 14 | Workshop Lab 2 docs | 🔲 | |
+
+**Why deferred:** OSMO Helm chart requires NGC access and isn't publicly stable. EKS cluster with GPU nodes costs ~$100/day to keep running. Path B code exists in the repo (CDK stacks, training scripts, Dockerfiles, workflow YAML) but hasn't been end-to-end tested. Reviewers can read the code and architecture; running it requires a live cluster.
 
 ### Phase 3: Edge Deployment
 
-| # | Task | Source | Status |
-|---|------|--------|--------|
-| 14 | Test Edge stack deployment (IoT Core + Greengrass) | Existing `edge-stack.ts` | 🔲 |
-| 15 | Build inference container, push to ECR | Existing Dockerfile | 🔲 |
-| 16 | Test Greengrass component deployment (sim or real Jetson) | — | 🔲 |
-| 17 | Workshop Lab 3 docs | New | 🔲 |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 15 | Test Edge stack deployment (IoT Core + Greengrass) | 🔲 | CDK exists: `edge-stack.ts` |
+| 16 | Build inference container, push to ECR | 🔲 | Dockerfile exists (Jetson + x86) |
+| 17 | Test Greengrass component deployment | 🔲 | Needs Jetson or simulated device |
+| 18 | Workshop Lab 3 docs | 🔲 | |
 
 ### Phase 4: Developer Experience
 
-| # | Task | Source | Status |
-|---|------|--------|--------|
-| 18 | Port CLI from hackathon repo | Existing `physical-ai-cli/` | 🔲 |
-| 19 | Port IDE skills | Existing `skills/` | 🔲 |
-| 20 | Add WebRTC viz option (Optional C) | Roy Allela's pattern | 🔲 |
+| # | Task | Status | Notes |
+|---|------|--------|-------|
+| 19 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
+| 20 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
+| 21 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
 
 ---
 
@@ -193,52 +200,58 @@ This repo doubles as a hands-on workshop. Each phase maps to a lab:
 
 ---
 
-## File Structure (Target)
+## File Structure (Actual)
 
 ```
 aws-physical-ai-toolchain/
 ├── PLAN.md                          # This file
-├── README.md                        # Getting started (update for dual-path)
+├── README.md                        # Getting started
+├── TODO.md                          # Historical build/test notes
+├── run-path-a.sh                    # Quick-start script (one-off training)
 ├── cdk/
 │   ├── bin/app.ts                   # Mode switch: simple | full
 │   ├── lib/
-│   │   ├── foundation-stack.ts      # NEW: S3, ECR, IAM (shared)
-│   │   ├── training-stack.ts        # NEW: SageMaker Pipeline (Path A)
-│   │   ├── network-stack.ts         # Existing (Path B only)
-│   │   ├── storage-stack.ts         # Existing (refactor: shared portions move to foundation)
-│   │   ├── eks-cluster-stack.ts     # Existing (Path B only)
-│   │   ├── osmo-stack.ts            # Existing (Path B only)
-│   │   └── edge-stack.ts            # Existing (optional, both paths)
+│   │   ├── foundation-stack.ts      # S3, ECR, IAM (always deployed)
+│   │   ├── network-stack.ts         # VPC (mode=full only)
+│   │   ├── storage-stack.ts         # Additional S3/ECR for OSMO (mode=full)
+│   │   ├── eks-cluster-stack.ts     # EKS + GPU nodes (mode=full)
+│   │   ├── osmo-stack.ts           # RDS, Redis, OSMO (mode=full)
+│   │   └── edge-stack.ts           # IoT Core + Greengrass (optional)
 │   └── config/
-│       ├── dev.ts                   # Dev config (both modes)
-│       └── prod.ts                  # Prod config
+│       ├── dev.ts                   # Dev: g5.xlarge, single-AZ
+│       └── prod.ts                  # Prod: P5e, multi-AZ
 ├── containers/
-│   ├── groot-training/              # NEW: GR00T fine-tuning container (Path A)
-│   ├── isaac-sim/                   # Existing (Path B)
-│   ├── isaac-lab/                   # Existing (Path B)
-│   └── inference/                   # Existing (both paths)
+│   ├── groot-training/              # GR00T fine-tuning (Path A) ← pushed to ECR
+│   │   ├── Dockerfile
+│   │   └── train_entrypoint.py      # Train + eval report
+│   ├── isaac-sim/Dockerfile         # Scene generation (Path B, untested)
+│   ├── isaac-lab/Dockerfile         # RL training (Path B, untested)
+│   └── inference/Dockerfile         # Edge inference (Jetson + x86)
 ├── training/
-│   ├── groot/                       # NEW: GR00T fine-tuning scripts (Path A)
-│   │   ├── train_groot.py
-│   │   ├── convert_episodes.py
-│   │   └── configs/
-│   ├── isaac-lab/                   # Rename from training/ (Path B)
-│   │   ├── scripts/
-│   │   ├── envs/
-│   │   └── configs/
-│   └── export.py                    # Shared: PyTorch → ONNX → TRT
+│   ├── groot/                       # Path A scripts
+│   │   ├── launch_training.py       # One-off SageMaker job
+│   │   ├── pipeline.py             # SageMaker Pipeline (train → register)
+│   │   ├── download_demo_dataset.py
+│   │   └── upload_dataset.py
+│   ├── scripts/                     # Path B (Isaac Lab)
+│   │   ├── train.py
+│   │   ├── evaluate.py
+│   │   ├── export.py
+│   │   └── generate_scenes.py
+│   ├── envs/                        # Isaac Lab RL environments
+│   │   └── pick_and_place_ur3.py
+│   └── configs/
+│       └── ppo_pick_place.yaml
 ├── workflows/
 │   └── pick-and-place.yaml          # OSMO workflow (Path B)
-├── edge/                            # Existing (Greengrass + ROS2)
-├── workshop/                        # NEW: Lab guides
+├── edge/
+│   ├── entrypoint.sh
+│   └── ros2-workspace/src/ur3_inference/
+├── workshop/
 │   ├── lab-0-prerequisites.md
-│   ├── lab-1-train-groot.md
-│   ├── lab-2-isaac-lab-osmo.md
-│   ├── lab-3-edge-deployment.md
-│   └── lab-4-extend.md
+│   └── lab-1-train-groot.md
 └── docs/
-    ├── architecture.md
-    └── troubleshooting.md
+    └── glossary.md
 ```
 
 ---
@@ -260,6 +273,15 @@ If you're a new builder joining this repo:
 ## Open Questions
 
 - [ ] Robot for demo: UR3 (existing code) vs. Franka (better Isaac Lab support) vs. SO-100 (cheapest, LeRobot native)?
-- [ ] SageMaker Pipeline vs. simple sequential Training Jobs for Path A? (Pipeline adds visibility but more CDK code)
+  - Current demo uses ALOHA sim (LeRobot dataset). SO-100 would be cheapest for physical hardware demos.
+- [x] ~~SageMaker Pipeline vs. simple sequential Training Jobs for Path A?~~ → **Both.** `launch_training.py` for quick one-off runs, `pipeline.py` for production repeatable workflows.
 - [ ] Include MLflow tracking in V1 or defer?
 - [ ] AWS account for workshop: shared or per-participant?
+- [ ] GitLab repo location — which team namespace?
+
+## Decisions Made (2026-06-12)
+
+- **OSMO deferred** — Helm chart not stable, expensive to keep EKS running. Path B code stays in repo as reference.
+- **Eval report over eval video for V1** — Action prediction error (MSE on held-out episodes) validates training without needing sim. Real sim rollout video requires Isaac-GR00T SDK from source.
+- **boto3 for Pipeline definition** — SageMaker Python SDK v3 restructured the workflow module. Using boto3 `create_pipeline` API directly is more stable and has no package dependency issues.
+- **100-step smoke tests** — Full training (5000 steps, 11 hrs, $79) is for final demos. 100-step runs (~15 min, ~$2) validate the pipeline.
