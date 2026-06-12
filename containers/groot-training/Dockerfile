@@ -49,6 +49,7 @@ RUN pip install --no-cache-dir \
     numpy \
     pillow \
     opencv-python-headless \
+    matplotlib \
     pyyaml \
     boto3 \
     mlflow \

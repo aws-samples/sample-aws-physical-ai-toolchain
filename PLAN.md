@@ -95,35 +95,42 @@ cdk deploy --context mode=full     # Path A + B
 | 3 | Create training launch script + upload helpers | New | ✅ |
 | 4 | Build GR00T training container + push to ECR | Port from hackathon CodeBuild pattern | ✅ |
 | 5 | Bundle demo dataset (download script + docs) | New | ✅ |
-| 6 | End-to-end test: deploy → train → get eval video | — | 🔲 |
+| 6a | End-to-end test: deploy → train → model to S3 | — | ✅ |
+| 6b | Add eval video generation to training container | — | 🔲 |
 | 7 | Workshop Lab 1 docs | New | ✅ |
 
-### Phase 2: Path B — Isaac Lab + OSMO on EKS
+### Phase 2: Production Pipeline + Isaac Lab (V2)
 
 | # | Task | Source | Status |
 |---|------|--------|--------|
-| 8 | Wire EKS + OSMO stacks behind `mode=full` flag | Existing code, refactor `app.ts` | 🔲 |
-| 9 | Fix OSMO Helm deployment (values tuning or raw manifests) | Continue from TODO Phase 4 | 🔲 |
-| 10 | Build Isaac Sim + Isaac Lab containers, push to ECR | Existing Dockerfiles | 🔲 |
-| 11 | Submit OSMO workflow, validate training converges | Existing `workflows/pick-and-place.yaml` | 🔲 |
-| 12 | Workshop Lab 2 docs | New | 🔲 |
+| 8 | Wire EKS + OSMO stacks behind `mode=full` flag | Existing code, refactor `app.ts` | ✅ |
+| 9 | Add SageMaker Pipeline: train → eval → register model | New | 🔲 |
+| 10 | Integrate Isaac-GR00T SDK for real model eval (sim rollout video) | Isaac-GR00T GitHub repo | 🔲 |
+| 11 | Build Isaac Sim + Isaac Lab containers, push to ECR | Existing Dockerfiles | 🔲 |
+| 12 | OSMO Helm deployment (when Helm chart is publicly stable) | Continue from TODO Phase 4 | 🔲 |
+| 13 | Workshop Lab 2 docs | New | 🔲 |
+
+**Note on ordering:** Tasks 9-10 extend Path A (SageMaker-based, no EKS needed).
+Tasks 11-12 are Path B (EKS + OSMO) and are deferred until NVIDIA stabilizes the
+OSMO Helm chart and Isaac-GR00T SDK is on PyPI. The code for Path B exists in the
+repo (CDK stacks, training scripts, Dockerfiles) but hasn't been end-to-end tested.
 
 ### Phase 3: Edge Deployment
 
 | # | Task | Source | Status |
 |---|------|--------|--------|
-| 13 | Test Edge stack deployment (IoT Core + Greengrass) | Existing `edge-stack.ts` | 🔲 |
-| 14 | Build inference container, push to ECR | Existing Dockerfile | 🔲 |
-| 15 | Test Greengrass component deployment (sim or real Jetson) | — | 🔲 |
-| 16 | Workshop Lab 3 docs | New | 🔲 |
+| 14 | Test Edge stack deployment (IoT Core + Greengrass) | Existing `edge-stack.ts` | 🔲 |
+| 15 | Build inference container, push to ECR | Existing Dockerfile | 🔲 |
+| 16 | Test Greengrass component deployment (sim or real Jetson) | — | 🔲 |
+| 17 | Workshop Lab 3 docs | New | 🔲 |
 
 ### Phase 4: Developer Experience
 
 | # | Task | Source | Status |
 |---|------|--------|--------|
-| 17 | Port CLI from hackathon repo | Existing `physical-ai-cli/` | 🔲 |
-| 18 | Port IDE skills | Existing `skills/` | 🔲 |
-| 19 | Add WebRTC viz option (Optional C) | Roy Allela's pattern | 🔲 |
+| 18 | Port CLI from hackathon repo | Existing `physical-ai-cli/` | 🔲 |
+| 19 | Port IDE skills | Existing `skills/` | 🔲 |
+| 20 | Add WebRTC viz option (Optional C) | Roy Allela's pattern | 🔲 |
 
 ---
 
