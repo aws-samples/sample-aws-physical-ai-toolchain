@@ -133,12 +133,14 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Build Cosmos scene generation container, push to ECR | 🔲 | `containers/isaac-sim/Dockerfile` exists, uses Cosmos API |
-| 11 | Build Isaac Lab RL container, push to ECR | 🔲 | `containers/isaac-lab/Dockerfile` exists |
-| 12 | Test Cosmos scene gen as SageMaker Processing Job | 🔲 | Input: base scene → Output: N variations to S3 |
-| 13 | Test Isaac Lab RL refinement as SageMaker Training Job | 🔲 | Input: GR00T checkpoint + scenes → Output: refined model |
+| 10 | Build Cosmos scene generation container, push to ECR | 🔲 | `containers/isaac-sim/Dockerfile` exists. Needs NGC key for `nvcr.io/nvidia/isaac-sim:4.5.0` base image. Skip Cosmos API for V2 — use procedural mode. |
+| 11 | Build Isaac Lab RL container, push to ECR | 🔲 | `containers/isaac-lab/Dockerfile` exists. Needs NGC key for `nvcr.io/nvidia/isaac-lab:4.5.0`. All training scripts validated (Python syntax OK). |
+| 12 | Test Isaac Lab RL refinement as SageMaker Training Job | 🔲 | Depends on task 11. Input: GR00T checkpoint + scenes → Output: refined model |
+| 13 | Test Cosmos/procedural scene gen as SageMaker Processing Job | 🔲 | Depends on task 10. Can start with `--no-cosmos` (procedural only) |
 | 14 | Extend SM Pipeline: scenes → RL refine → eval → register | 🔲 | Full pipeline with conditional registration |
-| 15 | Workshop Lab 2 docs | 🔲 | |
+| 15 | Workshop Lab 2 docs | ✅ | `workshop/lab-2-rl-refinement.md` — complete with technical detail |
+
+**Blocker: NGC API key.** Tasks 10-13 are blocked on getting NGC credentials to pull base images. The code, Dockerfiles, and documentation are all ready. Next step: get an NGC account (free) at https://ngc.nvidia.com and generate an API key.
 
 **Pipeline flow (V2):**
 ```
