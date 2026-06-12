@@ -176,7 +176,8 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 |---|------|--------|-------|
 | 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
 | 24 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
-| 25 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
+| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | For visual debugging of sim environments. See [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) for reference. CDK stack: GPU instance + Isaac Sim AMI + NICE DCV remote desktop. |
+| 26 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
 
 ---
 
