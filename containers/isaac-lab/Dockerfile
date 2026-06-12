@@ -14,7 +14,7 @@
 #     python /workspace/training/scripts/train.py --config /workspace/training/configs/ppo_pick_place.yaml
 
 # Base: Official Isaac Lab container from NGC (includes Isaac Sim + Isaac Lab)
-FROM nvcr.io/nvidia/isaac-lab:4.5.0
+FROM nvcr.io/nvidia/isaac-lab:2.1.0
 
 # Install additional RL dependencies
 RUN pip install --no-cache-dir \
