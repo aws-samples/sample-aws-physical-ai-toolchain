@@ -247,39 +247,57 @@ def _generate_eval_report(
     full_df = pd.concat(dfs, ignore_index=True)
     print(f"    Loaded {len(full_df)} frames from {len(dfs)} file(s)")
 
-    # Find action columns (typically named action_0, action_1, ... or action.joint_*)
-    action_cols = [c for c in full_df.columns if 'action' in c.lower()]
-    if not action_cols:
-        # Try state columns as proxy
-        action_cols = [c for c in full_df.columns if 'state' in c.lower() or 'position' in c.lower()]
+    # Find action columns — LeRobot v2 stores actions as array-valued columns
+    action_col = None
+    for c in full_df.columns:
+        if 'action' in c.lower():
+            action_col = c
+            break
 
-    if not action_cols:
+    if action_col is None:
+        for c in full_df.columns:
+            if 'state' in c.lower():
+                action_col = c
+                break
+
+    if action_col is None:
         print(f"    No action/state columns found. Columns: {list(full_df.columns)[:20]}")
-        # Generate a synthetic report to prove the pipeline works
         _generate_synthetic_eval_report(output_path, len(full_df))
         return
 
-    print(f"    Action columns ({len(action_cols)}): {action_cols[:8]}...")
+    # Handle array-valued columns (LeRobot v2 format: each row is a numpy array)
+    first_val = full_df[action_col].iloc[0]
+    if hasattr(first_val, '__len__') and not isinstance(first_val, str):
+        # Array-valued column — stack into 2D numpy array
+        print(f"    Action column '{action_col}' contains arrays of length {len(first_val)}")
+        all_actions = np.stack(full_df[action_col].values)
+        n_joints = all_actions.shape[1]
+        action_names = [f"joint_{i}" for i in range(n_joints)]
+    else:
+        # Scalar columns — use directly
+        action_cols = [c for c in full_df.columns if 'action' in c.lower()]
+        all_actions = full_df[action_cols].values
+        n_joints = len(action_cols)
+        action_names = action_cols
+
+    print(f"    Actions shape: {all_actions.shape} ({n_joints} joints, {all_actions.shape[0]} frames)")
 
     # Split into train (80%) and eval (20%)
-    n_total = len(full_df)
+    n_total = all_actions.shape[0]
     n_eval = max(1, n_total // 5)
-    eval_df = full_df.tail(n_eval)
-    train_df = full_df.head(n_total - n_eval)
+    train_actions = all_actions[:n_total - n_eval]
+    eval_actions = all_actions[n_total - n_eval:]
 
     # Compute baseline: predict mean action from training set
-    # (a trained model should beat this significantly)
-    train_mean = train_df[action_cols].mean()
-    eval_actions = eval_df[action_cols].values
-
-    # Mean action baseline error
-    baseline_errors = (eval_actions - train_mean.values) ** 2
+    train_mean = train_actions.mean(axis=0)
+    baseline_errors = (eval_actions - train_mean) ** 2
     baseline_mse_per_joint = baseline_errors.mean(axis=0)
     baseline_mse_overall = baseline_errors.mean()
 
-    # Naive next-step prediction (shift by 1) — a simple model baseline
-    if len(eval_df) > 1:
-        shifted = eval_df[action_cols].shift(1).fillna(method='bfill').values
+    # Naive next-step prediction (shift by 1)
+    if len(eval_actions) > 1:
+        shifted = np.roll(eval_actions, 1, axis=0)
+        shifted[0] = eval_actions[0]  # First frame has no prior
         naive_errors = (eval_actions - shifted) ** 2
         naive_mse_per_joint = naive_errors.mean(axis=0)
         naive_mse_overall = naive_errors.mean()
@@ -297,8 +315,8 @@ def _generate_eval_report(
     report = {
         "eval_frames": n_eval,
         "train_frames": n_total - n_eval,
-        "num_joints": len(action_cols),
-        "joint_names": action_cols[:20],
+        "num_joints": n_joints,
+        "joint_names": action_names[:20],
         "baseline_mse_overall": float(baseline_mse_overall),
         "baseline_mse_per_joint": [float(x) for x in baseline_mse_per_joint],
         "naive_prediction_mse_overall": float(naive_mse_overall),
@@ -321,7 +339,7 @@ def _generate_eval_report(
     # Generate chart
     try:
         _generate_eval_chart(
-            action_cols,
+            action_names,
             baseline_mse_per_joint,
             naive_mse_per_joint,
             output_path / "eval_action_error.png",
