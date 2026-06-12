@@ -3,7 +3,7 @@
 **Status:** Active development
 **Last updated:** 2026-06-12
 **Owner:** devris
-**Repo:** aws-physical-ai-toolchain (internal GitLab — setup pending)
+**Repo:** [gitlab.aws.dev/devris/aws-physical-ai-toolchain](https://gitlab.aws.dev/devris/aws-physical-ai-toolchain)
 
 ---
 
