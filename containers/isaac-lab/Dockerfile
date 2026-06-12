@@ -17,7 +17,7 @@
 FROM nvcr.io/nvidia/isaac-lab:2.1.0
 
 # Install additional RL dependencies
-RUN pip install --no-cache-dir \
+RUN python -m pip install --no-cache-dir \
     rl_games==1.6.1 \
     tensorboard>=2.14 \
     boto3>=1.34 \
@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir \
     onnxruntime-gpu>=1.17
 
 # Install TensorRT Python bindings (for export step)
-RUN pip install --no-cache-dir \
+RUN python -m pip install --no-cache-dir \
     tensorrt>=10.0
 
 # Copy training code
