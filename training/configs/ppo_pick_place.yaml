@@ -1,0 +1,119 @@
+# PPO Hyperparameters for UR3 Pick-and-Place
+#
+# Tuned for Isaac Lab with rl_games PPO implementation.
+# Expected convergence: ~3000-5000 iterations (4-8 hours on 1x H200)
+# Expected success rate: 85%+ grasp success in simulation
+
+algorithm: PPO
+
+# Environment
+env:
+  name: PickAndPlaceUR3-v0
+  num_envs: 4096          # Parallel environments per GPU
+  episode_length: 200     # Max steps per episode (~4 seconds at 50Hz)
+
+# Robot configuration
+robot:
+  type: ur3
+  gripper: robotiq_2f85
+  camera: wrist_rgb       # Stock UR wrist camera (RGB only)
+  control_mode: delta_pose  # 6-DOF end-effector delta commands
+
+# Observation space
+observations:
+  - wrist_camera_rgb: [64, 64, 3]    # Downsampled wrist camera
+  - joint_positions: [6]              # UR3 joint angles
+  - joint_velocities: [6]             # UR3 joint velocities
+  - gripper_state: [1]                # Open/closed
+  - object_pose_relative: [7]         # Position + quaternion relative to EE
+
+# Action space
+actions:
+  type: delta_pose
+  dimensions: 7           # dx, dy, dz, droll, dpitch, dyaw, gripper_command
+  action_scale: 0.01      # Max 1cm per step
+  gripper_binary: true    # Open or closed (not continuous)
+
+# Reward function
+rewards:
+  grasp_success: 10.0     # Successfully lifted object above threshold
+  approach_reward: 1.0    # Getting closer to object (shaped reward)
+  lift_reward: 2.0        # Object lifted off surface
+  drop_penalty: -5.0      # Dropped object after grasping
+  time_penalty: -0.01     # Per-step penalty (encourages efficiency)
+  collision_penalty: -1.0  # Colliding with bin walls
+  success_threshold: 0.05  # Object must be 5cm above bin to count as success
+
+# PPO algorithm parameters
+ppo:
+  learning_rate: 3.0e-4
+  lr_schedule: adaptive    # Reduce LR as KL divergence increases
+  gamma: 0.99             # Discount factor
+  gae_lambda: 0.95        # GAE lambda
+  clip_range: 0.2         # PPO clip parameter
+  entropy_coef: 0.01      # Entropy bonus (exploration)
+  value_loss_coef: 0.5
+  max_grad_norm: 1.0
+  num_epochs: 5           # PPO epochs per update
+  num_minibatches: 8      # Minibatches per epoch
+  horizon_length: 32      # Steps before update
+
+# Network architecture
+network:
+  # Vision encoder (processes wrist camera)
+  vision_encoder:
+    type: cnn
+    layers: [32, 64, 128]
+    kernel_sizes: [8, 4, 3]
+    strides: [4, 2, 1]
+    activation: elu
+  # MLP head (processes encoded image + proprioception)
+  mlp:
+    layers: [256, 128, 64]
+    activation: elu
+  # Separate value network
+  value_net:
+    layers: [256, 128, 64]
+    activation: elu
+
+# Training schedule
+training:
+  max_iterations: 5000
+  checkpoint_interval: 500    # Save every 500 iterations
+  eval_interval: 250          # Evaluate every 250 iterations
+  eval_episodes: 100          # Episodes per evaluation
+  early_stop_reward: 8.0      # Stop if mean reward exceeds this
+  seed: 42
+
+# Domain randomization (sim-to-real transfer)
+domain_randomization:
+  enabled: true
+  # Randomize object properties
+  object_mass: [0.01, 0.5]       # kg
+  object_friction: [0.3, 1.0]
+  object_scale: [0.8, 1.2]       # Scale factor
+  # Randomize lighting
+  light_intensity: [0.5, 2.0]
+  light_color_temp: [3000, 7000]  # Kelvin
+  # Randomize camera
+  camera_noise_std: 0.01
+  # Randomize robot
+  joint_friction: [0.8, 1.2]     # Multiplier on nominal
+  action_delay: [0, 2]           # Steps of action delay (simulates latency)
+
+# Curriculum learning (start easy, get harder)
+curriculum:
+  enabled: true
+  stages:
+    - name: single_centered_object
+      iterations: [0, 1000]
+      num_objects: 1
+      object_position: centered
+    - name: single_random_object
+      iterations: [1000, 2500]
+      num_objects: 1
+      object_position: random
+    - name: cluttered_bin
+      iterations: [2500, 5000]
+      num_objects: [3, 8]
+      object_position: random

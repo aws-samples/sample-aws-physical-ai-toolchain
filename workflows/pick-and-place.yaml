@@ -1,0 +1,179 @@
+# OSMO Workflow: UR3 Pick-and-Place Training Pipeline
+#
+# This workflow defines the full sim-to-deploy pipeline:
+# 1. Generate diverse bin scenes with Cosmos
+# 2. Train RL policy with Isaac Lab (PPO)
+# 3. Evaluate trained policy and render video
+# 4. Export to ONNX and compile with TensorRT
+# 5. Deploy to edge device
+#
+# Usage:
+#   osmo workflow submit -f workflows/pick-and-place.yaml
+#   osmo workflow status <workflow-id>
+#   osmo workflow logs <workflow-id>
+
+apiVersion: osmo.nvidia.com/v1
+kind: Workflow
+metadata:
+  name: ur3-pick-and-place
+  labels:
+    robot: ur3
+    task: pick-and-place
+    version: "1.0"
+
+spec:
+  # Storage configuration (S3 buckets)
+  storage:
+    - name: assets
+      type: s3
+      config:
+        bucket: physical-ai-dev-usd-assets
+        region: us-west-2
+    - name: checkpoints
+      type: s3
+      config:
+        bucket: physical-ai-dev-checkpoints
+        region: us-west-2
+    - name: models
+      type: s3
+      config:
+        bucket: physical-ai-dev-models
+        region: us-west-2
+
+  # Pipeline stages
+  stages:
+    # Stage 1: Generate diverse training scenes
+    - name: scene-generation
+      image: ${ECR_REGISTRY}/dev/isaac-sim:latest
+      resources:
+        gpu: 1
+        memory: 32Gi
+      nodeSelector:
+        workload-type: simulation-training
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      command:
+        - python
+        - /workspace/scripts/generate_scenes.py
+        - --output-dir=/storage/assets/generated/
+        - --num-scenes=1000
+        - --task=pick-and-place
+        - --robot=ur3
+        - --gripper=robotiq-2f85
+        - --randomize-lighting
+        - --randomize-objects
+        - --randomize-bin-fill
+      storage:
+        - name: assets
+          mountPath: /storage/assets
+
+    # Stage 2: RL Training
+    - name: training
+      dependsOn: [scene-generation]
+      image: ${ECR_REGISTRY}/dev/isaac-lab:latest
+      resources:
+        gpu: 1
+        memory: 64Gi
+      nodeSelector:
+        workload-type: simulation-training
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      command:
+        - python
+        - /workspace/training/scripts/train.py
+        - --env=PickAndPlaceUR3-v0
+        - --algo=ppo
+        - --config=/workspace/training/configs/ppo_pick_place.yaml
+        - --num-envs=4096
+        - --max-iterations=5000
+        - --checkpoint-dir=/storage/checkpoints/
+        - --scene-dir=/storage/assets/generated/
+        - --seed=42
+      storage:
+        - name: assets
+          mountPath: /storage/assets
+          readOnly: true
+        - name: checkpoints
+          mountPath: /storage/checkpoints
+      # Training takes 4-8 hours on a single H200
+      timeout: 12h
+
+    # Stage 3: Evaluation (render video of trained policy)
+    - name: evaluation
+      dependsOn: [training]
+      image: ${ECR_REGISTRY}/dev/isaac-lab:latest
+      resources:
+        gpu: 1
+        memory: 32Gi
+      nodeSelector:
+        workload-type: simulation-training
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      command:
+        - python
+        - /workspace/training/scripts/evaluate.py
+        - --env=PickAndPlaceUR3-v0
+        - --checkpoint=/storage/checkpoints/best_policy.pt
+        - --num-episodes=100
+        - --render-video
+        - --output-dir=/storage/models/evaluation/
+      storage:
+        - name: checkpoints
+          mountPath: /storage/checkpoints
+          readOnly: true
+        - name: models
+          mountPath: /storage/models
+
+    # Stage 4: Export to ONNX + TensorRT
+    - name: export
+      dependsOn: [evaluation]
+      image: ${ECR_REGISTRY}/dev/isaac-lab:latest
+      resources:
+        gpu: 1
+        memory: 16Gi
+      nodeSelector:
+        workload-type: simulation-training
+      tolerations:
+        - key: nvidia.com/gpu
+          operator: Exists
+          effect: NoSchedule
+      command:
+        - python
+        - /workspace/training/scripts/export.py
+        - --checkpoint=/storage/checkpoints/best_policy.pt
+        - --output-onnx=/storage/models/latest/policy.onnx
+        - --output-trt=/storage/models/latest/policy.trt
+        - --target-device=jetson-orin  # or 'gpu-pc' for x86_64
+        - --fp16  # Half precision for faster inference
+      storage:
+        - name: checkpoints
+          mountPath: /storage/checkpoints
+          readOnly: true
+        - name: models
+          mountPath: /storage/models
+
+    # Stage 5: Deploy to edge (optional — requires connected device)
+    - name: edge-deploy
+      dependsOn: [export]
+      image: ${ECR_REGISTRY}/dev/inference:latest
+      # This stage runs on the edge device via OSMO operator
+      target: edge
+      nodeSelector:
+        device-type: jetson-orin
+      command:
+        - /workspace/edge/deploy.sh
+        - --model-path=/storage/models/latest/policy.trt
+        - --ros-namespace=/ur3
+        - --inference-rate=200  # Hz
+      storage:
+        - name: models
+          mountPath: /storage/models
+          readOnly: true
+      # Skip this stage if no edge device is registered
+      optional: true

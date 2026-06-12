@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+cdk/node_modules/
+
+# CDK build output
+cdk/cdk.out/
+cdk/*.js
+cdk/*.d.ts
+
+# Data (downloaded datasets — large, don't commit)
+data/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Secrets / tokens
+.env
+*.env.local
+
+# Docker build cache
+containers/**/build/
+
+# OSMO values with credentials
+osmo_values.yaml
