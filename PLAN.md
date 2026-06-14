@@ -133,14 +133,19 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Build Cosmos scene generation container, push to ECR | 🔲 | `containers/isaac-sim/Dockerfile` exists. Needs NGC key for `nvcr.io/nvidia/isaac-sim:4.5.0` base image. Skip Cosmos API for V2 — use procedural mode. |
-| 11 | Build Isaac Lab RL container, push to ECR | 🔲 | `containers/isaac-lab/Dockerfile` exists. Needs NGC key for `nvcr.io/nvidia/isaac-lab:4.5.0`. All training scripts validated (Python syntax OK). |
-| 12 | Test Isaac Lab RL refinement as SageMaker Training Job | 🔲 | Depends on task 11. Input: GR00T checkpoint + scenes → Output: refined model |
-| 13 | Test Cosmos/procedural scene gen as SageMaker Processing Job | 🔲 | Depends on task 10. Can start with `--no-cosmos` (procedural only) |
-| 14 | Extend SM Pipeline: scenes → RL refine → eval → register | 🔲 | Full pipeline with conditional registration |
-| 15 | Workshop Lab 2 docs | ✅ | `workshop/lab-2-rl-refinement.md` — complete with technical detail |
+| 10 | Build Isaac Lab RL container via CodeBuild | 🚧 | CodeBuild project deployed, build triggered. Waiting for completion. |
+| 10a | Verify Isaac Lab container in ECR | 🔲 | Check image exists, correct size |
+| 10b | Test Isaac Lab as SageMaker Training Job (dry run) | 🔲 | Submit a short RL training job, verify it starts |
+| 10c | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
+| 11 | Build Cosmos/scene-gen container via CodeBuild | 🔲 | Uses `nvcr.io/nvidia/isaac-sim:4.5.0` base. Lower priority — procedural randomization works without it. |
+| 11a | Test procedural scene generation (no Cosmos API) | 🔲 | `generate_scenes.py --no-cosmos` — just randomized USD scenes |
+| 11b | Integrate Cosmos NIM API (V3, optional) | 🔲 | Requires NVIDIA NIM API access. Adds photorealistic textures to procedural scenes. Not needed for RL to work. |
+| 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
+| 13 | Workshop Lab 2 docs | ✅ | `workshop/lab-2-rl-refinement.md` |
 
-**Blocker: NGC API key.** Tasks 10-13 are blocked on getting NGC credentials to pull base images. The code, Dockerfiles, and documentation are all ready. Next step: get an NGC account (free) at https://ngc.nvidia.com and generate an API key.
+**On Cosmos (tasks 11/11b):** Cosmos is optional. Isaac Lab's built-in procedural domain randomization (random object positions, lighting, textures) provides diversity for RL training without needing any external API. Cosmos adds photorealistic enhancement for better sim-to-real transfer — it's a V3 optimization, not a V2 requirement.
+
+**Blocker: NGC API key.** ~~Tasks 10-13 are blocked on getting NGC credentials to pull base images.~~ Resolved — NGC key stored in Secrets Manager, CodeBuild uses it automatically.
 
 **Pipeline flow (V2):**
 ```
