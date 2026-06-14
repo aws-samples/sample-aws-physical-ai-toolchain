@@ -319,6 +319,7 @@ If you're a new builder joining this repo:
 - [ ] Include MLflow tracking in V1 or defer?
 - [ ] AWS account for workshop: shared or per-participant?
 - [ ] GitLab repo location — which team namespace?
+- [ ] **CodeBuild source:** Currently uses PLACEHOLDER GitHub source. When repo goes public, update `foundation-stack.ts` CodeBuild projects to point to the real repo URL so customers can trigger builds without the zip-to-S3 workaround.
 
 ## Decisions Made (2026-06-12)
 
