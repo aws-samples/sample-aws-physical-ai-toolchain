@@ -1,0 +1,23 @@
+version: 0.2
+
+env:
+  secrets-manager:
+    NGC_API_KEY: physical-ai/ngc-api-key
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to ECR...
+      - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
+      - echo Logging in to NGC...
+      - echo $NGC_API_KEY | docker login nvcr.io -u '$oauthtoken' --password-stdin
+  build:
+    commands:
+      - echo Building Isaac Lab training container...
+      - docker build -t isaac-lab-training -f containers/isaac-lab/Dockerfile .
+      - docker tag isaac-lab-training:latest $ECR_REPO_URI:latest
+  post_build:
+    commands:
+      - echo Pushing to ECR...
+      - docker push $ECR_REPO_URI:latest
+      - echo Done.

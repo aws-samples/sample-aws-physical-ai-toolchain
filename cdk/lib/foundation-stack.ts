@@ -208,6 +208,35 @@ export class FoundationStack extends cdk.Stack {
       }),
     });
 
+    // Isaac Lab RL training container build project
+    // Requires NGC API key stored in Secrets Manager (for base image pull)
+    // Uses x86 large instance (image is ~30GB, needs space + time)
+    codebuildRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [`arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/ngc-api-key*`],
+    }));
+
+    new codebuild.Project(this, 'IsaacLabBuild', {
+      projectName: `${projectName}-isaac-lab-build`,
+      role: codebuildRole,
+      environment: {
+        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
+        computeType: codebuild.ComputeType.X2_LARGE, // 72 GB memory, 300 GB disk for large image
+        privileged: true,
+        environmentVariables: {
+          AWS_DEFAULT_REGION: { value: region },
+          ECR_REPO_URI: { value: this.isaacLabRepo.repositoryUri },
+        },
+      },
+      source: codebuild.Source.gitHub({
+        owner: 'PLACEHOLDER',
+        repo: 'aws-physical-ai-toolchain',
+        branchOrRef: 'main',
+      }),
+      buildSpec: codebuild.BuildSpec.fromSourceFilename('containers/isaac-lab/buildspec.yml'),
+      timeout: cdk.Duration.hours(2), // Large image build can take a while
+    });
+
     // =========================================================================
     // OUTPUTS
     // =========================================================================
@@ -240,6 +269,12 @@ export class FoundationStack extends cdk.Stack {
       value: this.inferenceRepo.repositoryUri,
       description: 'ECR URI for the inference container (edge deployment)',
       exportName: `${projectName}-${environment}-inference-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'IsaacLabRepoUri', {
+      value: this.isaacLabRepo.repositoryUri,
+      description: 'ECR URI for the Isaac Lab RL training container',
+      exportName: `${projectName}-${environment}-isaac-lab-ecr`,
     });
   }
 }
