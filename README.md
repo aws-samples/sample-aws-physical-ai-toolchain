@@ -146,12 +146,14 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 
 - ✅ Foundation infrastructure (S3, ECR, IAM, CodeBuild)
 - ✅ GR00T fine-tuning on SageMaker (full pipeline: train → eval → register)
-- ✅ Isaac Lab RL training on SageMaker (100 iterations, 60K steps/s, A10G)
-- ✅ Isaac Sim workstation deployed (g5.4xlarge, DCV, NVIDIA driver)
-- ✅ Lab docs (0-6) written
-- 🔲 GR00T → Isaac Lab bridge (load Lab 1 model into RL)
-- ✅ Real UR3 teleop data (27 episodes, included via Git LFS)
-- 🔲 Cosmos scene generation (needs NIM API key)
+- ✅ GR00T fine-tuning with real UR3 data (100-step smoke test succeeded with 27 real teleop episodes)
+- ✅ Isaac Lab RL training on SageMaker (100 iterations, 60K steps/s, reward -0.36→+8.58)
+- ✅ Isaac Sim workstation deployed (g5.4xlarge, DCV, Isaac Sim 6.0 GUI confirmed)
+- ✅ GR00T → Isaac Lab RL bridge script (end-to-end validated)
+- ✅ Real UR3 teleop data (27 episodes, 3,467 frames, converted to LeRobot v2)
+- ✅ Lab docs (0-6) written with full intro + terminology glossary
+- ✅ Cosmos Transfer container in ECR (ready for endpoint deployment)
+- 🔲 Cosmos endpoint deployment (blocked on p4d/p5 GPU capacity — request service quota increase)
 - 🔲 Edge deployment (CDK stack ready, untested on hardware)
 
 ---

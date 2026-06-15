@@ -252,14 +252,14 @@ This produces `model.trt` — ready for Lab 3 (edge deployment).
 
 ---
 
-## ✅ Lab 2 Checkpoint
+## ✅ Lab 4 Checkpoint
 
-You've completed Lab 2 if you can answer:
+You've completed Lab 4 if you can answer:
 - [ ] What does RL refinement do that imitation alone can't? (handles unseen variations through trial-and-error)
 - [ ] What is domain randomization? (randomized scene parameters so policy must be robust to succeed)
 - [ ] How many parallel environments run simultaneously? (4096 on one GPU)
 - [ ] What reward signal drives improvement? (success/failure at the manipulation task)
-- [ ] How much did success rate improve? (Lab 1: ~70-80% → Lab 2: ~93-95%)
+- [ ] How much did success rate improve? (Lab 1: ~70-80% → Lab 4: ~93-95%)
 - [ ] Where is the refined model? (S3 checkpoint + optionally TensorRT export)
 
 ---

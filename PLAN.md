@@ -1,7 +1,7 @@
 # AWS Physical AI Toolchain — Project Plan
 
 **Status:** Active development
-**Last updated:** 2026-06-12
+**Last updated:** 2026-06-13
 **Owner:** devris
 **Repo:** [gitlab.aws.dev/devris/aws-physical-ai-toolchain](https://gitlab.aws.dev/devris/aws-physical-ai-toolchain)
 
@@ -150,12 +150,16 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 | 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
 | 13 | Workshop docs (Labs 0-6) | ✅ | Complete with intro, terminology, all labs written |
 | 14 | Zarr → LeRobot v2 conversion | ✅ | Proven hackathon script. 27 UR3 episodes converted (3,467 frames). |
-| 15 | GR00T fine-tune with real UR3 data | 🚧 | Pipeline executing now (100-step smoke test with real UR3 teleop data). |
+| 15 | GR00T fine-tune with real UR3 data | ✅ | 100-step smoke test succeeded with real UR3 teleop data (27 episodes). |
 | 16 | MCAP → LeRobot v2 conversion tool | 🔲 | **Up for grabs.** For customers using ROS 2 bags. Reference: HuggingFace LeRobot MCAP loader. Same output format as task 14, different input parser. |
 
 **On Cosmos (tasks 11/11b):** Cosmos is optional. Isaac Lab's built-in procedural domain randomization (random object positions, lighting, textures) provides diversity for RL training without needing any external API. Cosmos adds photorealistic enhancement for better sim-to-real transfer — it's a V3 optimization, not a V2 requirement.
 
+**Blocker: Cosmos endpoint (task 11a):** Container is in ECR and ready, but SageMaker endpoint deployment requires p4d.24xlarge or p5 instances. Currently blocked on GPU capacity — need to request service quota increase for P-family instances.
+
 **Blocker: NGC API key.** ~~Tasks 10-13 are blocked on getting NGC credentials to pull base images.~~ Resolved — NGC key stored in Secrets Manager, CodeBuild uses it automatically.
+
+**End-to-end validation complete (2026-06-12):** The full GR00T → RL pipeline is validated: real UR3 teleop data (27 episodes) → LeRobot v2 conversion → GR00T fine-tuning (100 steps succeeded) → GR00T→RL bridge script working. Remaining gaps: UR3 Isaac Lab env visual validation (needs workstation), Cosmos endpoint (needs GPU capacity).
 
 **Pipeline flow (V2):**
 ```
