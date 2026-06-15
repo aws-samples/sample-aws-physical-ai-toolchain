@@ -278,13 +278,13 @@ You've completed Lab 1 if you can answer:
 
 ## What's Next: Lab 2
 
-Lab 1 gave you a policy that works ~70-80% of the time by copying demonstrations. But it fails when things look different from the demos (different lighting, object positions, etc.).
+Lab 1 gave you a trained policy. Next, you'll set up a visual development workstation to see what's happening inside the Isaac Lab simulation — essential for debugging RL environments before running headless training at scale.
 
-**Lab 2 takes this model and makes it robust** by running it in simulation with thousands of variations:
-- Load the Lab 1 model into Isaac Lab (physics simulator)
-- Procedural domain randomization generates diverse scenes (random positions, lighting, textures)
-- RL refinement improves the policy through trial-and-error in sim
-- Result: ~95% success rate that transfers to real hardware
+**Lab 2 deploys an Isaac Sim workstation** where you can:
+- Visually watch the robot attempt tasks in simulation
+- Iterate on reward functions and environment design with instant feedback
+- Test training containers locally before sending to SageMaker
+- Debug physics issues you can't diagnose from logs alone
 
 ---
 
@@ -301,4 +301,4 @@ Lab 1 gave you a policy that works ~70-80% of the time by copying demonstrations
 ---
 
 **Previous:** [← Lab 0: Prerequisites](lab-0-prerequisites.md)
-**Next:** [Lab 2: RL Refinement in Simulation →](lab-2-rl-refinement.md)
+**Next:** [Lab 2: Isaac Sim Workstation →](lab-2-isaac-workstation.md)

@@ -187,8 +187,8 @@ export class WorkstationStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'Cost', {
-      value: `~$4.53/hr (${instanceType} on-demand). STOP instance when not in use!`,
-      description: 'Estimated hourly cost',
+      value: `~$4.53/hr (${instanceType} on-demand). STOP instance when not in use! Start/stop via console or: aws ec2 stop-instances / start-instances`,
+      description: 'Estimated hourly cost — only runs when you need it',
     });
   }
 }
