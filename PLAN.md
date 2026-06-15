@@ -183,8 +183,17 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 |---|------|--------|-------|
 | 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
 | 24 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
-| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | For visual debugging of sim environments. See [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) for reference. CDK stack: GPU instance + Isaac Sim AMI + NICE DCV remote desktop. |
+| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | For visual debugging of sim environments. Leverage [aws-samples/sample-physical-ai-scaffolding-kit/isaacsim-workstation](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) — CDK already written, uses Isaac Sim AMI + NICE DCV + ROS2 + S3 mount. Port or reference directly. |
 | 26 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
+
+### Stretch Goals (V4+ — for contributors)
+
+| # | Task | Notes |
+|---|------|-------|
+| S1 | **π0 (Pi-Zero) training path** | Alternative foundation model to GR00T. Physical Intelligence's open-weights VLA. See [aws-samples scaffolding kit π0 sample](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/samples/openpi-sample). Would add a second model option for imitation learning (Stage 1). |
+| S2 | **Upgrade to Isaac Lab 3.0 + Newton physics** | Newton is the next-gen physics backend (faster, more accurate cloth/deformable sim). The [scaffolding kit newton-rl sample](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/samples/newton-rl) runs Isaac Lab 3.0-beta1 on HyperPod. We'd adapt for SageMaker. Also uses RSL-RL (newer than our rl_games). |
+| S3 | **SageMaker HyperPod support** | For teams that want persistent GPU clusters instead of ephemeral SageMaker Training Jobs. The scaffolding kit has a full HyperPod Slurm setup. |
+| S4 | **Multi-robot / fleet training** | Train policies for multiple robot types simultaneously. |
 
 ---
 
@@ -334,3 +343,12 @@ If you're a new builder joining this repo:
 - **Eval report over eval video for V1** — Action prediction error (MSE on held-out episodes) validates training without needing sim. Real sim rollout video requires Isaac-GR00T SDK from source.
 - **boto3 for Pipeline definition** — SageMaker Python SDK v3 restructured the workflow module. Using boto3 `create_pipeline` API directly is more stable.
 - **100-step smoke tests** — Full training (5000 steps, 11 hrs, $79) is for final demos. 100-step runs (~15 min, ~$2) validate the pipeline.
+- **CodeBuild for NGC containers** — Isaac Lab base image is x86-only, can't build on ARM Mac. CodeBuild with X2_LARGE instance handles it. Same approach customers will use.
+
+## Reference Implementations (external)
+
+- **[aws-samples/sample-physical-ai-scaffolding-kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit)** — AWS Japan's Physical AI samples. Key components:
+  - `isaacsim-workstation/` — CDK for Isaac Sim EC2 + DCV remote desktop (our debug UI source for task 25)
+  - `samples/newton-rl/` — Isaac Lab 3.0-beta1 RL on HyperPod. Uses RSL-RL + Newton physics. Confirms our training approach (headless, 4096 envs, tensorboard). Key differences: they use HyperPod/Slurm (we use SageMaker), Isaac Lab 3.0 (we use 2.1), RSL-RL (we use rl_games).
+  - `samples/openpi-sample/` — π0 VLA training (alternative to GR00T, stretch goal S1)
+  - `physai/` — Pipeline SDK with data conversion + schema validation
