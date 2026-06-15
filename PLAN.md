@@ -373,3 +373,11 @@ If you're a new builder joining this repo:
 - **[Blog: Sim-to-Real and Real-to-Sim](https://aws.amazon.com/blogs/physical-ai/sim-to-real-and-real-to-sim-the-engine-behind-capable-physical-ai/)** (May 2026 — Dario, Ignacio, Quinn) — Theoretical foundation for our pipeline architecture. Mentions upcoming hands-on LeRobot SO-101 Sim2Real2Sim project — relevant to our robot choice open question.
 
 - **[Blog: Scaling Data Annotation with VLMs](https://aws.amazon.com/blogs/machine-learning/scaling-data-annotation-using-vision-language-models-to-power-physical-ai-systems/)** (2025) — Auto-annotating robot data using Bedrock VLMs. Relevant to our deferred "AI-assisted annotation" item.
+
+- **[AWS Isaac Lab Workshop](https://catalog.us-east-1.prod.workshops.aws/workshops/075ce3fe-6888-4ea9-986e-5bdd1b767ef7)** — Official hands-on workshop (H1 locomotion, AnymalTerrain). Good companion to our Lab 2. Uses EC2 + AWS Batch. Some code may need updates for Isaac Sim 6.0.
+
+- **[Physical AI for Robotics on AWS — Guidance](https://aws.amazon.com/solutions/guidance/physical-ai-for-robotics-on-aws/)** — Validated reference architecture for NVIDIA Isaac stack. Compare with our architecture for alignment.
+
+- **[VAMS v2.5.0](https://github.com/awslabs/visual-asset-management-system)** — Visual Asset Management System with GPU pipelines for Cosmos Predict 2.5, GR00T N1.5 fine-tuning, Isaac Sim. Alternative managed approach to parts of our custom pipeline. Worth investigating if VAMS could simplify Stage 2/3.
+
+- **Key contacts:** Abhishek Srivastav (@asriaws) for OSMO/Isaac stack, Keith Mulder for Isaac Sim setup, Enrique Balp for workshops, Roy Allela (@rallela) for Isaac Lab on SageMaker + WebRTC viz.
