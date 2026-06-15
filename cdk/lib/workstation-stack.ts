@@ -41,6 +41,9 @@ export class WorkstationStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WorkstationStackProps) {
     super(scope, id, props);
 
+    // For dev environments, allow all IPs since DCV requires password authentication.
+    // For production, restrict to corporate CIDR via the allowedCidr context parameter.
+    // Note: VPN often blocks port 8443 outbound — users typically connect off-VPN.
     const allowedCidr = props.allowedCidr || '0.0.0.0/0';
     const instanceType = props.instanceType || 'g5.4xlarge';
 
