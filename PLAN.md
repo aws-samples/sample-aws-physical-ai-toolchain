@@ -119,8 +119,8 @@ cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 | 4 | Build GR00T training container + push to ECR | ✅ | 7.1 GB image, pushed |
 | 5 | Bundle demo dataset (download script + docs) | ✅ | `lerobot/aloha_sim_insertion_human`, 87 MB |
 | 6a | End-to-end smoke test: deploy → train → model to S3 | ✅ | 100-step job completed successfully |
-| 6b | Eval report: action prediction error on held-out data | ✅ | Produces `eval_report.json` + `eval_action_error.png` in model artifact |
-| 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Needs SDK installed from source in container (see note) |
+| 6b | Eval report: action prediction error on held-out data | ✅ | Produces `eval_report.json` + `eval_action_error.png` in model artifact. **Note:** Current report only shows baselines (mean-action + naive-prediction MSE). Real model inference requires Isaac-GR00T SDK integration (task 6c). A full training run (5000 steps, ~$79) is needed to produce a properly trained model and validate actual performance vs. baselines. |
+| 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Needs SDK installed from source in container (see note). Also needed for real model inference in eval report (6b currently only shows baselines). |
 | 7 | Workshop Lab 1 docs | ✅ | `workshop/lab-1-train-groot.md` |
 | 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
 | 9 | Polish README + getting-started for GitLab review | ✅ | Rewritten with accurate pipeline architecture, cost table, honest status |
