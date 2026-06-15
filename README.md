@@ -75,6 +75,7 @@ A complete, deployable Physical AI pipeline:
 │   └── inference/                 # TensorRT + ROS2 inference container
 ├── training/
 │   ├── groot/                     # Pipeline scripts, dataset tools
+│   ├── data/                      # Teleop dataset (Git LFS): 27 UR3 pick-and-place episodes
 │   ├── scripts/                   # Train, evaluate, export
 │   └── envs/                      # RL environments (UR3 pick-and-place)
 ├── edge/                          # Greengrass components + ROS2 node
@@ -86,17 +87,23 @@ A complete, deployable Physical AI pipeline:
 ## Quick Start
 
 ```bash
-# Prerequisites: AWS CLI configured, Node.js 18+, Docker
+# Prerequisites: AWS CLI configured, Node.js 18+, Docker, git-lfs
+# Install git-lfs if needed: https://git-lfs.com  (brew install git-lfs on Mac)
+# After installing: git lfs install
 
 # 1. Clone and deploy infrastructure (~5 min)
 git clone [REPO_URL]
 cd aws-physical-ai-toolchain/cdk && npm install
 npx cdk deploy --context mode=simple
 
-# 2. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
+# 2. Pull the teleop dataset from LFS and extract it
+git lfs pull
+unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
+
+# 3. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
 ./run-path-a.sh --max-steps=100
 
-# 3. Check results
+# 4. Check results
 aws sagemaker list-model-packages --model-package-group-name groot-models
 ```
 
@@ -143,7 +150,7 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 - ✅ Isaac Sim workstation deployed (g5.4xlarge, DCV, NVIDIA driver)
 - ✅ Lab docs (0-6) written
 - 🔲 GR00T → Isaac Lab bridge (load Lab 1 model into RL)
-- 🔲 Real UR3 teleop data (incoming from team)
+- ✅ Real UR3 teleop data (27 episodes, included via Git LFS)
 - 🔲 Cosmos scene generation (needs NIM API key)
 - 🔲 Edge deployment (CDK stack ready, untested on hardware)
 

@@ -7,8 +7,9 @@ cdk/cdk.out/
 cdk/*.js
 cdk/*.d.ts
 
-# Data (downloaded datasets — large, don't commit)
-data/
+# Data (large files tracked via Git LFS, not committed directly)
+data/**
+!data/*.zip
 
 # Python
 __pycache__/
