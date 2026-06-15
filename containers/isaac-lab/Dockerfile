@@ -30,6 +30,9 @@ RUN /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \
 RUN /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \
     tensorrt>=10.0
 
+# Copy training entrypoint for SageMaker
+COPY containers/isaac-lab/train_entrypoint.py /opt/ml/code/train_entrypoint.py
+
 # Copy training code
 COPY training/ /workspace/training/
 COPY workflows/ /workspace/workflows/
@@ -38,8 +41,12 @@ COPY workflows/ /workspace/workflows/
 COPY training/envs/ /workspace/training/envs/
 
 # Set working directory
-WORKDIR /workspace
+WORKDIR /opt/ml/code
 
-# Default: run training
-ENTRYPOINT ["python"]
-CMD ["/workspace/training/scripts/train.py", "--help"]
+ENV SAGEMAKER_PROGRAM=train_entrypoint.py
+ENV ACCEPT_EULA=Y
+ENV OMNI_ENV_PRIVACY_CONSENT=Y
+
+# Default: run training entrypoint
+ENTRYPOINT ["/isaac-sim/kit/python/bin/python3"]
+CMD ["train_entrypoint.py"]
