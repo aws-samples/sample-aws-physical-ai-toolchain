@@ -17,7 +17,8 @@
 FROM nvcr.io/nvidia/isaac-lab:2.1.0
 
 # Install additional RL dependencies
-RUN python -m pip install --no-cache-dir \
+# Isaac Lab's Python is inside the kit environment — use isaaclab.sh wrapper
+RUN /opt/isaaclab/isaaclab.sh -p -m pip install --no-cache-dir \
     rl_games==1.6.1 \
     tensorboard>=2.14 \
     boto3>=1.34 \
@@ -26,7 +27,7 @@ RUN python -m pip install --no-cache-dir \
     onnxruntime-gpu>=1.17
 
 # Install TensorRT Python bindings (for export step)
-RUN python -m pip install --no-cache-dir \
+RUN /opt/isaaclab/isaaclab.sh -p -m pip install --no-cache-dir \
     tensorrt>=10.0
 
 # Copy training code
