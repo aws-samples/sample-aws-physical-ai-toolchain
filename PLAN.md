@@ -181,10 +181,10 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` has dry-run, cost est |
-| 24 | Port IDE skills | 🔲 | 10 skills in hackathon `skills/` |
+| 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` — a wrapper CLI that simplifies common operations. Example commands: `pai train --dataset ./data --dry-run` (shows config + cost estimate without launching), `pai status` (check running jobs), `pai check` (verify prerequisites: GPU quota, Docker, NGC key, HF token). Saves users from writing raw `aws sagemaker` commands. |
+| 24 | Port IDE skills | 🔲 | 10 Kiro skill files from hackathon `skills/` directory. AI-powered dev assistance specific to Physical AI: "convert my dataset to LeRobot format," "explain this reward function," "why did my training job fail," "what instance type should I use." Makes the toolchain accessible to developers who aren't ML experts. |
 | 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | For visual debugging of sim environments. Leverage [aws-samples/sample-physical-ai-scaffolding-kit/isaacsim-workstation](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) — CDK already written, uses Isaac Sim AMI + NICE DCV + ROS2 + S3 mount. Port or reference directly. |
-| 26 | Add WebRTC viz option | 🔲 | Roy Allela's pattern |
+| 26 | Add WebRTC viz option | 🔲 | Stream Isaac Sim's renderer to a browser via WebRTC — lighter weight than full DCV workstation. User opens a URL, sees sim running in real-time. No GPU desktop client needed. Based on Roy Allela's pattern. Good for quick visual checks without spinning up a full workstation. |
 
 ### Stretch Goals (V4+ — for contributors)
 
