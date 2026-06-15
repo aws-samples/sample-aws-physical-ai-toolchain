@@ -139,10 +139,10 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Build Isaac Lab RL container via CodeBuild | ✅ | Image in ECR: `physical-ai/isaac-lab:latest` (15.8 GB) |
+| 10 | Build Isaac Lab RL container via CodeBuild | ✅ | Image in ECR: `physical-ai/isaac-lab:latest` (15.8 GB). **NOTE:** Consider aligning with [awslabs/awsome-distributed-ai](https://github.com/awslabs/awsome-distributed-ai/tree/main/3.test_cases/pytorch/nvidia-isaac-lab) pattern — official AWS Isaac Lab on SageMaker implementation (June 2026). Key differences from our current container: they use isaac-sim:5.1.0 base + clone Isaac Lab v2.3.2, shell entrypoint with torchrun, skrl framework. See blog analysis below. |
 | 10a | Verify Isaac Lab container in ECR | ✅ | Confirmed: 15.8 GB, tag `latest`, pushed successfully |
-| 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Required for debugging.** Developers need to see the sim to iterate on environments. Port from [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation). |
-| 10c | Test Isaac Lab as SageMaker Training Job (dry run) | 🔲 | Submit a short RL training job, verify it starts |
+| 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Required for debugging.** CDK stack created (`workstation-stack.ts`), needs Marketplace AMI subscription + deploy. Port from [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation). |
+| 10c | Test Isaac Lab as SageMaker Training Job (dry run) | 🚧 | First attempt failed (exit 127 — no entrypoint). Fixed with `train_entrypoint.py`, container rebuilding via CodeBuild now. **Decision needed:** use our custom entrypoint OR adopt awslabs shell entrypoint pattern (recommended). |
 | 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
 | 11 | Build Cosmos/scene-gen container via CodeBuild | 🔲 | Uses `nvcr.io/nvidia/isaac-sim:4.5.0` base. Lower priority — procedural randomization works without it. |
 | 11a | Test procedural scene generation (no Cosmos API) | 🔲 | `generate_scenes.py --no-cosmos` — just randomized USD scenes |
@@ -343,6 +343,7 @@ If you're a new builder joining this repo:
 
 ## Decisions Made (2026-06-12)
 
+- **⚠️ GPU compatibility for Isaac Lab:** Only G-family instances work (ml.g5, ml.g6, ml.g6e, ml.g7e). P-family (ml.p4d, ml.p5, ml.p5e) do NOT have RT Cores and Isaac Sim will crash. This applies to Stage 2/3 (Isaac Lab), not Stage 1 (GR00T fine-tuning works on any GPU).
 - **Pipeline, not paths** — Isaac Lab RL refines the GR00T imitation model, it doesn't replace it. This is industry standard practice (imitation → RL refinement → domain randomization). The original "Path A vs Path B" framing was wrong.
 - **SageMaker for everything (V1/V2)** — Isaac Lab and Cosmos both run as single-GPU SageMaker jobs. No EKS needed. Same orchestrator (SM Pipeline), same IAM, same monitoring. Consistent developer experience.
 - **OSMO deferred to V3** — Only needed for 100+ parallel sim environments at scale. The code exists in the repo but isn't needed until customers outgrow single-GPU training.
@@ -359,7 +360,15 @@ If you're a new builder joining this repo:
   - `samples/openpi-sample/` — π0 VLA training (alternative to GR00T, stretch goal S1)
   - `physai/` — Pipeline SDK with data conversion + schema validation
 
-- **[Blog: Scale Robot RL with Isaac Lab on SageMaker AI](https://aws.amazon.com/blogs/machine-learning/scale-robot-reinforcement-learning-with-nvidia-isaac-lab-on-amazon-sagemaker-ai/)** (June 10, 2026 — Jourdan & Allela) — **Official AWS pattern for exactly what we're building (task 10c).** Trains Unitree H1 with Isaac Lab on SM Training Jobs + HyperPod using a single Docker image. Read this before finalizing our Isaac Lab container/entrypoint. Roy Allela is also the WebRTC viz author (task 25/Phase 4).
+- **[Blog: Scale Robot RL with Isaac Lab on SageMaker AI](https://aws.amazon.com/blogs/machine-learning/scale-robot-reinforcement-learning-with-nvidia-isaac-lab-on-amazon-sagemaker-ai/)** (June 10, 2026 — Jourdan & Allela) — **Official AWS pattern for exactly what we're building (task 10c).** Key findings:
+  - Uses `nvcr.io/nvidia/isaac-sim:5.1.0` + clones Isaac Lab v2.3.2 (vs. our pre-built isaac-lab:2.1.0)
+  - Shell entrypoint parses `/opt/ml/input/config/resourceconfig.json` for multi-node → calls `torchrun`
+  - Uses **skrl** framework (we use rl_games) — skrl is the Isaac Lab-recommended RL library
+  - **⚠️ CRITICAL: Only G-family GPUs work** (g5, g6, g6e, g7e). P-family (P4/P5) has no RT Cores → Isaac Sim crashes. Document this!
+  - WebRTC viz is a sidecar pod with browser client — Roy Allela co-authored this
+  - MLflow integration is opt-in for experiment tracking
+  - Full companion code: [awslabs/awsome-distributed-ai/.../nvidia-isaac-lab](https://github.com/awslabs/awsome-distributed-ai/tree/main/3.test_cases/pytorch/nvidia-isaac-lab)
+  - **Recommendation:** Align our Isaac Lab container with their Dockerfile + entrypoint pattern rather than building from scratch. Fork or reference their repo.
 
 - **[Blog: Sim-to-Real and Real-to-Sim](https://aws.amazon.com/blogs/physical-ai/sim-to-real-and-real-to-sim-the-engine-behind-capable-physical-ai/)** (May 2026 — Dario, Ignacio, Quinn) — Theoretical foundation for our pipeline architecture. Mentions upcoming hands-on LeRobot SO-101 Sim2Real2Sim project — relevant to our robot choice open question.
 
