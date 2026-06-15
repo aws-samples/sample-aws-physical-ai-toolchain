@@ -293,6 +293,26 @@ Lab 1 (imitation)──────────▶ Lab 2 (RL refinement) ──�
                                          Requires NVIDIA NIM API
 ```
 
+## When to Use What: Domain Randomization vs. Cosmos
+
+This is a common question — when do you need Cosmos vs. Isaac Lab's built-in randomization?
+
+| Approach | What it does | When to use | Cost |
+|----------|-------------|-------------|------|
+| **Isaac Lab procedural randomization** | Randomizes object positions, lighting intensity/direction, object colors, camera noise | **Always — this is your default.** Handles 80% of sim-to-real transfer for most manipulation tasks. | Free (built into Isaac Lab) |
+| **Cosmos Transfer** | Takes your sim-rendered scene and makes it photorealistic (adds scratches, dust, realistic shadows, material imperfections) | When procedural randomization alone isn't enough — typically for tasks where **visual appearance** matters (e.g., bin picking by color, defect detection). | NIM API cost per frame |
+| **Cosmos Generate** | Creates entirely new environments from text/image prompts | When you need **environment diversity** beyond what procedural generation offers (e.g., "generate 100 different warehouse layouts"). | NIM API cost per scene |
+
+**Rule of thumb:**
+1. Start with Isaac Lab procedural randomization (free, fast, good enough for most tasks)
+2. If your policy fails on real hardware due to **visual domain gap** (sim looks too different from real) → add Cosmos Transfer
+3. If your policy fails because it only works in **one environment layout** → add Cosmos Generate
+
+**Most teams never need Cosmos.** Procedural randomization + a well-tuned reward function gets you to 90%+ success on real hardware for standard manipulation tasks (pick-and-place, insertion, assembly). Cosmos becomes relevant for:
+- High-precision visual tasks (reading labels, color sorting)
+- Environments with complex, varied backgrounds (warehouses with many objects)
+- When you have very limited real-world data to validate against
+
 ---
 
 ## Troubleshooting
