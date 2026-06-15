@@ -60,8 +60,8 @@ ENDPOINT_NAME = "physical-ai-cosmos-transfer"
 MODEL_NAME = "cosmos-transfer-2-5-2b"
 INSTANCE_TYPE = "ml.p4d.24xlarge"  # 8x A100 80GB (Cosmos Transfer 2.5 needs H100 or A100)
 
-# Cosmos NIM container from NGC
-COSMOS_IMAGE = "nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest"
+# Cosmos NIM container from our ECR (pulled from NGC via CodeBuild)
+COSMOS_IMAGE = "802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/cosmos-transfer:latest"
 
 
 def get_ngc_key():
