@@ -139,16 +139,19 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Build Isaac Lab RL container via CodeBuild | ✅ | Image in ECR: `physical-ai/isaac-lab:latest` (15.8 GB). **NOTE:** Consider aligning with [awslabs/awsome-distributed-ai](https://github.com/awslabs/awsome-distributed-ai/tree/main/3.test_cases/pytorch/nvidia-isaac-lab) pattern — official AWS Isaac Lab on SageMaker implementation (June 2026). Key differences from our current container: they use isaac-sim:5.1.0 base + clone Isaac Lab v2.3.2, shell entrypoint with torchrun, skrl framework. See blog analysis below. |
+| 10 | Build Isaac Lab RL container via CodeBuild | ✅ | Image in ECR: `physical-ai/isaac-lab:latest` (15.8 GB). |
 | 10a | Verify Isaac Lab container in ECR | ✅ | Confirmed: 15.8 GB, tag `latest`, pushed successfully |
-| 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Required for debugging.** CDK stack created (`workstation-stack.ts`), needs Marketplace AMI subscription + deploy. Port from [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation). |
-| 10c | Test Isaac Lab as SageMaker Training Job (dry run) | ✅ | **Working!** Ran `Isaac-Velocity-Flat-Anymal-D-v0`, 128 envs, 2 iterations, 3741 steps/s on ml.g5.xlarge (A10G). Two fixes required: (1) SageMaker needs `/opt/ml/code/train` symlink — it overrides CMD with `train`; (2) Isaac Lab has python3 at `/isaac-sim/kit/python/bin/python3`, not in system PATH — added symlinks + PATH. Both fixed in Dockerfile. |
-| 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
-| 11 | Build Cosmos/scene-gen container via CodeBuild | 🔲 | Uses `nvcr.io/nvidia/isaac-sim:4.5.0` base. Lower priority — procedural randomization works without it. |
-| 11a | Test procedural scene generation (no Cosmos API) | 🔲 | `generate_scenes.py --no-cosmos` — just randomized USD scenes |
-| 11b | Integrate Cosmos NIM API (V3, optional) | 🔲 | Requires NVIDIA NIM API access. Adds photorealistic textures to procedural scenes. Not needed for RL to work. |
+| 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | ✅ | g5.4xlarge, A10G, DCV working, Isaac Sim 6.0 GUI confirmed. Auto-installs everything on first boot. |
+| 10c | Test Isaac Lab as SageMaker Training Job (dry run) | ✅ | 100 iterations, 4096 envs, 60K steps/s, reward -0.36→+8.58. Dockerfile fixes committed. |
+| 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Needs: UR3 Isaac Lab env tested + GR00T→RL bridge script. Blocked on UR3 env validation (use workstation). |
+| 11 | Cosmos Transfer 2.5 container in ECR | ✅ | Pulled from NGC via CodeBuild. Ready for SageMaker endpoint deployment. |
+| 11a | Deploy Cosmos as SageMaker endpoint | 🔲 | `python cosmos_setup.py deploy` — needs p4d.24xlarge ($32/hr). Script written, untested. |
+| 11b | Generate photorealistic scenes with Cosmos | 🔲 | Depends on 11a. Script written (`cosmos_setup.py generate`). |
 | 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
-| 13 | Workshop Lab 2 docs | ✅ | `workshop/lab-2-rl-refinement.md` |
+| 13 | Workshop docs (Labs 0-6) | ✅ | Complete with intro, terminology, all labs written |
+| 14 | Zarr → LeRobot v2 conversion | ✅ | Proven hackathon script. 27 UR3 episodes converted (3,467 frames). |
+| 15 | GR00T fine-tune with real UR3 data | 🚧 | Pipeline executing now (100-step smoke test with real UR3 teleop data). |
+| 16 | MCAP → LeRobot v2 conversion tool | 🔲 | **Up for grabs.** For customers using ROS 2 bags. Reference: HuggingFace LeRobot MCAP loader. Same output format as task 14, different input parser. |
 
 **On Cosmos (tasks 11/11b):** Cosmos is optional. Isaac Lab's built-in procedural domain randomization (random object positions, lighting, textures) provides diversity for RL training without needing any external API. Cosmos adds photorealistic enhancement for better sim-to-real transfer — it's a V3 optimization, not a V2 requirement.
 
