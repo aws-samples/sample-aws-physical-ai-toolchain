@@ -6,6 +6,7 @@ import { StorageStack } from '../lib/storage-stack';
 import { EksClusterStack } from '../lib/eks-cluster-stack';
 import { OsmoStack } from '../lib/osmo-stack';
 import { EdgeStack } from '../lib/edge-stack';
+import { WorkstationStack } from '../lib/workstation-stack';
 import { devConfig } from '../config/dev';
 import { prodConfig } from '../config/prod';
 
@@ -34,6 +35,7 @@ const app = new cdk.App();
 const envName = app.node.tryGetContext('env') || 'dev';
 const mode = app.node.tryGetContext('mode') || 'simple'; // 'simple' | 'full'
 const includeEdge = app.node.tryGetContext('edge') === 'true'; // opt-in
+const includeWorkstation = app.node.tryGetContext('workstation') === 'true'; // opt-in
 
 const config = envName === 'prod' ? prodConfig : devConfig;
 const projectName = 'physical-ai';
@@ -124,6 +126,20 @@ if (includeEdge) {
   });
 
   edgeStack.addDependency(foundationStack);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// WORKSTATION (optional — Isaac Sim dev environment with DCV)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if (includeWorkstation) {
+  const allowedCidr = app.node.tryGetContext('allowedCidr') || '0.0.0.0/0';
+
+  new WorkstationStack(app, `${prefix}-Workstation`, {
+    env,
+    environment: config.environment,
+    allowedCidr,
+  });
 }
 
 app.synth();
