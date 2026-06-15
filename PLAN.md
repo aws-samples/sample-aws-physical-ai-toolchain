@@ -125,7 +125,13 @@ cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 | 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
 | 9 | Polish README + getting-started for GitLab review | ✅ | Rewritten with accurate pipeline architecture, cost table, honest status |
 
-**Note on 6c (eval video):** Clone the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container, install via `uv sync`, then use `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. Not on PyPI — install from source. Good task for a contributor.
+**Note on 6c (eval video + real model inference):** The Isaac-GR00T SDK is not on PyPI. To integrate:
+1. Add `git clone https://github.com/NVIDIA/Isaac-GR00T.git /opt/isaac-groot` to the GR00T training Dockerfile
+2. Install via `cd /opt/isaac-groot && uv sync` (has complex dependency tree)
+3. Use `standalone_inference_script.py` for open-loop rollouts on dataset trajectories
+4. Use `gr00t.data.dataset.LeRobotSingleDataset` + `TrainingRunner` API for real training (replaces our transformers fallback)
+
+Once integrated, the eval report (6b) can run actual model inference and show trained-model MSE vs. baselines. Without this, we cannot prove the model learned anything — we only prove the pipeline runs end-to-end. This is the highest-priority remaining task for validating Stage 1.
 
 ### Phase 2: Stage 2+3 — Cosmos Scene Gen + Isaac Lab RL Refinement (V2)
 
