@@ -354,7 +354,13 @@ If you're a new builder joining this repo:
 ## Reference Implementations (external)
 
 - **[aws-samples/sample-physical-ai-scaffolding-kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit)** — AWS Japan's Physical AI samples. Key components:
-  - `isaacsim-workstation/` — CDK for Isaac Sim EC2 + DCV remote desktop (our debug UI source for task 25)
+  - `isaacsim-workstation/` — CDK for Isaac Sim EC2 + DCV remote desktop (our debug UI source for task 10b)
   - `samples/newton-rl/` — Isaac Lab 3.0-beta1 RL on HyperPod. Uses RSL-RL + Newton physics. Confirms our training approach (headless, 4096 envs, tensorboard). Key differences: they use HyperPod/Slurm (we use SageMaker), Isaac Lab 3.0 (we use 2.1), RSL-RL (we use rl_games).
   - `samples/openpi-sample/` — π0 VLA training (alternative to GR00T, stretch goal S1)
   - `physai/` — Pipeline SDK with data conversion + schema validation
+
+- **[Blog: Scale Robot RL with Isaac Lab on SageMaker AI](https://aws.amazon.com/blogs/machine-learning/scale-robot-reinforcement-learning-with-nvidia-isaac-lab-on-amazon-sagemaker-ai/)** (June 10, 2026 — Jourdan & Allela) — **Official AWS pattern for exactly what we're building (task 10c).** Trains Unitree H1 with Isaac Lab on SM Training Jobs + HyperPod using a single Docker image. Read this before finalizing our Isaac Lab container/entrypoint. Roy Allela is also the WebRTC viz author (task 25/Phase 4).
+
+- **[Blog: Sim-to-Real and Real-to-Sim](https://aws.amazon.com/blogs/physical-ai/sim-to-real-and-real-to-sim-the-engine-behind-capable-physical-ai/)** (May 2026 — Dario, Ignacio, Quinn) — Theoretical foundation for our pipeline architecture. Mentions upcoming hands-on LeRobot SO-101 Sim2Real2Sim project — relevant to our robot choice open question.
+
+- **[Blog: Scaling Data Annotation with VLMs](https://aws.amazon.com/blogs/machine-learning/scaling-data-annotation-using-vision-language-models-to-power-physical-ai-systems/)** (2025) — Auto-annotating robot data using Bedrock VLMs. Relevant to our deferred "AI-assisted annotation" item.
