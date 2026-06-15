@@ -77,15 +77,26 @@ Mode B: Generate (create new environments)
 
 ## Step 1: Set Up Cosmos NIM Access
 
+For the self-hosted approach (recommended for toolkit/production):
+
+```bash
+# Deploy Cosmos Transfer 2.5 as a SageMaker endpoint (~10-15 min)
+python training/scripts/cosmos_setup.py deploy
+
+# Check status
+python training/scripts/cosmos_setup.py status
+```
+
+This spins up a p4d.24xlarge instance with the Cosmos NIM container. Cost: ~$32/hr while running.
+
+For the API approach (if you have NIM enterprise access):
+
 ```bash
 # Store your NIM API key
 aws secretsmanager create-secret \
   --name physical-ai/nim-api-key \
   --secret-string "nvapi-YOUR_KEY_HERE" \
   --region us-east-1
-
-# Or set as environment variable for local testing
-export NIM_API_KEY="nvapi-YOUR_KEY_HERE"
 ```
 
 ---

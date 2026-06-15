@@ -213,7 +213,10 @@ export class FoundationStack extends cdk.Stack {
     // Uses x86 large instance (image is ~30GB, needs space + time)
     codebuildRole.addToPolicy(new iam.PolicyStatement({
       actions: ['secretsmanager:GetSecretValue'],
-      resources: [`arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/ngc-api-key*`],
+      resources: [
+        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/ngc-api-key*`,
+        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/nim-api-key*`,
+      ],
     }));
 
     new codebuild.Project(this, 'IsaacLabBuild', {
