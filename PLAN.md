@@ -135,8 +135,9 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 |---|------|--------|-------|
 | 10 | Build Isaac Lab RL container via CodeBuild | 🚧 | CodeBuild project deployed, build triggered. Waiting for completion. |
 | 10a | Verify Isaac Lab container in ECR | 🔲 | Check image exists, correct size |
-| 10b | Test Isaac Lab as SageMaker Training Job (dry run) | 🔲 | Submit a short RL training job, verify it starts |
-| 10c | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
+| 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Required for debugging.** Developers need to see the sim to iterate on environments. Port from [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation). |
+| 10c | Test Isaac Lab as SageMaker Training Job (dry run) | 🔲 | Submit a short RL training job, verify it starts |
+| 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
 | 11 | Build Cosmos/scene-gen container via CodeBuild | 🔲 | Uses `nvcr.io/nvidia/isaac-sim:4.5.0` base. Lower priority — procedural randomization works without it. |
 | 11a | Test procedural scene generation (no Cosmos API) | 🔲 | `generate_scenes.py --no-cosmos` — just randomized USD scenes |
 | 11b | Integrate Cosmos NIM API (V3, optional) | 🔲 | Requires NVIDIA NIM API access. Adds photorealistic textures to procedural scenes. Not needed for RL to work. |
@@ -183,8 +184,7 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 |---|------|--------|-------|
 | 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` — a wrapper CLI that simplifies common operations. Example commands: `pai train --dataset ./data --dry-run` (shows config + cost estimate without launching), `pai status` (check running jobs), `pai check` (verify prerequisites: GPU quota, Docker, NGC key, HF token). Saves users from writing raw `aws sagemaker` commands. |
 | 24 | Port IDE skills | 🔲 | 10 Kiro skill files from hackathon `skills/` directory. AI-powered dev assistance specific to Physical AI: "convert my dataset to LeRobot format," "explain this reward function," "why did my training job fail," "what instance type should I use." Makes the toolchain accessible to developers who aren't ML experts. |
-| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Higher priority than other Phase 4 items** — needed for visually developing/debugging Isaac Lab environments (Phase 2 dependency). Without this, you're coding RL environments blind. Leverage [aws-samples/sample-physical-ai-scaffolding-kit/isaacsim-workstation](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) — CDK already written, uses Isaac Sim AMI + NICE DCV + ROS2 + S3 mount. Port or reference directly. |
-| 26 | Add WebRTC viz option | 🔲 | Stream Isaac Sim's renderer to a browser via WebRTC — lighter weight than full DCV workstation. User opens a URL, sees sim running in real-time. No GPU desktop client needed. Based on Roy Allela's pattern. Good for quick visual checks without spinning up a full workstation. |
+| 25 | Add WebRTC viz option | 🔲 | Stream Isaac Sim's renderer to a browser via WebRTC — lighter weight than full DCV workstation. User opens a URL, sees sim running in real-time. No GPU desktop client needed. Based on Roy Allela's pattern. Good for quick visual checks without spinning up a full workstation. |
 
 ### Stretch Goals (V4+ — for contributors)
 
