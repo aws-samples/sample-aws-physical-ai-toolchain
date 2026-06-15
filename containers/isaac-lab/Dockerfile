@@ -48,6 +48,18 @@ WORKDIR /opt/ml/code
 ENV ACCEPT_EULA=Y
 ENV OMNI_ENV_PRIVACY_CONSENT=Y
 
-# Use shell entrypoint (matches awslabs/awsome-distributed-ai pattern)
-ENTRYPOINT ["/bin/bash"]
-CMD ["sm-train-entrypoint.sh"]
+# Make Isaac Sim's Python available as system python3
+# (Isaac Lab container doesn't have system python — only /isaac-sim/kit/python/bin/python3)
+RUN ln -sf /isaac-sim/kit/python/bin/python3 /usr/local/bin/python3 \
+    && ln -sf /isaac-sim/kit/python/bin/python3 /usr/local/bin/python
+
+# SageMaker invokes the container as: docker run <image> train
+# So we create /opt/ml/code/train as the script SageMaker expects
+RUN ln -sf /opt/ml/code/sm-train-entrypoint.sh /opt/ml/code/train \
+    && chmod +x /opt/ml/code/train
+
+ENV PATH="/isaac-sim/kit/python/bin:/opt/ml/code:${PATH}"
+ENV SAGEMAKER_PROGRAM=train
+
+ENTRYPOINT []
+CMD ["train"]
