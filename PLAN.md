@@ -119,7 +119,7 @@ cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 | 4 | Build GR00T training container + push to ECR | ✅ | 7.1 GB image, pushed |
 | 5 | Bundle demo dataset (download script + docs) | ✅ | `lerobot/aloha_sim_insertion_human`, 87 MB |
 | 6a | End-to-end smoke test: deploy → train → model to S3 | ✅ | 100-step job completed successfully |
-| 6b | Eval report: action prediction error on held-out data | 🚧 | Code done, container pushed, awaiting test run |
+| 6b | Eval report: action prediction error on held-out data | ✅ | Produces `eval_report.json` + `eval_action_error.png` in model artifact |
 | 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Needs SDK installed from source in container (see note) |
 | 7 | Workshop Lab 1 docs | ✅ | `workshop/lab-1-train-groot.md` |
 | 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
@@ -183,7 +183,7 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 |---|------|--------|-------|
 | 23 | Port CLI from hackathon repo | 🔲 | `physical-ai-cli/` — a wrapper CLI that simplifies common operations. Example commands: `pai train --dataset ./data --dry-run` (shows config + cost estimate without launching), `pai status` (check running jobs), `pai check` (verify prerequisites: GPU quota, Docker, NGC key, HF token). Saves users from writing raw `aws sagemaker` commands. |
 | 24 | Port IDE skills | 🔲 | 10 Kiro skill files from hackathon `skills/` directory. AI-powered dev assistance specific to Physical AI: "convert my dataset to LeRobot format," "explain this reward function," "why did my training job fail," "what instance type should I use." Makes the toolchain accessible to developers who aren't ML experts. |
-| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | For visual debugging of sim environments. Leverage [aws-samples/sample-physical-ai-scaffolding-kit/isaacsim-workstation](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) — CDK already written, uses Isaac Sim AMI + NICE DCV + ROS2 + S3 mount. Port or reference directly. |
+| 25 | Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Higher priority than other Phase 4 items** — needed for visually developing/debugging Isaac Lab environments (Phase 2 dependency). Without this, you're coding RL environments blind. Leverage [aws-samples/sample-physical-ai-scaffolding-kit/isaacsim-workstation](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation) — CDK already written, uses Isaac Sim AMI + NICE DCV + ROS2 + S3 mount. Port or reference directly. |
 | 26 | Add WebRTC viz option | 🔲 | Stream Isaac Sim's renderer to a browser via WebRTC — lighter weight than full DCV workstation. User opens a URL, sees sim running in real-time. No GPU desktop client needed. Based on Roy Allela's pattern. Good for quick visual checks without spinning up a full workstation. |
 
 ### Stretch Goals (V4+ — for contributors)
