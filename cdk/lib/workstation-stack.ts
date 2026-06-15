@@ -42,7 +42,7 @@ export class WorkstationStack extends cdk.Stack {
     super(scope, id, props);
 
     const allowedCidr = props.allowedCidr || '0.0.0.0/0';
-    const instanceType = props.instanceType || 'g6e.4xlarge';
+    const instanceType = props.instanceType || 'g5.4xlarge';
 
     // Use default VPC for simplicity
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
@@ -92,46 +92,88 @@ export class WorkstationStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // UserData: install ROS2 + configure DCV
+    // UserData: Full bootstrap based on proven pattern from
+    // github.com/aws-samples/sample-physical-ai-scaffolding-kit
     const userData = ec2.UserData.forLinux();
     userData.addCommands(
       '#!/bin/bash',
       'set -e',
-      '',
-      '# Log setup progress',
       'exec > /var/log/workstation-bootstrap.log 2>&1',
+      'export DEBIAN_FRONTEND=noninteractive',
       '',
-      '# Install ROS2 Jazzy',
-      'apt-get update',
-      'apt-get install -y software-properties-common',
-      'add-apt-repository universe',
-      'curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key | apt-key add -',
-      'echo "deb http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" > /etc/apt/sources.list.d/ros2.list',
-      'apt-get update',
-      'apt-get install -y ros-jazzy-desktop ros-jazzy-rosbridge-suite',
+      '# Wait for apt locks to clear',
+      'while fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done',
+      'while fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 3; done',
       '',
-      '# Configure DCV for auto-session',
+      'echo "=== Step 1: Base packages ==="',
+      'apt-get update -yq',
+      'apt-get install -yq ca-certificates curl wget gnupg lsb-release jq unzip',
+      '',
+      'echo "=== Step 2: NVIDIA driver ==="',
+      'apt-get install -yq ubuntu-drivers-common',
+      'ubuntu-drivers autoinstall',
+      '',
+      'echo "=== Step 3: Desktop + GDM ==="',
+      'apt-get install -yq ubuntu-desktop gdm3 dbus-x11',
+      'sed -i "s/^#\\(WaylandEnable=false\\)/\\1/" /etc/gdm3/custom.conf || true',
+      '',
+      'echo "=== Step 4: Install NICE DCV ==="',
+      'cd /tmp',
+      'wget -q "https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-19030-ubuntu2204-x86_64.tgz" -O /tmp/dcv.tgz',
+      'tar -xzf /tmp/dcv.tgz -C /tmp',
+      'cd /tmp/nice-dcv-2024.0-19030-ubuntu2204-x86_64',
+      'apt-get install -yq ./nice-dcv-server_*.deb ./nice-dcv-web-viewer_*.deb ./nice-xdcv_*.deb || apt-get install -yf',
+      'usermod -aG video dcv || true',
       'systemctl enable dcvserver',
-      'systemctl start dcvserver',
+      'systemctl restart dcvserver',
       '',
-      '# Create DCV session on boot',
-      'cat > /etc/systemd/system/dcv-session.service << EOF',
+      'echo "=== Step 5: DCV auto-session ==="',
+      'cat > /usr/local/bin/auto-create-dcv.sh << \'SCRIPT\'',
+      '#!/bin/bash',
+      'sleep 5',
+      'until systemctl is-active --quiet dcvserver; do sleep 3; done',
+      'if ! dcv list-sessions | grep -q "^Session:"; then',
+      '  dcv create-session --type virtual --owner ubuntu --name "Isaac Sim" main',
+      'fi',
+      'SCRIPT',
+      'chmod +x /usr/local/bin/auto-create-dcv.sh',
+      'cat > /etc/systemd/system/auto-dcv.service << \'SVC\'',
       '[Unit]',
-      'Description=DCV Session',
+      'Description=Auto-create DCV session',
       'After=dcvserver.service',
-      '',
       '[Service]',
-      'ExecStart=/usr/bin/dcv create-session --type virtual --owner ubuntu main',
-      'Restart=on-failure',
-      'RestartSec=5',
-      '',
+      'Type=oneshot',
+      'ExecStart=/usr/local/bin/auto-create-dcv.sh',
+      'RemainAfterExit=yes',
       '[Install]',
       'WantedBy=multi-user.target',
-      'EOF',
-      'systemctl enable dcv-session',
-      'systemctl start dcv-session',
+      'SVC',
+      'systemctl daemon-reload',
+      'systemctl enable auto-dcv.service',
+      '',
+      'echo "=== Step 6: Docker + NVIDIA Container Toolkit ==="',
+      'curl -fsSL https://get.docker.com | sh',
+      'systemctl enable docker && systemctl start docker',
+      'usermod -aG docker ubuntu || true',
+      'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg',
+      'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null',
+      'apt-get update -yq && apt-get install -yq nvidia-container-toolkit',
+      'systemctl restart docker',
+      '',
+      'echo "=== Step 7: Set ubuntu password ==="',
+      'echo "ubuntu:physical-ai-2026" | chpasswd',
+      '',
+      'echo "=== Step 8: AWS CLI v2 ==="',
+      'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip',
+      'unzip -q /tmp/awscliv2.zip -d /tmp',
+      '/tmp/aws/install --update',
       '',
       'echo "Workstation bootstrap complete" > /var/log/workstation-bootstrap.summary',
+      'echo "DCV URL: https://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8443"',
+      'echo "Username: ubuntu  Password: physical-ai-2026"',
+      '',
+      '# Reboot to finalize NVIDIA driver + desktop',
+      'shutdown -r +1 "Rebooting to finalize workstation setup"',
     );
 
     // EC2 Instance
@@ -158,21 +200,14 @@ export class WorkstationStack extends cdk.Stack {
       associatePublicIpAddress: true,
     });
 
-    // Elastic IP for stable address
-    const eip = new ec2.CfnEIP(this, 'WorkstationEip');
-    new ec2.CfnEIPAssociation(this, 'WorkstationEipAssoc', {
-      instanceId: instance.instanceId,
-      allocationId: eip.attrAllocationId,
-    });
-
     // Outputs
-    new cdk.CfnOutput(this, 'WorkstationIP', {
-      value: eip.attrPublicIp,
-      description: 'Workstation public IP',
+    new cdk.CfnOutput(this, 'WorkstationInstanceId', {
+      value: instance.instanceId,
+      description: 'Instance ID (use for start/stop and SSM)',
     });
 
     new cdk.CfnOutput(this, 'DCVWebURL', {
-      value: `https://${eip.attrPublicIp}:8443`,
+      value: `Connect via: https://<PUBLIC_IP>:8443 (get IP from EC2 console or: aws ec2 describe-instances --instance-ids ${instance.instanceId} --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)`,
       description: 'Connect via web browser (accept cert warning)',
     });
 

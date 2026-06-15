@@ -1,119 +1,173 @@
 # AWS Physical AI Toolchain
 
-Train robot manipulation policies on AWS and deploy to edge hardware.
+An end-to-end pipeline for training robot manipulation policies on AWS — from human demonstrations to a deployed physical robot.
 
-## What This Does
+---
 
-Implements the standard Physical AI training pipeline:
+## What is Physical AI?
 
-1. **Imitation Learning** — Fine-tune GR00T on teleoperation demos → working policy in hours
-2. **RL Refinement** — Improve the policy in Isaac Lab simulation → production-grade robustness
-3. **Domain Randomization** — Cosmos generates scene variations → sim-to-real transfer
-4. **Edge Deployment** — Deploy to Jetson/GPU hardware via Greengrass
+Physical AI is artificial intelligence that interacts with the real world. Unlike chatbots or image generators that produce text and pixels, Physical AI produces **motor commands** — signals that move robot arms, open grippers, and navigate through space.
 
-You can stop at any stage. Stage 1 alone gives you a usable policy.
+A Physical AI system takes in camera images and joint sensor readings, reasons about what it sees, and outputs precise movements 50-200 times per second. Teaching a robot to pick up an object from a bin requires solving perception (where is it?), planning (how do I reach it?), and control (what exact motor commands get me there?) — all in real-time.
 
-## Quick Start (15 min to first training job)
+This toolchain provides the infrastructure and workflow to build these systems using AWS services and the NVIDIA robotics stack.
+
+---
+
+## How Robots Learn
+
+Traditional robot programming is manual: engineers write explicit rules for every movement, every edge case, every variation. This breaks down in unstructured environments where objects can be anywhere and look different every time.
+
+Modern Physical AI uses **learned policies** — neural networks trained from data that can generalize to new situations. There are two complementary approaches:
+
+### 1. Imitation Learning (Lab 1)
+
+A human demonstrates the task using teleoperation (remote control). The robot records what it sees (camera) and what it does (motor commands). A foundation model called **GR00T** (Generalist Robot 00 Technology) is fine-tuned on these demonstrations to predict: *given what I see now, what should I do next?*
+
+This gives you a working policy in hours from as few as 50 demonstrations. But it only works well in situations that look like the demos.
+
+### 2. Reinforcement Learning (Lab 4)
+
+The robot practices in simulation — millions of attempts with a reward signal ("+1 when the object is picked up, -0.1 for dropping it"). Through trial and error across thousands of randomized scenes, it discovers strategies that handle variations the demos never showed.
+
+Starting from the imitation-learned policy (instead of random), RL converges in hours rather than weeks.
+
+### Combined: The Industry Standard
+
+The standard approach for production robot policies:
+
+```
+Demos → Imitation Learning → RL Refinement → Edge Deployment
+(50 demos)  (2 hours)         (4 hours)       (OTA push)
+```
+
+This toolchain implements this full pipeline on AWS.
+
+---
+
+## Key Technologies
+
+| Technology | What It Is | Role |
+|-----------|-----------|------|
+| **GR00T** | NVIDIA's Vision-Language-Action (VLA) foundation model. A 3B-parameter neural network pre-trained on diverse robot data. You fine-tune it on your specific robot and task. | Lab 1: imitation learning from demonstrations |
+| **Isaac Lab** | NVIDIA's RL training framework running on the Isaac Sim physics engine. Simulates thousands of parallel robot environments on a single GPU. | Lab 4: RL refinement at scale |
+| **Cosmos** | NVIDIA's World Foundation Model. Generates photorealistic synthetic environments to close the visual gap between simulation and reality. | Lab 3: diverse training scene generation |
+| **TensorRT** | NVIDIA's model compiler. Optimizes trained models for real-time inference on edge hardware (Jetson). | Lab 5: edge deployment |
+| **OSMO** | NVIDIA's workflow orchestrator for multi-stage Physical AI pipelines. Manages GPU scheduling, stage sequencing, and quality gates. | Lab 6: production orchestration |
+| **LeRobot** | HuggingFace's standard data format for robot learning (Parquet + MP4). Used by GR00T for training data. | Data format throughout |
+| **ROS 2** | Industry-standard robot middleware. Pub/sub messaging between sensors, models, and actuators. | Edge inference communication |
+
+---
+
+## What This Repo Contains
+
+A complete, deployable Physical AI pipeline:
+
+```
+├── cdk/                           # Infrastructure as Code (AWS CDK)
+│   ├── lib/foundation-stack.ts    # S3, ECR, IAM, CodeBuild
+│   ├── lib/workstation-stack.ts   # GPU dev workstation (DCV + Isaac Sim)
+│   ├── lib/eks-cluster-stack.ts   # EKS for OSMO (optional)
+│   └── lib/edge-stack.ts          # IoT Greengrass for robot fleet
+├── containers/
+│   ├── groot-training/            # GR00T fine-tuning container
+│   ├── isaac-lab/                 # Isaac Lab RL training container
+│   └── inference/                 # TensorRT + ROS2 inference container
+├── training/
+│   ├── groot/                     # Pipeline scripts, dataset tools
+│   ├── scripts/                   # Train, evaluate, export
+│   └── envs/                      # RL environments (UR3 pick-and-place)
+├── edge/                          # Greengrass components + ROS2 node
+└── workshop/                      # Hands-on lab guides (7 labs)
+```
+
+---
+
+## Quick Start
 
 ```bash
-# Prerequisites: AWS CLI configured, CDK installed, Docker running
+# Prerequisites: AWS CLI configured, Node.js 18+, Docker
 
-# 1. Deploy infrastructure
-cd cdk && npm install
+# 1. Clone and deploy infrastructure (~5 min)
+git clone [REPO_URL]
+cd aws-physical-ai-toolchain/cdk && npm install
 npx cdk deploy --context mode=simple
 
-# 2. Download demo dataset
-python training/groot/download_demo_dataset.py --output ./data/demo-dataset
-
-# 3. Build + push training container
-cd containers/groot-training
-docker build --platform linux/amd64 -t groot-training .
-# Tag and push to ECR (URI from CDK outputs)
-
-# 4. Run the pipeline (100 steps = smoke test, 5000 = full training)
+# 2. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
 ./run-path-a.sh --max-steps=100
+
+# 3. Check results
+aws sagemaker list-model-packages --model-package-group-name groot-models
 ```
 
-Or use the SageMaker Pipeline for a production workflow:
-```bash
-python training/groot/pipeline.py --create \
-  --s3-bucket <DATASETS_BUCKET> \
-  --role-arn <SAGEMAKER_ROLE_ARN> \
-  --ecr-image <ECR_URI>:latest
+See [workshop/README.md](workshop/README.md) for the full guided experience.
 
-python training/groot/pipeline.py --execute --max-steps 5000
-```
+---
+
+## Workshop (Self-Paced)
+
+Seven hands-on labs taking you from zero to a deployed robot policy:
+
+| Lab | What You Build | Time | Cost |
+|-----|---------------|------|------|
+| [Lab 0: Prerequisites](workshop/lab-0-prerequisites.md) | Deploy AWS infrastructure | 30 min | — |
+| [Lab 1: Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$15-30 |
+| [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$4.50/hr |
+| [Lab 3: Cosmos World Gen](workshop/lab-3-cosmos-world-generation.md) | Photorealistic training scenes | 1-2 hrs | ~$15-30 |
+| [Lab 4: RL Refinement](workshop/lab-4-rl-refinement.md) | Policy improvement in simulation | 3 hrs | ~$10-30 |
+| [Lab 5: Edge Deployment](workshop/lab-5-edge-deployment.md) | Deploy to Jetson via Greengrass | 2 hrs | ~$5 |
+| [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$50-100 |
+
+**No robot hardware required.** Labs 0-4 run entirely in the cloud. Lab 5 deploys to a physical robot if you have one (UR3 + Jetson).
+
+---
+
+## The Use Case: Pick and Place
+
+We build a pick-and-place policy because it's:
+
+- The **#1 most common** industrial robot task (bin picking, kitting, palletizing)
+- **Simple enough** to learn in a workshop but hard enough to need real AI
+- **Exercises the full pipeline** — perception, planning, grasping, placement
+- **Transferable** — the same pipeline works for assembly, sorting, inspection
+
+The reference uses a **UR3 arm** (most popular collaborative robot in industry) with a **Robotiq 2F-85 gripper**. The pipeline is robot-agnostic — bring your own URDF and teleop data.
+
+---
 
 ## What's Working Today
 
-- ✅ Foundation stack (S3, ECR, IAM) deployed
-- ✅ GR00T training container built and pushed to ECR
-- ✅ SageMaker training jobs completing successfully
-- ✅ SageMaker Pipeline (train → register to Model Registry)
-- ✅ Eval report (action prediction error on held-out data)
-- 🔲 Isaac Lab RL refinement (Stage 2 — containers exist, untested on SM)
-- 🔲 Cosmos scene generation (Stage 3 — script exists, needs API access)
-- 🔲 Edge deployment (CDK stack exists, untested)
+- ✅ Foundation infrastructure (S3, ECR, IAM, CodeBuild)
+- ✅ GR00T fine-tuning on SageMaker (full pipeline: train → eval → register)
+- ✅ Isaac Lab RL training on SageMaker (100 iterations, 60K steps/s, A10G)
+- ✅ Isaac Sim workstation deployed (g5.4xlarge, DCV, NVIDIA driver)
+- ✅ Lab docs (0-6) written
+- 🔲 GR00T → Isaac Lab bridge (load Lab 1 model into RL)
+- 🔲 Real UR3 teleop data (incoming from team)
+- 🔲 Cosmos scene generation (needs NIM API key)
+- 🔲 Edge deployment (CDK stack ready, untested on hardware)
 
-## Architecture
+---
 
-```
-Foundation Stack (S3, ECR, IAM)
-         │
-         ▼
-SageMaker Pipeline
-  ├── Stage 1: GR00T fine-tune (imitation)     ← working
-  ├── Stage 2: Cosmos scene generation          ← next
-  ├── Stage 3: Isaac Lab RL refinement          ← next
-  ├── Evaluate (sim rollout success rate)
-  └── Register to Model Registry               ← working
-         │
-         ▼
-Edge (Greengrass → Jetson)                      ← later
-```
+## Cost Summary
 
-All stages run on SageMaker (Training Jobs + Processing Jobs). No EKS needed unless you need 100+ parallel sim environments.
+| Activity | Cost | Notes |
+|----------|------|-------|
+| Infrastructure (idle) | ~$1/month | S3 storage only |
+| GR00T training (smoke test) | ~$2 | 15 min on ml.g5.12xlarge |
+| GR00T training (full) | ~$79 | 11 hours |
+| Isaac Lab RL (100 iterations) | ~$3 | 15 min on ml.g5.xlarge |
+| Isaac Lab RL (full, 2000 iterations) | ~$28 | 4 hrs on ml.g5.12xlarge |
+| Workstation (per hour) | ~$4.50 | Stop when not using |
+| **Total workshop (Labs 0-4)** | **~$50-100** | |
 
-## Project Structure
+All resources tear down cleanly with `cdk destroy`.
 
-```
-├── PLAN.md                        # Detailed plan, decisions, build order
-├── run-path-a.sh                  # One-command quick start
-├── cdk/                           # Infrastructure (TypeScript CDK)
-│   ├── lib/foundation-stack.ts    # S3, ECR, IAM (always deployed)
-│   ├── lib/eks-cluster-stack.ts   # EKS (scale path, optional)
-│   └── lib/osmo-stack.ts          # OSMO orchestrator (scale path)
-├── containers/
-│   ├── groot-training/            # Stage 1: fine-tuning container
-│   ├── isaac-sim/                 # Stage 2: Cosmos scene gen
-│   ├── isaac-lab/                 # Stage 3: RL refinement
-│   └── inference/                 # Edge: TensorRT + ROS2
-├── training/
-│   ├── groot/                     # Launch scripts, pipeline, dataset tools
-│   ├── scripts/                   # Isaac Lab training/eval/export
-│   └── envs/                      # RL environments (pick-and-place)
-├── edge/                          # Greengrass + ROS2 inference node
-└── workshop/                      # Hands-on lab guides
-```
-
-## Cost
-
-| What | Cost | Notes |
-|------|------|-------|
-| Smoke test (100 steps) | ~$2 | 15 min on ml.g5.12xlarge |
-| Full training (5000 steps) | ~$79 | 11 hrs |
-| Idle (no training running) | $0 | SageMaker has no idle cost |
-| Foundation stack | ~$1/mo | S3 storage only |
+---
 
 ## Contributing
 
-Read [PLAN.md](PLAN.md) for:
-- Build order with task status
-- Architecture decisions and rationale
-- Open questions that need input
-- How to pick up the next task
-
-Getting a robotics practitioner to review the RL refinement architecture would be especially valuable.
+See [PLAN.md](PLAN.md) for build status, architecture decisions, and next tasks.
 
 ## License
 

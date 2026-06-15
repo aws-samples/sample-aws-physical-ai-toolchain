@@ -179,3 +179,81 @@ Labs 2 and 3 can run in parallel with Lab 1. Lab 4 requires both Lab 1 (trained 
 - **Anyone curious** about how robots learn from human demonstrations and simulation
 
 **Prerequisites:** Familiarity with AWS (CLI, console), Python, and basic ML concepts. No robotics experience required — the labs explain the domain concepts as you go.
+
+
+---
+
+## Physical AI Terminology
+
+New to robotics and Physical AI? Here's what the key terms mean.
+
+### The Basics
+
+| Term | Plain English |
+|------|--------------|
+| **Physical AI** | AI that moves things in the real world — robot arms picking objects, drones navigating, humanoids walking. Unlike chatbots (text in, text out), Physical AI takes camera images in and produces motor commands out. |
+| **Policy** | The trained "brain" of the robot. A neural network file (`.pt`) that takes in sensor data (camera image + joint angles) and outputs actions (move arm here, close gripper). Same thing as a "model" — roboticists say "policy" because it makes decisions. |
+| **Teleoperation (Teleop)** | A human remotely controlling a robot to demonstrate a task. You move the robot through the task while it records everything — what it saw (camera) and what it did (joint movements). These recordings become training data. |
+| **Episode** | One complete task demonstration from start to finish. "Pick up the cube and place it in the bin" = one episode. A training dataset might contain 50-200 episodes. |
+| **Embodiment** | The physical robot body. A UR3 arm has 6 joints. A humanoid has 30+. Policies are embodiment-specific — a policy trained for a UR3 won't work on a different arm without retraining. |
+
+### Training Approaches
+
+| Term | Plain English |
+|------|--------------|
+| **Imitation Learning** | "Learn by watching." You show the robot 50 demonstrations, then a model (GR00T) learns to copy those behaviors. Fast to get working but limited to what you demonstrated. |
+| **Reinforcement Learning (RL)** | "Learn by practice." The robot tries the task millions of times in simulation, getting a score each time (+1 for success, -0.5 for dropping). Through trial and error it discovers strategies better than what any human showed it. |
+| **Fine-tuning** | Taking a pre-trained model (like GR00T, already trained on millions of robot examples) and training just the last few layers on your specific data. Much cheaper than training from scratch. Like customizing a pre-built app instead of writing from zero. |
+| **PPO** | Proximal Policy Optimization. The standard RL algorithm for robotics. You don't need to understand the math — just know it's what Isaac Lab uses to improve the policy through simulated practice. |
+| **Domain Randomization** | During training in sim, randomly vary everything: object positions, lighting, colors, camera angles. Forces the policy to work regardless of conditions. Like training a self-driving car in rain, snow, and sun simultaneously. |
+| **Sim-to-Real Transfer** | The gap between simulation and reality. Physics in sim is approximate — objects slide differently, lighting looks different. Domain randomization and Cosmos close this gap so sim-trained policies work on real robots. |
+
+### Models
+
+| Term | Plain English |
+|------|--------------|
+| **GR00T** | NVIDIA's robot foundation model (Generalist Robot 00 Technology). A 3-billion-parameter neural network pre-trained on diverse robot data. You fine-tune it on your specific robot + task with 50-200 demonstrations. Outputs motor commands from camera images + language instructions. |
+| **VLA (Vision-Language-Action)** | A single model that sees images, understands language, and outputs motor commands. GR00T is a VLA. You say "pick up the red cube," it sees the camera, it moves the arm. |
+| **Foundation Model** | A large pre-trained model you customize for your task. Like GPT is a foundation model for text, GR00T is a foundation model for robot control. You never train these from scratch — you fine-tune. |
+| **Action Chunking** | Instead of deciding one movement at a time, the model predicts the next 16 movements as a chunk. Produces smoother, more natural robot motion. |
+
+### Simulation
+
+| Term | Plain English |
+|------|--------------|
+| **Isaac Sim** | NVIDIA's robot simulation platform. A physics engine that can simulate gravity, friction, collisions, and cameras realistically. Think of it as a video game engine purpose-built for robots. |
+| **Isaac Lab** | A training framework that runs on top of Isaac Sim. Provides the RL training loop — creates thousands of parallel robot copies, collects experience, updates the policy. You write your task definition here. |
+| **Cosmos** | NVIDIA's World Foundation Model. Generates photorealistic synthetic environments — takes a basic sim render and makes it look like a real factory with scratches, dust, realistic lighting. Closes the visual sim-to-real gap. |
+| **Parallel Environments** | Running 4096 copies of the same robot simultaneously on one GPU. Each practices independently. In one second of real time, the robot accumulates days of practice. This is why RL training takes hours instead of years. |
+| **Headless** | Running the simulator without displaying graphics. All physics still work, but no screen rendering. Faster because the GPU focuses on computation instead of pixels. Used during training. |
+
+### Hardware & Deployment
+
+| Term | Plain English |
+|------|--------------|
+| **UR3** | A Universal Robots 6-joint collaborative arm. 3kg payload, ~500mm reach. The most popular robot arm in research and light manufacturing. Our reference robot. |
+| **Jetson** | NVIDIA's edge GPU board (Orin, Xavier). A small computer with a GPU designed to run AI models inside robots. Runs trained policies at 50-200 Hz. Think "GPU for your robot's brain." |
+| **TensorRT** | NVIDIA's model compiler. Takes your trained PyTorch model and optimizes it for specific hardware (Jetson), making it run 10-100x faster. Necessary for real-time robot control. |
+| **ROS 2** | Robot Operating System 2. Not actually an OS — it's middleware that connects robot components. Camera nodes publish images, your policy node subscribes to images and publishes motor commands. Like message queues but for robots. |
+| **Greengrass** | AWS IoT Greengrass. Deploys and manages software on robots. When you have a new policy, Greengrass pushes it to your robot fleet over-the-air. Like deploying a Lambda update, but to physical hardware. |
+| **NICE DCV** | AWS remote desktop protocol. Streams GPU-rendered graphics from a cloud instance to your laptop browser. How you interact with Isaac Sim visually without a local GPU. |
+
+### Orchestration
+
+| Term | Plain English |
+|------|--------------|
+| **OSMO** | NVIDIA's workflow orchestrator for Physical AI. Chains multiple stages (train → simulate → evaluate → deploy) into one automated pipeline. Handles GPU scheduling and retry logic. Like CI/CD but for robot training. |
+| **SageMaker Pipeline** | AWS's ML workflow orchestration. We use this for the simpler GR00T training path (Lab 1). OSMO adds value when you need Isaac Lab simulation stages and complex multi-GPU scheduling. |
+
+### Data Formats
+
+| Term | Plain English |
+|------|--------------|
+| **LeRobot v2** | HuggingFace's standard format for robot training data. Parquet files for numbers (joint angles, actions) + MP4 files for camera video. GR00T reads this format directly. |
+| **Zarr** | A chunked array format for storing raw robot recordings before conversion. If you record teleop data, it likely starts as Zarr and gets converted to LeRobot. |
+| **URDF** | Universal Robot Description Format. An XML file describing your robot's geometry — how many joints, how long the links, what are the limits. Every simulator needs this to model your robot. |
+| **USD** | Universal Scene Description. A 3D scene format (originally from Pixar). Isaac Sim uses USD for all scene content — robots, objects, environments. |
+
+---
+
+For the complete glossary with cloud analogies and deeper explanations, see [docs/glossary.md](../docs/glossary.md).
