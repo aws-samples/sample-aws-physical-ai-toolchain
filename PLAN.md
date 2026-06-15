@@ -123,7 +123,7 @@ cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 | 6c | Eval video: sim rollout with Isaac-GR00T SDK | 🔲 | Needs SDK installed from source in container (see note) |
 | 7 | Workshop Lab 1 docs | ✅ | `workshop/lab-1-train-groot.md` |
 | 8 | SageMaker Pipeline: train → register model | ✅ | `groot-finetune-pipeline` created, executing |
-| 9 | Polish README + getting-started for GitLab review | 🔲 | |
+| 9 | Polish README + getting-started for GitLab review | ✅ | Rewritten with accurate pipeline architecture, cost table, honest status |
 
 **Note on 6c (eval video):** Clone the [Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) repo into the container, install via `uv sync`, then use `standalone_inference_script.py` for open-loop rollouts on dataset trajectories. Not on PyPI — install from source. Good task for a contributor.
 
@@ -133,8 +133,8 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 10 | Build Isaac Lab RL container via CodeBuild | 🚧 | CodeBuild project deployed, build triggered. Waiting for completion. |
-| 10a | Verify Isaac Lab container in ECR | 🔲 | Check image exists, correct size |
+| 10 | Build Isaac Lab RL container via CodeBuild | ✅ | Image in ECR: `physical-ai/isaac-lab:latest` (15.8 GB) |
+| 10a | Verify Isaac Lab container in ECR | ✅ | Confirmed: 15.8 GB, tag `latest`, pushed successfully |
 | 10b | Deploy Isaac Sim development workstation (GPU EC2 + DCV) | 🔲 | **Required for debugging.** Developers need to see the sim to iterate on environments. Port from [aws-samples scaffolding kit](https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation). |
 | 10c | Test Isaac Lab as SageMaker Training Job (dry run) | 🔲 | Submit a short RL training job, verify it starts |
 | 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Full pipeline: load Lab 1 model → RL refine → save |
