@@ -84,6 +84,8 @@ A reference for cloud builders entering the robotics/Physical AI space. Organize
 | **Gazebo** | Lightweight open-source robot simulator. ROS-native. Fast iteration, not photorealistic. Good for quick prototyping. | Used in the hackathon repo for quick prototyping. Not in the primary paths here. |
 | **PhysX** | NVIDIA's physics engine (collisions, friction, gravity). The "engine under the hood" of Isaac Sim. | You don't interact with it directly — Isaac Lab abstracts it. |
 | **DCV (NICE Desktop Cloud Visualization)** | AWS remote desktop protocol for GPU-accelerated graphics. Lets you see Isaac Sim's UI from your laptop by streaming pixels from a GPU EC2 instance. | Optional: for debugging environments visually. Not needed for headless training. |
+| **Neural Reconstruction** | Turning real-world captured data (camera images, lidar scans) into editable 3D scenes using neural rendering (NeRFs, 3D Gaussians). NVIDIA offers NuRec and InstantNuRec tools for this. The reconstructed scenes can be imported into Isaac Sim for simulation. | Useful for creating digital twins of real workspaces. Not required for our pipeline but relevant for customers who want sim environments that match their exact factory floor. |
+| **NVIDIA Agent Skills** | Open-source instruction sets (github.com/NVIDIA/skills) that teach AI agents how to automate Physical AI workflows — scene authoring, simulation control, training, evaluation. Announced at CVPR June 2026. Can be paired with Cosmos 3 and Isaac Sim 6.0 to automate end-to-end pipelines without manual scripting. | Future enhancement — could automate Isaac Lab environment development and Cosmos scene generation via agentic workflows. |
 | **Parallel Environments** | Running 4096 copies of the same robot simultaneously on one GPU. Each copy tries different actions. Massively speeds up RL training. | That's why training takes 4-8 hours instead of months. |
 | **Headless** | Running the simulator without rendering graphics. All physics still work, but no screen output. Faster because GPU isn't spending time on pixels. | Default during training. Rendering only needed for eval videos. |
 
@@ -134,6 +136,7 @@ A reference for cloud builders entering the robotics/Physical AI space. Organize
 | IRSA | IAM Roles for Service Accounts (EKS ↔ AWS IAM bridge) |
 | AOUSD | Alliance for OpenUSD (Apple, NVIDIA, Pixar, Adobe, Autodesk) |
 | EBML | Extensible Binary Meta Language (used by Robo-DM format) |
+| NIM | NVIDIA Inference Microservice (API-hosted models) |
 
 ---
 
