@@ -1,4 +1,4 @@
-# Lab 4: Edge Deployment
+# Lab 5: Edge Deployment
 
 **Time:** 2 hours
 **Cost:** ~$5-10 (Greengrass deployment + Jetson inference)
@@ -131,5 +131,5 @@ The gap between sim and real (sim-to-real transfer) should be small if Lab 3's d
 
 ---
 
-**Previous:** [← Lab 3: RL Refinement](lab-3-rl-refinement.md)
-**Next:** [Lab 5: OSMO Orchestration →](lab-5-osmo-orchestration.md)
+**Previous:** [← Lab 4: RL Refinement](lab-4-rl-refinement.md)
+**Next:** [Lab 6: OSMO Orchestration →](lab-6-osmo-orchestration.md)

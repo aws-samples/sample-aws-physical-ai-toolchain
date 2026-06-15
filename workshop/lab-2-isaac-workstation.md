@@ -236,4 +236,4 @@ You've completed Lab 2 if:
 ---
 
 **Previous:** [← Lab 1: Train from Demonstrations](lab-1-train-groot.md)
-**Next:** [Lab 3: RL Refinement in Simulation →](lab-3-rl-refinement.md)
+**Next:** [Lab 3: Cosmos World Generation →](lab-3-cosmos-world-generation.md)

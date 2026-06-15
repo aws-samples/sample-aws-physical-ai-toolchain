@@ -1,4 +1,4 @@
-# Lab 3: RL Refinement in Simulation
+# Lab 4: RL Refinement in Simulation
 
 **Time:** 3 hours (30 min hands-on + training runs in background)
 **Cost:** ~$10-30 depending on training duration
@@ -366,5 +366,5 @@ This is a common question — when do you need Cosmos vs. Isaac Lab's built-in r
 
 ---
 
-**Previous:** [← Lab 2: Isaac Sim Workstation](lab-2-isaac-workstation.md)
-**Next:** [Lab 4: Edge Deployment →](lab-4-edge-deployment.md)
+**Previous:** [← Lab 3: Cosmos World Generation](lab-3-cosmos-world-generation.md)
+**Next:** [Lab 5: Edge Deployment →](lab-5-edge-deployment.md)

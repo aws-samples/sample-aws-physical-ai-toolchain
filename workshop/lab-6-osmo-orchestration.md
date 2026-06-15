@@ -1,4 +1,4 @@
-# Lab 5: OSMO Orchestration
+# Lab 6: OSMO Orchestration
 
 **Time:** 2-3 hours
 **Cost:** ~$50-100 (EKS cluster + GPU nodes for orchestrated training)
@@ -241,4 +241,4 @@ OSMO on EKS integrates with:
 
 ---
 
-**Previous:** [← Lab 4: Edge Deployment](lab-4-edge-deployment.md)
+**Previous:** [← Lab 5: Edge Deployment](lab-5-edge-deployment.md)
