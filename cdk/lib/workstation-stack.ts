@@ -164,7 +164,7 @@ export class WorkstationStack extends cdk.Stack {
       'systemctl restart docker',
       '',
       'echo "=== Step 7: Set ubuntu password ==="',
-      'echo "ubuntu:physical-ai-2026" | chpasswd',
+      'echo "ubuntu:pai-lab1" | chpasswd',
       '',
       'echo "=== Step 8: AWS CLI v2 ==="',
       'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip',
