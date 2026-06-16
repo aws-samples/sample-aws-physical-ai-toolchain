@@ -48,6 +48,34 @@ aws ssm send-command --instance-ids i-03b2deb6b1e8116dc \
 aws ec2 terminate-instances --instance-ids i-03b2deb6b1e8116dc --region us-east-2
 ```
 
+## API Format (Transfer2Request)
+```json
+{
+  "prompt": "industrial warehouse with fluorescent lighting and metal shelving",
+  "video": "<base64-encoded MP4 or URL>",
+  "edge": {"enabled": true},
+  "guidance": 3,
+  "num_steps": 35,
+  "resolution": "480",
+  "seed": 42
+}
+```
+Note: Cosmos Transfer operates on VIDEO (MP4), not single images. 
+Integration: render Isaac Lab sim as MP4 → send to Cosmos → get photorealistic MP4 back.
+
+## Additional p5 Requirement: nvidia-fabricmanager
+p5 instances use NVSwitch for multi-GPU — CUDA won't initialize without fabricmanager:
+```bash
+apt-get install -yq nvidia-fabricmanager-550
+systemctl enable nvidia-fabricmanager
+systemctl start nvidia-fabricmanager
+```
+
+## Docker Flags Required
+```bash
+docker run -d --gpus all --ipc=host --ulimit memlock=-1 --ulimit stack=67108864 ...
+```
+
 ## For Toolkit Customers
 The `cosmos_setup.py` script attempts SageMaker endpoint first. If that fails (driver issue), customers should:
 1. Request p5 Spot capacity
