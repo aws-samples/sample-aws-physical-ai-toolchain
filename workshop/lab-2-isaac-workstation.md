@@ -31,14 +31,13 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 | Resource | Cost | When |
 |----------|------|------|
-| g6e.4xlarge (L40S GPU) | $4.53/hr | Only while instance is running |
+| g5.4xlarge (A10G GPU) | ~$1.62/hr | Only while instance is running |
 | 512 GB gp3 EBS | ~$40/month | Always (stores Isaac Sim + your work) |
-| Elastic IP | $3.60/month | While allocated (free when attached to running instance) |
 
 **Typical monthly cost:**
-- Heavy development (8 hrs/day, 5 days/week): ~$720/month
-- Moderate development (4 hrs/day, 3 days/week): ~$216/month
-- Occasional debugging (2 hrs/week): ~$36/month
+- Heavy development (8 hrs/day, 5 days/week): ~$260/month
+- Moderate development (4 hrs/day, 3 days/week): ~$78/month
+- Occasional debugging (2 hrs/week): ~$13/month
 
 **Compared to alternatives:**
 - Local GPU workstation (RTX 4090): $2,500+ upfront, limited to one developer
@@ -51,21 +50,21 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  EC2 g6e.4xlarge (NVIDIA L40S GPU)                          │
+│  EC2 g5.4xlarge (NVIDIA A10G GPU, 24GB VRAM)                │
 │                                                             │
 │  ┌─────────────────┐  ┌──────────────────────────────────┐ │
-│  │  NICE DCV       │  │  Isaac Sim + Isaac Lab            │ │
+│  │  NICE DCV       │  │  Isaac Sim 6.0 + Isaac Lab        │ │
 │  │  Remote Desktop │  │  - Visual scene editor            │ │
 │  │  (port 8443)    │  │  - RL environment preview         │ │
 │  │                 │  │  - Physics debugger               │ │
 │  └─────────────────┘  │  - Domain randomization viewer    │ │
 │                        └──────────────────────────────────┘ │
-│  ┌─────────────────┐  ┌──────────────────────────────────┐ │
-│  │  ROS2 Jazzy     │  │  Docker + NVIDIA Container Toolkit│ │
-│  │  (robot comms)  │  │  (test training containers)       │ │
-│  └─────────────────┘  └──────────────────────────────────┘ │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  Docker + NVIDIA Container Toolkit                       ││
+│  │  (test training containers locally — same as SageMaker)  ││
+│  └─────────────────────────────────────────────────────────┘│
 │                                                             │
-│  512 GB gp3 SSD | S3 access | ECR pull access              │
+│  512 GB gp3 SSD | S3 access | ECR pull access               │
 └─────────────────────────────────────────────────────────────┘
          │
          │ NICE DCV (port 8443, encrypted)
@@ -100,55 +99,47 @@ The stack outputs will show:
 
 ---
 
-## Step 2: Set the DCV Password
+## Step 2: Connect via Browser
 
-```bash
-# Get the instance ID from the stack output, then set password
-INSTANCE_ID=$(aws cloudformation describe-stacks \
-  --stack-name PhysicalAi-dev-Workstation \
-  --query 'Stacks[0].Outputs[?OutputKey==`SSMConnect`].OutputValue' \
-  --output text | grep -oP 'i-\w+')
+The workstation auto-configures everything on first boot (~15 min). Once ready:
 
-# Set password for DCV login (replace YOUR_PASSWORD)
-aws ssm send-command \
-  --instance-ids $INSTANCE_ID \
-  --document-name "AWS-RunShellScript" \
-  --parameters 'commands=["echo ubuntu:YOUR_PASSWORD | chpasswd"]'
-```
-
----
-
-## Step 3: Connect via Browser
-
-1. Open `https://<WorkstationIP>:8443` in your browser
+1. Open `https://<WorkstationIP>:8443` in your browser (get IP from CDK output)
 2. Accept the self-signed certificate warning
-3. Login: username `ubuntu`, password you just set
+3. Login: username `ubuntu`, password `pai-lab1`
 4. You'll see an Ubuntu desktop with GPU acceleration
 
+> **Note:** DCV requires direct internet access (port 8443). If you're on a corporate VPN that blocks non-standard ports, disconnect VPN to access DCV.
+
 ---
 
-## Step 4: Launch Isaac Sim
+## Step 3: Launch Isaac Sim
 
-On the workstation desktop, open a terminal:
+Everything is pre-installed. Open a terminal on the workstation and run:
 
 ```bash
-# Isaac Sim is pre-installed via the container or pip
-# Option A: Run Isaac Sim standalone
-~/.local/share/ov/pkg/isaac-sim-4.5.0/isaac-sim.sh
+# Activate the Isaac environment
+source ~/isaac-env/bin/activate
 
-# Option B: Launch Isaac Lab with our UR3 environment (visual mode)
-cd /workspace/isaaclab
-./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
+# Launch Isaac Sim GUI
+isaacsim
+```
+
+You'll see the full Isaac Sim visual editor — 3D viewport, content browser with robots and environments, scene tree.
+
+**Or run Isaac Lab training with visual rendering:**
+```bash
+source ~/isaac-env/bin/activate
+isaacsim omni.isaac.lab -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task=Isaac-Velocity-Flat-Anymal-D-v0 \
   --num_envs=16 \
   --max_iterations=10
 ```
 
-You'll see the simulated robots training in real-time with full rendering.
+You'll see 16 simulated robots training in real-time with full rendering.
 
 ---
 
-## Step 5: Develop Your RL Environment
+## Step 4: Develop Your RL Environment
 
 This is where you iterate:
 
@@ -230,7 +221,7 @@ You've completed Lab 2 if:
 
 1. **Always stop when you walk away.** Set a calendar reminder or use AWS Instance Scheduler.
 2. **Use Spot instances for non-critical work.** Modify the CDK stack to use Spot — saves ~70% but can be interrupted.
-3. **Right-size the instance.** g6e.4xlarge (1× L40S) is sufficient for environment development. Only upgrade to g6e.8xlarge if you need to run 4096+ envs visually.
+3. **Right-size the instance.** g5.4xlarge (1× A10G, 24GB VRAM) is sufficient for environment development. Only upgrade to g5.12xlarge if you need to run 4096+ envs visually.
 4. **Delete when the project is done.** `cdk destroy PhysicalAi-dev-Workstation` removes everything.
 
 ---

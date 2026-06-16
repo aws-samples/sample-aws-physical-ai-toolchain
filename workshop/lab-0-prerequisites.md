@@ -22,7 +22,7 @@
 ### 1. Clone the repo
 
 ```bash
-git clone <REPO_URL>
+git clone https://gitlab.aws.dev/devris/aws-physical-ai-toolchain.git
 cd aws-physical-ai-toolchain
 ```
 
@@ -37,14 +37,14 @@ cd ..
 ### 3. Bootstrap CDK (once per account/region)
 
 ```bash
-npx cdk bootstrap aws://<ACCOUNT_ID>/us-west-2
+npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1
 ```
 
 ### 4. Set environment variables
 
 ```bash
 export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
-export CDK_DEFAULT_REGION=us-west-2
+export CDK_DEFAULT_REGION=us-east-1
 export HF_TOKEN=hf_xxxx  # Your Hugging Face token
 ```
 
