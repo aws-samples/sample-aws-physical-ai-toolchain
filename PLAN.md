@@ -145,8 +145,9 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 | 10c | Test Isaac Lab as SageMaker Training Job (dry run) | ✅ | 100 iterations, 4096 envs, 60K steps/s, reward -0.36→+8.58. Dockerfile fixes committed. |
 | 10d | Run RL refinement with GR00T checkpoint as init | 🔲 | Needs: UR3 Isaac Lab env tested + GR00T→RL bridge script. Blocked on UR3 env validation (use workstation). |
 | 11 | Cosmos Transfer 2.5 container in ECR | ✅ | Pulled from NGC via CodeBuild. Ready for SageMaker endpoint deployment. |
-| 11a | Deploy Cosmos as SageMaker endpoint | 🔲 | `python cosmos_setup.py deploy` — needs p4d.24xlarge ($32/hr). Script written, untested. |
-| 11b | Generate photorealistic scenes with Cosmos | 🔲 | Depends on 11a. Script written (`cosmos_setup.py generate`). |
+| 11a | Deploy Cosmos as SageMaker endpoint | ❌ | SageMaker endpoint failed — driver too old (needs 580+, SM has 470). Pivoted to EC2 Spot. |
+| 11b | Deploy Cosmos on EC2 Spot (p5.48xlarge) | ✅ | Spot p5 in us-east-2. H100 driver 580.159 confirmed. Docker GPU runtime configured. Container running. Waiting for model load + health check. |
+| 11c | Generate photorealistic scenes with Cosmos | 🚧 | Container started, waiting for `/v1/health/ready` endpoint. Once healthy, test with sample image. |
 | 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
 | 13 | Workshop docs (Labs 0-6) | ✅ | Complete with intro, terminology, all labs written |
 | 14 | Zarr → LeRobot v2 conversion | ✅ | Proven hackathon script. 27 UR3 episodes converted (3,467 frames). |
