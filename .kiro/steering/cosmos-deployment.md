@@ -37,11 +37,34 @@ Cosmos Transfer 2.5-2B is running on a Spot p5.48xlarge in us-east-2.
 
 ## To Check Health
 ```bash
-aws ssm send-command --instance-ids i-03b2deb6b1e8116dc \
+aws ssm send-command --instance-ids <INSTANCE_ID> \
   --document-name "AWS-RunShellScript" \
   --parameters 'commands=["curl -s http://localhost:8000/v1/health/ready; echo ---; docker logs cosmos 2>&1 | tail -5"]' \
   --region us-east-2
 ```
+
+## Inference Status (as of 2026-06-16)
+- Health endpoint: ✅ `{"status":"ready"}`
+- API accepts requests: ✅ (correct format: prompt + video + edge/depth/vis/seg control)
+- Minimum 93 frames required (not single images)
+- Inference timeout: ❌ 93 frames with 5 steps exceeded 10 min timeout on CP=1
+- **Root cause:** Running on CP=1 (single GPU context-parallel). With 8 H100s, should use CP=8 which cuts latency by ~8x
+- **Fix:** Start container with `NIM_MODEL_PROFILE=latency` and expose all 8 GPUs. Or increase client timeout to 20 min.
+- Video format: h264 or vp9 in MP4 container, 93-480 frames
+
+## Correct API Request Format
+```json
+POST http://localhost:8000/v1/infer
+{
+  "prompt": "industrial warehouse with fluorescent lighting",
+  "video": "<base64-encoded MP4, 93-480 frames>",
+  "edge": {},
+  "num_steps": 10,
+  "guidance": 3,
+  "resolution": "256"
+}
+```
+At least one control modality (edge, depth, vis, or seg) is required.
 
 ## To Terminate (save costs)
 ```bash
