@@ -300,34 +300,6 @@ echo "Ready for Lab 4: RL Refinement with Cosmos-enhanced environments"
 
 ---
 
-## Cosmos Predict (Placeholder — Future Enhancement)
-
-> **TODO:** Implement Cosmos Predict integration
-
-While Cosmos **Transfer** takes existing video and makes it photorealistic, Cosmos **Predict** generates entirely new video from scratch:
-
-| Model | Input | Output | Use Case |
-|-------|-------|--------|----------|
-| **Cosmos Transfer** (what we built above) | Sim-rendered video + style prompt | Photorealistic version of the same scene | Close visual domain gap for existing environments |
-| **Cosmos Predict** | Text prompt or seed image | Brand new video that doesn't exist yet | Create novel training environments ("robot in a clean room" when you only have warehouse data) |
-
-**When you'd use Predict:**
-- You need to train for an environment you haven't built in Isaac Lab yet
-- You want massive environment diversity without modeling each one in USD
-- You're exploring "what if" scenarios (new factory layouts, different robot placements)
-
-**API:** Same p5 infrastructure, different NIM container (`cosmos-predict1-7b-text2world`). Same deployment pattern as Transfer.
-
-```bash
-# Future: deploy Cosmos Predict alongside Transfer
-# docker pull nvcr.io/nim/nvidia/cosmos-predict1-7b-text2world:latest
-# Same --gpus all --ipc=host flags required
-```
-
-This is a V3 enhancement — Transfer alone handles the majority of sim-to-real gap for manipulation tasks.
-
----
-
 ## Without Cosmos (Fallback)
 
 If you don't have NIM API access, Lab 4 still works. Isaac Lab's built-in procedural domain randomization provides:
