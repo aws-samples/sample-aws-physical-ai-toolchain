@@ -2,7 +2,7 @@
 
 ## Build an End-to-End Robot Learning Pipeline on AWS
 
-This workshop takes you from raw teleoperation recordings to a deployed robot policy — running on real hardware — using AWS infrastructure-as-code and the NVIDIA Physical AI stack.
+This workshop takes you from raw teleoperation recordings to a deployed robot policy — running on real hardware — using AWS infrastructure-as-code and the most widely adopted open-source tools in physical AI (GR00T, Isaac Lab, LeRobot, ROS 2, PyTorch).
 
 You'll build a complete **pick-and-place** pipeline: the most common industrial manipulation task and the starting point for most robotics teams. By the end, you'll have a trained, refined, and deployable policy that can pick objects from a bin and place them at a target location.
 
@@ -19,9 +19,9 @@ Teleop Data  →  Imitation Learning  →  World Generation  →  RL Refinement 
 A production-grade Physical AI pipeline with:
 
 - **Infrastructure as Code** — everything deploys via `cdk deploy`. Reproducible, versionable, teardown-able.
-- **NVIDIA toolstack** — GR00T N1 (foundation model), Isaac Lab (physics simulation), Cosmos (world generation), OSMO (orchestration), TensorRT (edge inference)
+- **Open-source toolchain** — GR00T (foundation model), Isaac Lab (RL simulation), Cosmos (world generation), LeRobot (data format), ROS 2 (robot middleware), PyTorch (training), Docker (containers) — all open source
 - **AWS services** — SageMaker (training), S3 (data), ECR (containers), CodeBuild (CI), IoT Greengrass (edge deployment), EKS (orchestration)
-- **Open source** — LeRobot (data format), ROS2 (robot middleware), PyTorch (training), Docker (containers)
+- **GPU-accelerated** — NVIDIA GPUs for parallel simulation (4096 robots simultaneously) and real-time inference at the edge (TensorRT on Jetson)
 
 ---
 
