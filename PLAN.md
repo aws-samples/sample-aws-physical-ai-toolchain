@@ -147,7 +147,7 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 | 11 | Cosmos Transfer 2.5 container in ECR | ✅ | Pulled from NGC via CodeBuild. Ready for SageMaker endpoint deployment. |
 | 11a | Deploy Cosmos as SageMaker endpoint | ❌ | SageMaker endpoint failed — driver too old (needs 580+, SM has 470). Pivoted to EC2 Spot. |
 | 11b | Deploy Cosmos on EC2 Spot (p5.48xlarge) | ✅ | Spot p5 in us-east-2. H100 driver 580.159, fabricmanager required. Container running + HEALTHY. TRT engine built. |
-| 11c | Generate photorealistic scenes with Cosmos | ✅ | Endpoint ready at localhost:8000. Confirmed: `{"status":"ready"}`. Model loaded with FP8 latency profile on H100. |
+| 11c | Generate photorealistic scenes with Cosmos | 🚧 | Endpoint confirmed healthy + API serving. **Still need:** send actual video through and verify photorealistic output. Requires spinning up p5 Spot again (~20 min setup). |
 | 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
 | 13 | Workshop docs (Labs 0-6) | ✅ | Complete with intro, terminology, all labs written |
 | 14 | Zarr → LeRobot v2 conversion | ✅ | Proven hackathon script. 27 UR3 episodes converted (3,467 frames). |
