@@ -1,8 +1,8 @@
 # Lab 6: OSMO Orchestration
 
+**Goal:** Use NVIDIA OSMO to orchestrate multi-stage Physical AI workflows across cloud and edge
 **Time:** 2-3 hours
 **Cost:** ~$50-100 (EKS cluster + GPU nodes for orchestrated training)
-**Goal:** Use NVIDIA OSMO to orchestrate multi-stage Physical AI workflows across cloud and edge
 
 ---
 

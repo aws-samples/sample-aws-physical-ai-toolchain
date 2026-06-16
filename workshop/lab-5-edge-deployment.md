@@ -1,8 +1,8 @@
 # Lab 5: Edge Deployment
 
+**Goal:** Deploy the trained policy from Lab 4 to a physical robot via AWS IoT Greengrass
 **Time:** 2 hours
 **Cost:** ~$5-10 (Greengrass deployment + Jetson inference)
-**Goal:** Deploy the trained policy from Lab 3 to a physical robot via AWS IoT Greengrass
 
 ---
 

@@ -1,8 +1,8 @@
 # Lab 2: Isaac Sim Development Workstation
 
+**Goal:** Deploy a GPU-powered remote desktop for visual Isaac Lab environment development and debugging
 **Time:** 30 min setup + ongoing development sessions
 **Cost:** ~$4.50/hr when running (stop when not in use)
-**Goal:** Deploy a GPU-powered remote desktop for visual Isaac Lab environment development and debugging
 
 ---
 
@@ -47,6 +47,8 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 ---
 
 ## Architecture
+
+> TODO: Insert workstation architecture diagram here (showing EC2 g5.4xlarge with DCV, Isaac Sim, Docker connecting to laptop browser)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐

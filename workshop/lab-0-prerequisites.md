@@ -1,7 +1,8 @@
 # Lab 0: Prerequisites
 
-**Time:** 30 minutes
 **Goal:** Verify your environment is ready to deploy the Physical AI Toolchain.
+**Time:** 30 minutes
+**Cost:** Free (no AWS resources created)
 
 ---
 

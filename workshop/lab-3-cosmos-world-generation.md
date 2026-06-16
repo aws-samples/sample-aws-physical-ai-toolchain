@@ -1,8 +1,8 @@
 # Lab 3: Cosmos World Generation
 
+**Goal:** Generate photorealistic, diverse training environments using NVIDIA Cosmos to improve sim-to-real transfer
 **Time:** 1-2 hours
 **Cost:** ~$32/hr while Cosmos endpoint is running (teardown immediately after)
-**Goal:** Generate photorealistic, diverse training environments using NVIDIA Cosmos to improve sim-to-real transfer
 
 > ⚠️ **Workshop Note:** This lab requires `ml.p4d.24xlarge` (8× A100 80GB GPUs) for the Cosmos Transfer endpoint. This instance type is **not available in standard AWS Workshop Studio accounts** without special quota approval. In a live workshop setting, this lab is either:
 > - **Instructor-led demonstration** — instructor runs the endpoint from a pre-approved account while attendees observe

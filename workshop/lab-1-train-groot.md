@@ -1,8 +1,8 @@
 # Lab 1: Train a Robot Policy from Demonstrations
 
+**Goal:** Fine-tune NVIDIA GR00T on teleoperation data → get a model that predicts robot joint actions from camera images
 **Time:** 2 hours (30 min hands-on + training runs in background)
 **Cost:** ~$2 for smoke test, ~$79 for full training
-**Goal:** Fine-tune NVIDIA GR00T on teleoperation data → get a model that predicts robot joint actions from camera images
 
 ---
 
@@ -30,6 +30,8 @@ A robot manipulation policy trained via **imitation learning**. Here's what that
 ---
 
 ## The Pipeline
+
+> TODO: Insert pipeline architecture diagram here (showing data flow from S3 → SageMaker → Evaluation → Model Registry)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐

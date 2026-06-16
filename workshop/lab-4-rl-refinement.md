@@ -1,8 +1,10 @@
 # Lab 4: RL Refinement in Simulation
 
-**Time:** 3 hours (30 min hands-on + training runs in background)
-**Cost:** ~$10-30 depending on training duration
 **Goal:** Take the imitation-learned model from Lab 1 and make it robust via reinforcement learning in Isaac Lab simulation
+**Time:** 3 hours (30 min hands-on + training runs in background)
+**Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations)
+
+> **TODO:** Add video showing RL training progression — robot falling over at iteration 0 vs walking stably at iteration 100
 
 ---
 
@@ -31,7 +33,7 @@ In Lab 1, you trained a policy by copying human demonstrations. It works ~70-80%
 
 **Key distinction from Lab 1:**
 - Lab 1: "Copy what the human did" (supervised learning from demonstrations)
-- Lab 2: "Figure out how to succeed through trial-and-error" (reinforcement learning from reward)
+- Lab 4: "Figure out how to succeed through trial-and-error" (reinforcement learning from reward)
 - Combined: The industry-standard approach for production robot policies
 
 ---
@@ -67,73 +69,30 @@ The policy must succeed across ALL these variations to get high reward. This for
 
 ## Prerequisites
 
-- Lab 1 completed (trained GR00T model in S3 / Model Registry)
-- **NVIDIA NGC API key** — required to pull the Isaac Lab base container image
-  - Sign up at https://ngc.nvidia.com
-  - Generate an API key at https://ngc.nvidia.com/setup/api-key
-  - The base image is: `nvcr.io/nvidia/isaac-lab:4.5.0` (~15 GB)
-- Docker with NVIDIA Container Toolkit (for local testing)
-- GPU quota for ml.g5.12xlarge (same as Lab 1)
+- Lab 1 completed (trained GR00T model in Model Registry)
+- Foundation stack deployed (includes Isaac Lab container in ECR — built automatically by CodeBuild)
+- GPU quota for ml.g5.xlarge (for smoke test) or ml.g5.12xlarge (for full training)
+
+> The Isaac Lab container is already built and in ECR from the CDK deployment. You don't need to build it manually or have NGC credentials — CodeBuild handled that using the NGC key stored in Secrets Manager.
 
 ---
 
-## Architecture: What's in the Isaac Lab Container
+## Step 1: Run the End-to-End Bridge (GR00T → RL)
 
-```
-Isaac Lab container (~20 GB):
-├── Isaac Sim runtime (physics engine, headless renderer)
-├── Isaac Lab framework (RL environment interface)
-├── rl_games (PPO/SAC implementation)
-├── Our custom environment: training/envs/pick_and_place_ur3.py
-│   ├── Observation space: joint positions (6) + gripper state (1) + object pose (7)
-│   ├── Action space: joint velocity targets (6) + gripper command (1)
-│   └── Reward: distance-to-object + grasp-success + place-success
-├── Training config: training/configs/ppo_pick_place.yaml
-│   ├── PPO hyperparameters (lr, gamma, clip_range, etc.)
-│   ├── Curriculum: starts easy (1 object, centered) → hard (8 objects, random)
-│   └── Domain randomization settings
-└── Scripts: train.py, evaluate.py, export.py
-```
-
----
-
-## Step 1: Get NGC Access and Pull Base Image
+This script verifies your Lab 1 model exists in the registry and launches RL refinement:
 
 ```bash
-# Login to NGC
-docker login nvcr.io -u '$oauthtoken' -p <YOUR_NGC_API_KEY>
-
-# Pull Isaac Lab base image (warning: ~15 GB, takes 10-20 min)
-docker pull nvcr.io/nvidia/isaac-lab:4.5.0
+# Smoke test: 50 iterations (~5 min, ~$3)
+python training/scripts/groot_to_rl_bridge.py end-to-end
 ```
 
----
+**What happens:**
+1. Verifies GR00T model exists in `groot-models` Model Registry
+2. Launches Isaac Lab RL training on SageMaker (ml.g5.xlarge, 4096 parallel envs)
+3. Trains for 50 iterations using PPO
+4. Saves checkpoint + training metadata to S3
 
-## Step 2: Build the RL Training Container
-
-```bash
-cd containers/isaac-lab
-
-# Build on top of Isaac Lab base
-docker build --platform linux/amd64 -t isaac-lab-training .
-
-# Tag for ECR
-ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
-  --query 'Stacks[0].Outputs[?OutputKey==`IsaacLabRepoUri`].OutputValue' --output text)
-
-docker tag isaac-lab-training:latest $ECR_URI:latest
-
-# Push to ECR (warning: ~20 GB, takes 15-30 min on first push)
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_URI
-docker push $ECR_URI:latest
-cd ../..
-```
-
----
-
-## Step 3: Understand the RL Environment
-
-Before running training, understand what the RL agent sees and does:
+## Step 2: Understand the RL Environment
 
 ```python
 # training/envs/pick_and_place_ur3.py (simplified)
