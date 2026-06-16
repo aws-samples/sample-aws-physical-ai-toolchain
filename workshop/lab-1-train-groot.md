@@ -8,11 +8,13 @@
 
 ## What You're Building
 
+> **TODO:** Add images or video of teleoperation showing operator using Xbox controller with UR3 arm
+
 A robot manipulation policy trained via **imitation learning**. Here's what that means:
 
-1. A human teleoperated a robot arm to perform a task (peg insertion) — 50 demonstrations were recorded
-2. Each demo captured: camera images + joint positions at every timestep
-3. You fine-tune GR00T (a 3B parameter vision-language-action model) to learn the pattern: "given this image → predict these joint movements"
+1. A human teleoperated a robot arm to perform a task (pick and place) — 27 demonstrations were recorded. Teleoperation is typically done using a game controller (we used Xbox), a VR headset (Apple Vision Pro is increasingly popular), or a 3D Space Mouse. The operator controls the robot's end-effector while camera and joint data are recorded automatically.
+2. Each demo captured: wrist camera images + joint positions + Cartesian velocity commands at every timestep
+3. You fine-tune GR00T (a 3B parameter vision-language-action model) to learn the pattern: "given this camera image → predict these motor commands"
 4. The result is a model that can control the robot autonomously for that task
 
 **What GR00T fine-tuning actually trains:**
@@ -91,37 +93,48 @@ export ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-
 
 ---
 
-## Step 2: Download the Demo Dataset
+## Step 2: Prepare the Training Data
+
+The training data is 27 episodes of UR3 pick-and-place, recorded via Xbox controller teleoperation. The raw data is in Zarr format (how our recording tools capture it) and needs to be converted to LeRobot v2 format (what GR00T reads).
 
 ```bash
-python training/groot/download_demo_dataset.py --output ./data/demo-dataset
+# Convert Zarr episodes → LeRobot v2 format
+python training/groot/convert_zarr_to_lerobot.py \
+  --episodes-dir training/data/ur3_episodes/episodes \
+  --output-dir training/data/ur3_lerobot_dataset
 ```
 
-**What this downloads:** `lerobot/aloha_sim_insertion_human` from HuggingFace — 50 episodes of a bimanual robot (ALOHA) performing peg insertion, teleoperated by a human in simulation.
+**What the conversion does:**
+- Reads each Zarr episode (wrist camera frames + joint states + velocity commands)
+- Aligns camera frames to telemetry timestamps (camera runs at 5Hz, telemetry at 10Hz)
+- Extracts action vectors from URScript `speedl` commands (6D Cartesian velocity + gripper)
+- Encodes camera frames to MP4 video
+- Writes LeRobot v2 parquet + metadata files
 
-**Dataset structure:**
+**Output structure:**
 ```
-data/demo-dataset/
-├── data/chunk-000/          # Parquet files: actions (14 joints), states, timestamps
-│   ├── file-000.parquet     # Each row = one timestep (50Hz)
-│   ├── file-001.parquet     # Columns: action (14-dim array), observation.state, episode_index
-│   └── ...
+training/data/ur3_lerobot_dataset/
+├── data/chunk-000/          # Parquet files: 7D actions (6 velocity + gripper), 7D states (6 joints + gripper)
+│   ├── episode_000000.parquet
+│   ├── episode_000001.parquet
+│   └── ... (27 episodes)
 ├── meta/
-│   ├── info.json            # Dataset metadata (robot type, fps, action dimensions)
-│   ├── episodes/            # Episode boundaries
-│   └── stats.json           # Action/state statistics (mean, std)
-└── videos/                  # Camera observations (top-down view)
-    └── observation.images.top/chunk-000/file-000.mp4
+│   ├── info.json            # Dataset metadata (robot_type: ur3, fps: 5)
+│   ├── modality.json        # GR00T embodiment config (arm start/end, gripper start/end)
+│   ├── episodes.jsonl       # Episode lengths and task descriptions
+│   └── tasks.jsonl          # Task vocabulary
+└── videos/chunk-000/
+    └── observation.images.wrist/  # Wrist camera MP4s (one per episode)
 ```
 
-**Size:** ~87 MB (50 episodes × ~500 frames each = 25,000 total frames)
+**Bringing your own data:** If you have Zarr episodes from a different robot, this same script works — just point `--episodes-dir` at your recordings. The Zarr schema expects `observations/joints`, `observations/gripper_position`, `images/wrist`, and `commands.json`. See `convert_zarr_to_lerobot.py` for the full format specification.
 
 ---
 
 ## Step 3: Upload Dataset to S3
 
 ```bash
-aws s3 sync ./data/demo-dataset/ "s3://$BUCKET/groot-data/demo/dataset/"
+aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/dataset/"
 ```
 
 ---
@@ -157,29 +170,21 @@ cd ../..
 Start with 100 steps to verify everything works (~15 min, ~$2):
 
 ```bash
-export HF_TOKEN="your-huggingface-token-here"
-
-python training/groot/launch_training.py \
-  --s3-bucket $BUCKET \
-  --dataset-prefix groot-data/demo \
-  --role-arn $ROLE_ARN \
-  --ecr-image $ECR_URI:latest \
+# One command to run the full pipeline (train + register to Model Registry)
+python training/groot/pipeline.py --execute \
   --max-steps 100 \
-  --instance-type ml.g5.12xlarge \
-  --region us-east-1
+  --dataset-prefix groot-data/ur3
 ```
 
-**What SageMaker does:**
-1. Provisions an ml.g5.12xlarge instance (~3-5 min)
-2. Pulls your container from ECR (~2 min, 7.1 GB)
-3. Downloads dataset from S3 to `/opt/ml/input/data/training/` (~30 sec)
-4. Runs `train_entrypoint.py` which:
-   - Downloads GR00T N1.7-3B base model from HuggingFace (~5 min first time)
-   - Fine-tunes projector + action head for 100 steps
-   - Generates eval report (MSE baselines on held-out 20% of data)
-   - Saves everything to `/opt/ml/model/`
-5. Uploads `model.tar.gz` to S3 automatically
-6. Terminates the instance (no idle charges)
+That's it. The pipeline handles:
+1. Provisioning an ml.g5.12xlarge instance (4× A10G GPUs)
+2. Pulling your container from ECR
+3. Downloading the UR3 dataset from S3
+4. Downloading GR00T N1.7-3B base model from HuggingFace
+5. Fine-tuning projector + action head for 100 steps
+6. Generating an eval report (action prediction error)
+7. Registering the trained model to the `groot-models` Model Registry
+8. Terminating the instance (no idle charges)
 
 ---
 
@@ -250,14 +255,7 @@ python training/groot/pipeline.py --list-runs --region us-east-1
 Once the smoke test passes, kick off the real training:
 
 ```bash
-python training/groot/launch_training.py \
-  --s3-bucket $BUCKET \
-  --dataset-prefix groot-data/demo \
-  --role-arn $ROLE_ARN \
-  --ecr-image $ECR_URI:latest \
-  --max-steps 5000 \
-  --instance-type ml.g5.12xlarge \
-  --region us-east-1
+python training/groot/pipeline.py --execute --max-steps 5000 --dataset-prefix groot-data/ur3
 ```
 
 This runs overnight (~11 hrs, ~$79). The model will be significantly better — loss should drop from ~0.4 to <0.05.
@@ -267,12 +265,12 @@ This runs overnight (~11 hrs, ~$79). The model will be significantly better — 
 ## ✅ Lab 1 Checkpoint
 
 You've completed Lab 1 if you can answer:
-- [ ] What dataset did we train on? (ALOHA sim peg insertion, 50 human teleop demos, LeRobot v2 format)
+- [ ] What dataset did we train on? (27 real UR3 pick-and-place episodes, recorded via Xbox controller teleop)
+- [ ] What format does GR00T expect? (LeRobot v2 — parquet + MP4, with modality.json for embodiment config)
 - [ ] What parts of GR00T get trained? (projector + diffusion action head; backbone is frozen)
 - [ ] What instance type did we use? (ml.g5.12xlarge — 4× A10G GPUs)
-- [ ] What does the eval report tell us? (MSE baselines — trained model should beat naive prediction)
 - [ ] Where is the trained model? (S3 bucket + Model Registry `groot-models`)
-- [ ] What's the limitation? (imitation only — fails on unseen variations → Lab 2 fixes this)
+- [ ] What's the limitation? (imitation only — fails on unseen variations → Lab 4 fixes this with RL)
 
 ---
 
