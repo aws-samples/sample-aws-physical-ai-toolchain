@@ -53,8 +53,43 @@ Cosmos closes this gap by training the policy on photorealistic variations *befo
 │  │           │    │  Generate    │    │  Used by Lab 4   │  │
 │  └──────────┘    └──────────────┘    └──────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
+```
 
-Two modes:
+## What Exactly Happens (Concrete Example)
+
+Here's the actual flow when you run Cosmos Transfer on a training scene:
+
+**Input you send:**
+1. A sim-rendered image — e.g., an Isaac Lab screenshot showing the UR3 arm reaching for a red block in a bin
+2. A style prompt — e.g., "industrial warehouse with fluorescent lighting, scratched metal surfaces"
+
+**What Cosmos does:**
+- Detects the structural content (robot arm shape, object position, spatial layout)
+- Replaces the "video game" textures with photorealistic materials
+- Adds realistic lighting, shadows, reflections, and surface imperfections
+- Preserves the exact geometry and robot pose (so training labels stay valid)
+
+**Output you get:**
+- The same scene, same robot pose, same object position — but looking like a photograph instead of a simulation screenshot
+
+**How this fits the pipeline:**
+```
+Isaac Lab renders 100 frames of the UR3 picking a block (clean sim visuals)
+    ↓
+Cosmos Transfer generates 4 style variations of each → 400 photorealistic frames
+    ↓
+RL trains on all 400 frames (the robot learns to succeed regardless of visual style)
+    ↓
+On real hardware: the wrist camera sees "warehouse lighting" → policy already trained on it → succeeds
+```
+
+**Without Cosmos:** Robot trained only on sim's flat gray surfaces. Real factory has scratched metal → policy confused → drops object.
+
+**With Cosmos:** Robot trained on scratched metal, dusty surfaces, mixed lighting. Real factory looks familiar → policy works.
+
+---
+
+## Two Modes
 
 Mode A: Transfer (enhance existing scenes)
   Isaac Lab renders scene → Cosmos makes it photorealistic → RL trains on enhanced images
