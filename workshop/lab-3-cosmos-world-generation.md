@@ -1,8 +1,14 @@
 # Lab 3: Cosmos World Generation
 
 **Time:** 1-2 hours
-**Cost:** ~$5-20 (NIM API calls for scene generation)
+**Cost:** ~$32/hr while Cosmos endpoint is running (teardown immediately after)
 **Goal:** Generate photorealistic, diverse training environments using NVIDIA Cosmos to improve sim-to-real transfer
+
+> ⚠️ **Workshop Note:** This lab requires `ml.p4d.24xlarge` (8× A100 80GB GPUs) for the Cosmos Transfer endpoint. This instance type is **not available in standard AWS Workshop Studio accounts** without special quota approval. In a live workshop setting, this lab is either:
+> - **Instructor-led demonstration** — instructor runs the endpoint from a pre-approved account while attendees observe
+> - **Self-paced only** — for customers running in their own AWS account with p4d quota approved
+>
+> Labs 0-2 and 4 work on standard workshop instances (g5.xlarge / g5.12xlarge). This lab is optional — Lab 4 (RL Refinement) works without Cosmos using built-in domain randomization.
 
 ---
 
