@@ -1,9 +1,20 @@
 # AWS Physical AI Toolchain — Project Plan
 
 **Status:** Active development
-**Last updated:** 2026-06-13
+**Last updated:** 2026-06-16
 **Owner:** devris
 **Repo:** [gitlab.aws.dev/devris/aws-physical-ai-toolchain](https://gitlab.aws.dev/devris/aws-physical-ai-toolchain)
+
+## Key Documents
+
+| Doc | Purpose |
+|-----|---------|
+| [README.md](README.md) | Project overview, what's working, quick start |
+| [TESTING.md](TESTING.md) | **Start here if testing from fresh clone** — known issues, watch points |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Git setup (SSH workaround), dev environment, account info |
+| [workshop/README.md](workshop/README.md) | Workshop intro, lab sequence, terminology |
+| [docs/cosmos-deployment-guide.md](docs/cosmos-deployment-guide.md) | Cosmos Transfer deployment (H100, Docker flags, API format) |
+| [docs/glossary.md](docs/glossary.md) | Physical AI terminology for newcomers |
 
 ---
 
