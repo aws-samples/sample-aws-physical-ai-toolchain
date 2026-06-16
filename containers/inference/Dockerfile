@@ -40,7 +40,6 @@ RUN pip install --no-cache-dir \
 
 # Copy inference node
 COPY edge/ros2-workspace/ /workspace/ros2_ws/src/
-COPY edge/scripts/ /workspace/scripts/
 
 WORKDIR /workspace
 
@@ -57,12 +56,23 @@ ENTRYPOINT ["/entrypoint.sh"]
 # ============================================================
 # Stage: Jetson (aarch64)
 # ============================================================
-FROM nvcr.io/nvidia/l4t-tensorrt:r36.4.0 AS jetson
+# L4T TensorRT base for JetPack 6.x (TensorRT 10.3). Tags are TensorRT-versioned
+# (rX.Y.Z-runtime), not JetPack-versioned — verified against the NGC registry.
+FROM nvcr.io/nvidia/l4t-tensorrt:r10.3.0-runtime AS jetson
 
-# ROS 2 Humble is available on JetPack 6.x
+# Add the ROS 2 apt repository, then install ROS 2 Humble. The l4t-tensorrt base
+# (Ubuntu 22.04) does not ship the ROS repo, so we configure it the same way as
+# the x86 stage (universe + ROS key + ros2.list) before apt-installing.
 RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    curl \
+    && add-apt-repository universe \
+    && curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" | tee /etc/apt/sources.list.d/ros2.list > /dev/null \
+    && apt-get update && apt-get install -y \
     ros-humble-ros-base \
     ros-humble-ur-robot-driver \
+    python3-colcon-common-extensions \
     python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
@@ -71,7 +81,6 @@ RUN pip install --no-cache-dir \
     pyyaml>=6.0
 
 COPY edge/ros2-workspace/ /workspace/ros2_ws/src/
-COPY edge/scripts/ /workspace/scripts/
 
 WORKDIR /workspace
 

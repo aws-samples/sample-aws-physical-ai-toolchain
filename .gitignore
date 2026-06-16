@@ -4,8 +4,13 @@ cdk/node_modules/
 
 # CDK build output
 cdk/cdk.out/
+cdk/cdk.out*/
 cdk/*.js
 cdk/*.d.ts
+
+# CDK context cache — per-account VPC/AZ lookups. Must NOT be committed: it
+# pins account IDs + VPC/subnet IDs and breaks Vpc.fromLookup for other users.
+cdk/cdk.context.json
 
 # Data (large files tracked via Git LFS, not committed directly)
 data/**

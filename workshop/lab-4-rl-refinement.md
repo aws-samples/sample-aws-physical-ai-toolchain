@@ -73,7 +73,11 @@ The policy must succeed across ALL these variations to get high reward. This for
 - Foundation stack deployed (includes Isaac Lab container in ECR — built automatically by CodeBuild)
 - GPU quota for ml.g5.xlarge (for smoke test) or ml.g5.12xlarge (for full training)
 
-> The Isaac Lab container is already built and in ECR from the CDK deployment. You don't need to build it manually or have NGC credentials — CodeBuild handled that using the NGC key stored in Secrets Manager.
+> The Isaac Lab container is already built and in ECR from the CDK deployment. You
+> don't need to build it manually or have NGC credentials on your machine — CodeBuild
+> pulls the ~16 GB NGC base (`nvcr.io/nvidia/isaac-lab:2.1.0`) and builds it in the
+> cloud using the NGC key you stored in Secrets Manager in Lab 0. Nothing large
+> touches your laptop, and it works even on Apple Silicon (the NGC base is x86-only).
 
 ---
 
@@ -92,7 +96,13 @@ python training/scripts/groot_to_rl_bridge.py end-to-end
 3. Trains for 50 iterations using PPO
 4. Saves checkpoint + training metadata to S3
 
+> Need to rebuild the Isaac Lab container after changing its Dockerfile? Trigger
+> the cloud build with `aws codebuild start-build --project-name physical-ai-isaac-lab-build`
+> and watch it in the [CodeBuild console](https://console.aws.amazon.com/codesuite/codebuild/projects).
+
 ## Step 2: Understand the RL Environment
+
+Before running training, understand what the RL agent sees and does:
 
 ```python
 # training/envs/pick_and_place_ur3.py (simplified)

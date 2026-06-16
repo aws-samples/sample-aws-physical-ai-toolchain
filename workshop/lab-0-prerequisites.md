@@ -14,16 +14,21 @@
 | AWS CLI v2 configured | Deploy infrastructure | `aws sts get-caller-identity` |
 | Node.js 18+ | CDK requires it | `node --version` |
 | AWS CDK CLI | Deploy stacks | `npx cdk --version` |
-| Docker | Build training containers | `docker --version` |
-| NVIDIA NGC account (free) | Pull Isaac Sim base images | Sign up at https://ngc.nvidia.com |
-| Hugging Face token | Pull GR00T base model | Create at https://huggingface.co/settings/tokens |
+| NVIDIA NGC API key | CodeBuild pulls Isaac Sim/Lab/Cosmos base images | Generate at https://ngc.nvidia.com/setup/api-key |
+| Hugging Face token | Pull GR00T base model (during training) | Create at https://huggingface.co/settings/tokens |
+
+> **No Docker required.** All container images are built in **AWS CodeBuild** and
+> pushed to ECR automatically when you deploy the Foundation stack. You never run
+> `docker build` or pull multi-GB NVIDIA images locally — so a laptop with no GPU
+> (including Apple Silicon) is perfectly fine. Docker is only needed if you opt
+> into the local-build fast-path on a workstation (see Lab 2).
 
 ## Step-by-Step Setup
 
 ### 1. Clone the repo
 
 ```bash
-git clone https://gitlab.aws.dev/devris/aws-physical-ai-toolchain.git
+git clone https://github.com/aws-samples/aws-physical-ai-toolchain.git
 cd aws-physical-ai-toolchain
 ```
 
@@ -49,13 +54,40 @@ export CDK_DEFAULT_REGION=us-east-1
 export HF_TOKEN=hf_xxxx  # Your Hugging Face token
 ```
 
-### 5. Verify
+### 5. Store your NGC API key in Secrets Manager
+
+CodeBuild uses this to pull NVIDIA base images (Isaac Sim/Lab, Cosmos) when it
+builds the containers. One time per account:
+
+```bash
+aws secretsmanager create-secret --name physical-ai/ngc-api-key \
+  --secret-string "YOUR_NGC_API_KEY" --region $CDK_DEFAULT_REGION
+```
+
+(The GR00T training image builds from a public base and needs no NGC key — so if
+you only plan to do Lab 1, this step is optional.)
+
+### 6. Verify
 
 ```bash
 cd cdk
 npx cdk synth --context mode=simple 2>&1 | head -5
 # Should print: Successfully synthesized to cdk.out
 ```
+
+### 7. Deploy the Foundation stack — builds start automatically
+
+```bash
+npx cdk deploy PhysicalAi-dev-Foundation --context mode=simple
+```
+
+The stack itself deploys in ~3 minutes. As part of deploy, CDK uploads this repo
+to S3 and **auto-triggers CodeBuild jobs** that build every container image and
+push them to ECR — so you never build or pull large images locally. The builds
+run in the background (groot ~10 min; isaac-lab/isaac-sim/cosmos can take up to an
+hour). The stack's `BuildConsole` output links to the CodeBuild console to watch
+progress. Builds re-run automatically on later `cdk deploy`s only when the source
+changes.
 
 ---
 
@@ -82,12 +114,12 @@ echo "Account:     $(aws sts get-caller-identity --query Account --output text)"
 echo "Region:      ${CDK_DEFAULT_REGION:-not set}"
 echo "Node:        $(node --version)"
 echo "CDK:         $(npx cdk --version 2>/dev/null || echo 'not installed')"
-echo "Docker:      $(docker --version 2>/dev/null || echo 'not installed')"
 echo "HF_TOKEN:    ${HF_TOKEN:+set}${HF_TOKEN:-NOT SET}"
+echo "NGC secret:  $(aws secretsmanager describe-secret --secret-id physical-ai/ngc-api-key --query Name --output text 2>/dev/null || echo 'not created (only needed for Isaac/Cosmos labs)')"
 echo "==========================="
 ```
 
-All items should show versions or "set". If anything says "not installed" or "NOT SET", fix it before proceeding to Lab 1.
+All items should show versions or "set". If anything says "not installed" or "NOT SET", fix it before proceeding to Lab 1. (Docker is **not** required — containers build in CodeBuild.)
 
 ---
 

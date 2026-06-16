@@ -90,9 +90,12 @@ if (mode === 'full') {
     checkpointsBucket: storageStack.checkpointsBucket,
     modelsBucket: storageStack.modelsBucket,
     telemetryBucket: storageStack.telemetryBucket,
-    isaacSimRepo: storageStack.isaacSimRepo,
-    isaacLabRepo: storageStack.isaacLabRepo,
-    inferenceRepo: storageStack.inferenceRepo,
+    // Pull from the Foundation ECR repos — those are the ones the CodeBuild
+    // jobs actually populate. (StorageStack used to declare its own empty
+    // isaac-*/inference repos that nothing ever pushed to.)
+    isaacSimRepo: foundationStack.isaacSimRepo,
+    isaacLabRepo: foundationStack.isaacLabRepo,
+    inferenceRepo: foundationStack.inferenceRepo,
   });
 
   // OSMO control plane (RDS, Redis, Helm chart on EKS)
@@ -109,6 +112,7 @@ if (mode === 'full') {
   // Dependencies
   eksStack.addDependency(networkStack);
   eksStack.addDependency(storageStack);
+  eksStack.addDependency(foundationStack); // EKS pulls images from Foundation ECR repos
   osmoStack.addDependency(eksStack);
 }
 
@@ -134,11 +138,14 @@ if (includeEdge) {
 
 if (includeWorkstation) {
   const allowedCidr = app.node.tryGetContext('allowedCidr') || '0.0.0.0/0';
+  const repoUrl = app.node.tryGetContext('repoUrl'); // optional override
 
   new WorkstationStack(app, `${prefix}-Workstation`, {
     env,
     environment: config.environment,
     allowedCidr,
+    projectName,
+    repoUrl,
   });
 }
 

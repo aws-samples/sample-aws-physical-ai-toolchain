@@ -58,8 +58,8 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 
 ## Prerequisites
 
-- Foundation stack deployed (`cdk deploy --context mode=simple` — see Lab 0)
-- Docker running locally (for container build)
+- Foundation stack deployed (`cdk deploy --context mode=simple` — see Lab 0). This
+  already triggered the CodeBuild job that builds the training container in the cloud.
 - `HF_TOKEN` environment variable set (HuggingFace token for downloading GR00T base model weights)
   - Get one at https://huggingface.co/settings/tokens
   - Accept the GR00T license at https://huggingface.co/nvidia/GR00T-N1.7-3B
@@ -141,21 +141,32 @@ aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/data
 
 ---
 
-## Step 4: Build and Push the Training Container
+## Step 4: Get the Training Container
+
+**You don't build this locally.** When you deployed the Foundation stack (Lab 0),
+CDK kicked off an AWS CodeBuild job that builds the `groot-training` image in the
+cloud and pushes it to ECR. This means **no multi-GB `docker build` on your
+laptop** — and it works even on Apple Silicon, where the image can't be built
+locally at all.
+
+Check that the image is ready:
 
 ```bash
-# Login to ECR
-aws ecr get-login-password --region us-east-1 | \
-  docker login --username AWS --password-stdin $ECR_URI
+# Was the build triggered? (it runs automatically on cdk deploy)
+aws codebuild list-builds-for-project --project-name physical-ai-groot-training-build \
+  --query 'ids[0]' --output text
 
-# Build (takes ~5 min first time, uses Docker layer cache after)
-cd containers/groot-training
-docker build --platform linux/amd64 -t groot-training .
+# Is the image in ECR yet? (build takes ~10 min)
+aws ecr describe-images --repository-name physical-ai/groot-training \
+  --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
+```
 
-# Tag and push
-docker tag groot-training:latest $ECR_URI:latest
-docker push $ECR_URI:latest
-cd ../..
+If the image isn't there yet, watch the build in the [CodeBuild console](https://console.aws.amazon.com/codesuite/codebuild/projects)
+(the `BuildConsole` Foundation stack output links straight to it). Re-run a build
+any time with:
+
+```bash
+aws codebuild start-build --project-name physical-ai-groot-training-build
 ```
 
 **What's in the container:**
@@ -164,6 +175,25 @@ cd ../..
 - LeRobot (dataset loading)
 - pandas + matplotlib (eval report generation)
 - `train_entrypoint.py` — the script SageMaker runs
+
+<details>
+<summary><strong>Optional:</strong> build locally instead (only if you're iterating on the Dockerfile)</summary>
+
+The `groot-training` image builds from a public CUDA base, so you *can* build it
+on an x86 machine with Docker if you want a faster edit/rebuild loop:
+
+```bash
+aws ecr get-login-password --region us-east-1 | \
+  docker login --username AWS --password-stdin $ECR_URI
+cd containers/groot-training
+docker build --platform linux/amd64 -t groot-training .
+docker tag groot-training:latest $ECR_URI:latest
+docker push $ECR_URI:latest
+cd ../..
+```
+
+For everyone else, the CodeBuild image above is all you need.
+</details>
 
 ---
 

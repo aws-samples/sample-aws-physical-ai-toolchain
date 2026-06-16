@@ -4,6 +4,7 @@ import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as codebuild from 'aws-cdk-lib/aws-codebuild';
 import { Construct } from 'constructs';
+import { ContainerBuild } from './constructs/container-build';
 
 export interface FoundationStackProps extends cdk.StackProps {
   environment: string;
@@ -16,11 +17,15 @@ export interface FoundationStackProps extends cdk.StackProps {
  * Provides the shared resources that both Path A (SageMaker) and Path B (EKS/OSMO) need:
  * - S3 buckets for datasets, models, checkpoints
  * - ECR repositories for training and inference containers
- * - IAM roles for SageMaker and CodeBuild
- * - CodeBuild projects for container image builds
+ * - IAM roles for SageMaker
+ * - CodeBuild projects that build every container image in the cloud and push
+ *   to ECR — so users never pull multi-GB NVIDIA base images or run `docker
+ *   build` on their laptop (it can't be done on Apple Silicon anyway).
  *
- * WORKSHOP NOTE: This is the first thing you deploy. It takes ~3 minutes.
- * After deployment, check the CloudFormation outputs for bucket names and role ARNs.
+ * WORKSHOP NOTE: This is the first thing you deploy. The stack itself takes
+ * ~3 minutes; the container builds it kicks off run in the background in
+ * CodeBuild (groot ~10 min, isaac-lab/cosmos can take up to an hour). Watch
+ * them in the CodeBuild console — see the BuildConsole output below.
  */
 export class FoundationStack extends cdk.Stack {
   // Expose resources for other stacks to reference
@@ -29,7 +34,10 @@ export class FoundationStack extends cdk.Stack {
   public readonly checkpointsBucket: s3.Bucket;
   public readonly grootTrainingRepo: ecr.Repository;
   public readonly isaacLabRepo: ecr.Repository;
+  public readonly isaacSimRepo: ecr.Repository;
   public readonly inferenceRepo: ecr.Repository;
+  public readonly cosmosRepo: ecr.Repository;
+  public readonly cosmos3Repo: ecr.Repository;
   public readonly sagemakerRole: iam.Role;
 
   constructor(scope: Construct, id: string, props: FoundationStackProps) {
@@ -108,6 +116,36 @@ export class FoundationStack extends cdk.Stack {
       emptyOnDelete: true,
     });
 
+    // Isaac Sim scene-generation container (Stage 2 — Cosmos/procedural scenes)
+    this.isaacSimRepo = new ecr.Repository(this, 'IsaacSimRepo', {
+      repositoryName: `${projectName}/isaac-sim`,
+      imageScanOnPush: true,
+      lifecycleRules: [{ maxImageCount: 5 }],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
+    // Cosmos Transfer container — mirrored from NGC into our ECR by CodeBuild
+    // (so the workstation/endpoint pulls from ECR, not a 30 GB NGC pull on the box).
+    this.cosmosRepo = new ecr.Repository(this, 'CosmosRepo', {
+      repositoryName: `${projectName}/cosmos-transfer`,
+      imageScanOnPush: true,
+      lifecycleRules: [{ maxImageCount: 3 }],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
+    // Cosmos 3 (cosmos-framework) — built from source by CodeBuild. The
+    // actively-developed successor to the 2.5 line (unified predict/reason; transfer
+    // still maturing). Weights pull from HuggingFace at runtime.
+    this.cosmos3Repo = new ecr.Repository(this, 'Cosmos3Repo', {
+      repositoryName: `${projectName}/cosmos3`,
+      imageScanOnPush: true,
+      lifecycleRules: [{ maxImageCount: 3 }],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
     // =========================================================================
     // IAM: SAGEMAKER EXECUTION ROLE
     // =========================================================================
@@ -137,108 +175,130 @@ export class FoundationStack extends cdk.Stack {
     }));
 
     // =========================================================================
-    // CODEBUILD: CONTAINER BUILD PROJECTS
+    // CODEBUILD: CONTAINER IMAGE BUILDS (cloud builds → ECR, no local Docker)
     // =========================================================================
+    //
+    // Every container image is built in CodeBuild from an S3 copy of this repo,
+    // then pushed to ECR. This removes the multi-GB local `docker build`/`docker
+    // pull` burden entirely — the only thing distributed in git is source.
+    //
+    // The repo source is uploaded to S3 ONCE (shared asset) and reused by every
+    // build. Builds auto-trigger on `cdk deploy` and re-run only when the source
+    // changes (the trigger keys off the asset's content hash).
+    //
+    // Builds that pull an NVIDIA NGC base image (isaac-lab, isaac-sim, cosmos)
+    // need an NGC API key in Secrets Manager at `${projectName}/ngc-api-key`.
+    // See Lab 0 for how to create it. groot-training builds from a public CUDA
+    // base, so it works with no extra credentials.
 
-    const codebuildRole = new iam.Role(this, 'CodeBuildRole', {
-      roleName: `${projectName}-${environment}-codebuild-role`,
-      assumedBy: new iam.ServicePrincipal('codebuild.amazonaws.com'),
+    const sourceAsset = ContainerBuild.sourceAsset(this, 'ContainerSource');
+
+    // GR00T fine-tuning container (Path A) — public CUDA base, no NGC needed.
+    const grootBuild = new ContainerBuild(this, 'GrootTrainingBuild', {
+      projectName,
+      imageName: 'groot-training',
+      repository: this.grootTrainingRepo,
+      buildSpecPath: 'containers/groot-training/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.LARGE,
+      timeout: cdk.Duration.minutes(45),
     });
 
-    // ECR push permissions
-    codebuildRole.addToPolicy(new iam.PolicyStatement({
-      actions: [
-        'ecr:GetAuthorizationToken',
-        'ecr:BatchCheckLayerAvailability',
-        'ecr:GetDownloadUrlForLayer',
-        'ecr:BatchGetImage',
-        'ecr:InitiateLayerUpload',
-        'ecr:UploadLayerPart',
-        'ecr:CompleteLayerUpload',
-        'ecr:PutImage',
-      ],
-      resources: ['*'],
-    }));
+    // Isaac Lab RL container (Path B) — NGC base (~16 GB), needs big builder.
+    new ContainerBuild(this, 'IsaacLabBuild', {
+      projectName,
+      imageName: 'isaac-lab',
+      repository: this.isaacLabRepo,
+      buildSpecPath: 'containers/isaac-lab/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.X2_LARGE, // 72 GB mem, large disk
+      timeout: cdk.Duration.hours(2),
+      requiresNgcLogin: true,
+    });
 
-    codebuildRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['logs:CreateLogGroup', 'logs:CreateLogStream', 'logs:PutLogEvents'],
-      resources: ['*'],
-    }));
+    // Isaac Sim scene-generation container — NGC base (~15 GB).
+    new ContainerBuild(this, 'IsaacSimBuild', {
+      projectName,
+      imageName: 'isaac-sim',
+      repository: this.isaacSimRepo,
+      buildSpecPath: 'containers/isaac-sim/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.X2_LARGE,
+      timeout: cdk.Duration.hours(2),
+      requiresNgcLogin: true,
+    });
 
-    this.datasetsBucket.grantRead(codebuildRole);
+    // Inference container (edge) — TensorRT + ROS2. Two targets, both built in
+    // the cloud so nothing (not even the Jetson/aarch64 image) builds locally:
+    //   - x86 target  → pushed as :latest  (GPU PC / workstation testing)
+    //   - jetson target → pushed as :jetson (NVIDIA Jetson, aarch64) on Graviton
+    new ContainerBuild(this, 'InferenceBuild', {
+      projectName,
+      imageName: 'inference',
+      repository: this.inferenceRepo,
+      buildSpecPath: 'containers/inference/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.LARGE,
+      timeout: cdk.Duration.hours(1),
+    });
 
-    // GR00T training container build project
-    new codebuild.Project(this, 'GrootTrainingBuild', {
-      projectName: `${projectName}-groot-training-build`,
-      role: codebuildRole,
-      environment: {
-        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
-        computeType: codebuild.ComputeType.LARGE,
-        privileged: true,
-        environmentVariables: {
-          AWS_DEFAULT_REGION: { value: region },
-          AWS_ACCOUNT_ID: { value: account },
-          ECR_REPO: { value: this.grootTrainingRepo.repositoryUri },
-        },
+    // Jetson (aarch64) inference image — built on a Graviton fleet so it never
+    // builds on-device. Its L4T base (l4t-tensorrt:r10.3.0-runtime) is on NGC, so
+    // the build logs in with the NGC key; the tag is public-pullable with a free
+    // NGC account (verified against the registry).
+    new ContainerBuild(this, 'InferenceJetsonBuild', {
+      projectName,
+      imageName: 'inference-jetson',
+      repository: this.inferenceRepo,
+      buildSpecPath: 'containers/inference/buildspec.yml',
+      sourceAsset,
+      architecture: 'arm64', // Graviton fleet → builds the aarch64 Jetson image natively
+      computeType: codebuild.ComputeType.LARGE,
+      timeout: cdk.Duration.hours(1),
+      requiresNgcLogin: true,
+    });
+
+    // Cosmos Transfer 2.5 — built from source (github.com/nvidia-cosmos/cosmos-transfer2.5).
+    // Public CUDA base, so NO NGC key needed. Model weights are a gated HuggingFace
+    // download (nvidia/Cosmos-Transfer2.5-2B) pulled at *runtime* via HF_TOKEN, not
+    // here. Pin the version with COSMOS_REF.
+    // NOTE: construct ID stays 'CosmosMirrorBuild' to match the already-deployed
+    // logical ID (renaming it collides with the existing CodeBuild project name).
+    new ContainerBuild(this, 'CosmosMirrorBuild', {
+      projectName,
+      imageName: 'cosmos-transfer',
+      repository: this.cosmosRepo,
+      buildSpecPath: 'containers/cosmos/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.X2_LARGE,
+      timeout: cdk.Duration.hours(2),
+      environmentVariables: {
+        COSMOS_REPO: { value: 'https://github.com/nvidia-cosmos/cosmos-transfer2.5.git' },
+        COSMOS_REF: { value: 'v1.5.4' }, // pin to a release tag, not the moving main branch
       },
-      source: codebuild.Source.gitHub({
-        owner: 'PLACEHOLDER', // Will be updated when repo is public
-        repo: 'aws-physical-ai-toolchain',
-        branchOrRef: 'main',
-      }),
-      buildSpec: codebuild.BuildSpec.fromObject({
-        version: '0.2',
-        phases: {
-          pre_build: {
-            commands: [
-              'aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com',
-            ],
-          },
-          build: {
-            commands: [
-              'cd containers/groot-training',
-              'docker build -t groot-training .',
-              'docker tag groot-training:latest $ECR_REPO:latest',
-            ],
-          },
-          post_build: {
-            commands: ['docker push $ECR_REPO:latest'],
-          },
-        },
-      }),
     });
 
-    // Isaac Lab RL training container build project
-    // Requires NGC API key stored in Secrets Manager (for base image pull)
-    // Uses x86 large instance (image is ~30GB, needs space + time)
-    codebuildRole.addToPolicy(new iam.PolicyStatement({
-      actions: ['secretsmanager:GetSecretValue'],
-      resources: [
-        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/ngc-api-key*`,
-        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/nim-api-key*`,
-      ],
-    }));
-
-    new codebuild.Project(this, 'IsaacLabBuild', {
-      projectName: `${projectName}-isaac-lab-build`,
-      role: codebuildRole,
-      environment: {
-        buildImage: codebuild.LinuxBuildImage.STANDARD_7_0,
-        computeType: codebuild.ComputeType.X2_LARGE, // 72 GB memory, 300 GB disk for large image
-        privileged: true,
-        environmentVariables: {
-          AWS_DEFAULT_REGION: { value: region },
-          ECR_REPO_URI: { value: this.isaacLabRepo.repositoryUri },
-        },
+    // Cosmos 3 — built from source (github.com/NVIDIA/cosmos-framework), the
+    // actively-developed successor to the 2.5 line. Public CUDA base (no NGC);
+    // weights + guardrail are gated HuggingFace downloads pulled at runtime via
+    // HF_TOKEN. Does text2image/video2video etc.; controlled transfer is still
+    // 2.5-only (see CosmosMirrorBuild above).
+    new ContainerBuild(this, 'Cosmos3Build', {
+      projectName,
+      imageName: 'cosmos3',
+      repository: this.cosmos3Repo,
+      buildSpecPath: 'containers/cosmos3/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.X2_LARGE, // big ML dep tree, needs disk
+      timeout: cdk.Duration.hours(2),
+      environmentVariables: {
+        COSMOS3_REPO: { value: 'https://github.com/NVIDIA/cosmos-framework.git' },
+        COSMOS3_REF: { value: 'main' }, // no release tags published yet; pin a commit if needed
       },
-      source: codebuild.Source.gitHub({
-        owner: 'PLACEHOLDER',
-        repo: 'aws-physical-ai-toolchain',
-        branchOrRef: 'main',
-      }),
-      buildSpec: codebuild.BuildSpec.fromSourceFilename('containers/isaac-lab/buildspec.yml'),
-      timeout: cdk.Duration.hours(2), // Large image build can take a while
     });
+
+    // The training datasets bucket is read by builds that bake-in sample data.
+    this.datasetsBucket.grantRead(grootBuild.project);
 
     // =========================================================================
     // OUTPUTS
@@ -278,6 +338,29 @@ export class FoundationStack extends cdk.Stack {
       value: this.isaacLabRepo.repositoryUri,
       description: 'ECR URI for the Isaac Lab RL training container',
       exportName: `${projectName}-${environment}-isaac-lab-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'IsaacSimRepoUri', {
+      value: this.isaacSimRepo.repositoryUri,
+      description: 'ECR URI for the Isaac Sim scene-generation container',
+      exportName: `${projectName}-${environment}-isaac-sim-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'CosmosRepoUri', {
+      value: this.cosmosRepo.repositoryUri,
+      description: 'ECR URI for the Cosmos Transfer 2.5 container (built from source)',
+      exportName: `${projectName}-${environment}-cosmos-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'Cosmos3RepoUri', {
+      value: this.cosmos3Repo.repositoryUri,
+      description: 'ECR URI for the Cosmos 3 Generator container (mirrored from Docker Hub)',
+      exportName: `${projectName}-${environment}-cosmos3-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'BuildConsole', {
+      value: `https://${region}.console.aws.amazon.com/codesuite/codebuild/projects?region=${region}`,
+      description: 'Watch container image builds here (they run in CodeBuild after deploy)',
     });
   }
 }

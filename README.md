@@ -65,13 +65,16 @@ A complete, deployable Physical AI pipeline:
 
 ```
 ├── cdk/                           # Infrastructure as Code (AWS CDK)
-│   ├── lib/foundation-stack.ts    # S3, ECR, IAM, CodeBuild
+│   ├── lib/foundation-stack.ts    # S3, ECR, IAM, CodeBuild image builds
+│   ├── lib/constructs/container-build.ts  # S3-asset → CodeBuild → ECR (auto-trigger)
 │   ├── lib/workstation-stack.ts   # GPU dev workstation (DCV + Isaac Sim)
 │   ├── lib/eks-cluster-stack.ts   # EKS for OSMO (optional)
 │   └── lib/edge-stack.ts          # IoT Greengrass for robot fleet
-├── containers/
+├── containers/                    # Each has a Dockerfile + buildspec.yml (CodeBuild)
 │   ├── groot-training/            # GR00T fine-tuning container
 │   ├── isaac-lab/                 # Isaac Lab RL training container
+│   ├── isaac-sim/                 # Isaac Sim scene-generation container
+│   ├── cosmos/                    # Cosmos Transfer (mirrored from NGC → ECR)
 │   └── inference/                 # TensorRT + ROS2 inference container
 ├── training/
 │   ├── groot/                     # Pipeline scripts, dataset tools
@@ -87,11 +90,13 @@ A complete, deployable Physical AI pipeline:
 ## Quick Start
 
 ```bash
-# Prerequisites: AWS CLI configured, Node.js 18+, Docker, git-lfs
+# Prerequisites: AWS CLI configured, Node.js 18+, git-lfs
+# (No Docker needed — container images are built in AWS CodeBuild, not locally.)
 # Install git-lfs if needed: https://git-lfs.com  (brew install git-lfs on Mac)
 # After installing: git lfs install
 
-# 1. Clone and deploy infrastructure (~5 min)
+# 1. Clone and deploy infrastructure (~5 min). Deploy also kicks off CodeBuild
+#    jobs that build every container image in the cloud and push them to ECR.
 git clone [REPO_URL]
 cd aws-physical-ai-toolchain/cdk && npm install
 npx cdk deploy --context mode=simple
@@ -100,12 +105,22 @@ npx cdk deploy --context mode=simple
 git lfs pull
 unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
 
-# 3. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
+# 3. Wait for the groot-training image (~10 min) — watch in the CodeBuild console
+aws ecr describe-images --repository-name physical-ai/groot-training \
+  --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
+
+# 4. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
 ./run-path-a.sh --max-steps=100
 
-# 4. Check results
+# 5. Check results
 aws sagemaker list-model-packages --model-package-group-name groot-models
 ```
+
+> **Why CodeBuild?** The NVIDIA base images (Isaac Lab ~16 GB, Cosmos ~30 GB) are
+> too large to pull or build on a laptop, and several are x86-only (they can't be
+> built on Apple Silicon at all). CodeBuild builds them on a large cloud instance
+> and pushes to your ECR. See [Lab 0](workshop/lab-0-prerequisites.md) for the
+> one-time NGC API key setup that the NVIDIA-based builds need.
 
 See [workshop/README.md](workshop/README.md) for the full guided experience.
 
@@ -144,7 +159,8 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 
 ## What's Working Today
 
-- ✅ Foundation infrastructure (S3, ECR, IAM, CodeBuild)
+- ✅ Foundation infrastructure (S3, ECR, IAM)
+- ✅ Cloud container builds — every image built in CodeBuild and pushed to ECR on `cdk deploy` (no local Docker, works on Apple Silicon)
 - ✅ GR00T fine-tuning on SageMaker (full pipeline: train → eval → register)
 - ✅ GR00T fine-tuning with real UR3 data (100-step smoke test succeeded with 27 real teleop episodes)
 - ✅ Isaac Lab RL training on SageMaker (100 iterations, 60K steps/s, reward -0.36→+8.58)

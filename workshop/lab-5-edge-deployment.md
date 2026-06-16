@@ -73,9 +73,32 @@ python training/scripts/export.py \
   --target jetson-orin
 ```
 
-### Step 2: Build Inference Container
+### Step 2: Get the Inference Container
+
+Both inference images are built in CodeBuild and pushed to ECR by the Foundation
+stack — **nothing builds on your laptop or on the Jetson:**
+
+- `physical-ai/inference:latest` — x86_64 (GPU PC / workstation testing), built on the standard fleet
+- `physical-ai/inference:jetson` — aarch64 for NVIDIA Jetson, built natively on a **Graviton (ARM) CodeBuild fleet**
+
 ```bash
-docker build -t ur3-inference:latest -f containers/inference/Dockerfile .
+INFERENCE_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
+  --query 'Stacks[0].Outputs[?OutputKey==`InferenceRepoUri`].OutputValue' --output text)
+
+# Both tags should appear (x86 = latest, Jetson = jetson):
+aws ecr describe-images --repository-name physical-ai/inference \
+  --query 'imageDetails[].imageTags' --output text
+
+# Rebuild after changing the inference node or Dockerfile:
+aws codebuild start-build --project-name physical-ai-inference-build         # x86
+aws codebuild start-build --project-name physical-ai-inference-jetson-build  # Jetson (aarch64)
+```
+
+On the Jetson, you just **pull** the prebuilt aarch64 image from ECR (no on-device build):
+
+```bash
+aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <acct>.dkr.ecr.<region>.amazonaws.com
+docker pull <acct>.dkr.ecr.<region>.amazonaws.com/physical-ai/inference:jetson
 ```
 
 ### Step 3: Create Greengrass Component

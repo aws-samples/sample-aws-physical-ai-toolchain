@@ -15,6 +15,19 @@ export interface WorkstationStackProps extends cdk.StackProps {
    * g6e.8xlarge recommended (L40S GPU, good price/performance).
    */
   instanceType?: string;
+  /**
+   * Project name prefix used for ECR repo paths (e.g. `physical-ai/isaac-lab`).
+   * Must match the FoundationStack projectName. Default: 'physical-ai'.
+   */
+  projectName?: string;
+  /**
+   * Git URL of this toolchain repo, cloned onto the workstation for iteration.
+   * Defaults to the public aws-samples URL; if you deploy from a fork or a repo
+   * that isn't published yet, pass `--context repoUrl=<your clone URL>` so the
+   * workstation clones the right source (the clone is best-effort — a wrong URL
+   * just leaves the box without the repo, it doesn't fail the deploy).
+   */
+  repoUrl?: string;
 }
 
 /**
@@ -46,6 +59,12 @@ export class WorkstationStack extends cdk.Stack {
     // Note: VPN often blocks port 8443 outbound — users typically connect off-VPN.
     const allowedCidr = props.allowedCidr || '0.0.0.0/0';
     const instanceType = props.instanceType || 'g5.4xlarge';
+    const projectName = props.projectName || 'physical-ai';
+    const repoUrl = props.repoUrl || 'https://github.com/aws-samples/aws-physical-ai-toolchain.git';
+
+    // ECR registry for this account/region (resolved at deploy time via CDK tokens).
+    const ecrRegistry = `${cdk.Aws.ACCOUNT_ID}.dkr.ecr.${cdk.Aws.REGION}.amazonaws.com`;
+    const isaacLabImage = `${ecrRegistry}/${projectName}/isaac-lab:latest`;
 
     // Use default VPC for simplicity
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
@@ -172,8 +191,8 @@ export class WorkstationStack extends cdk.Stack {
       '/tmp/aws/install --update',
       '',
       'echo "=== Step 9: Pull Isaac Lab container from ECR ==="',
-      'aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 802782083985.dkr.ecr.us-east-1.amazonaws.com',
-      'docker pull 802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest',
+      `aws ecr get-login-password --region ${cdk.Aws.REGION} | docker login --username AWS --password-stdin ${ecrRegistry}`,
+      `docker pull ${isaacLabImage} || echo "isaac-lab image not in ECR yet — the CodeBuild build may still be running; pull later"`,
       '',
       'echo "=== Step 10: Install Isaac Sim + Isaac Lab (host, for visual mode) ==="',
       'su - ubuntu -c "python3 -m venv ~/isaac-env"',
@@ -181,14 +200,14 @@ export class WorkstationStack extends cdk.Stack {
       'su - ubuntu -c "source ~/isaac-env/bin/activate && pip install \'isaacsim[all,extscache]\' --extra-index-url https://pypi.nvidia.com"',
       '',
       'echo "=== Step 11: Clone toolchain repo ==="',
-      'su - ubuntu -c "git clone https://gitlab.aws.dev/devris/aws-physical-ai-toolchain.git /home/ubuntu/aws-physical-ai-toolchain || true"',
+      `su - ubuntu -c "git clone ${repoUrl} /home/ubuntu/aws-physical-ai-toolchain || true"`,
       '',
       'echo "=== Step 12: Create convenience scripts ==="',
       'cat > /home/ubuntu/run-isaac-lab.sh << \'RUNSCRIPT\'',
       '#!/bin/bash',
       '# Run Isaac Lab training (headless via Docker) — same as SageMaker',
       'docker run --gpus all --rm \\',
-      '  802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest \\',
+      `  ${isaacLabImage} \\`,
       '  train',
       'RUNSCRIPT',
       'cat > /home/ubuntu/run-isaac-sim-gui.sh << \'GUISCRIPT\'',
@@ -202,7 +221,7 @@ export class WorkstationStack extends cdk.Stack {
       '',
       'echo "Workstation bootstrap complete" > /var/log/workstation-bootstrap.summary',
       'echo "DCV URL: https://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8443"',
-      'echo "Username: ubuntu  Password: physical-ai-2026"',
+      'echo "Username: ubuntu  Password: pai-lab1 (change it with: sudo passwd ubuntu)"',
       '',
       '# Reboot to finalize NVIDIA driver + desktop',
       'shutdown -r +1 "Rebooting to finalize workstation setup"',

@@ -6,11 +6,12 @@ Defines a repeatable, observable ML pipeline:
   Step 2: Register — Save model to SageMaker Model Registry
 
 Usage:
-    # Create/update the pipeline:
+    # Create/update the pipeline (values come from the Foundation stack outputs;
+    # ACCOUNT is your AWS account ID):
     python pipeline.py --create \
-        --s3-bucket physical-ai-dev-datasets-802782083985 \
-        --role-arn arn:aws:iam::802782083985:role/physical-ai-dev-sagemaker-role \
-        --ecr-image 802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/groot-training:latest
+        --s3-bucket physical-ai-dev-datasets-<ACCOUNT> \
+        --role-arn arn:aws:iam::<ACCOUNT>:role/physical-ai-dev-sagemaker-role \
+        --ecr-image <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/physical-ai/groot-training:latest
 
     # Execute a run:
     python pipeline.py --execute \

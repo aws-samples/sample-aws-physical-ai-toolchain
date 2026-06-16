@@ -1,0 +1,46 @@
+version: 0.2
+
+# Builds the edge inference container in CodeBuild and pushes to ECR.
+# Base image is public NVIDIA TensorRT — no NGC credentials required.
+#
+# The Dockerfile has two stages:
+#   - x86    (GPU PC / workstation, x86_64)  → built on the standard fleet
+#   - jetson (NVIDIA Jetson, aarch64)        → built on a Graviton ARM fleet
+# Which one this project builds is selected by IMAGE_ARCH, so even the Jetson
+# image is produced in the cloud — nothing builds on a laptop or on-device.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/inference)
+#   AWS_DEFAULT_REGION  - build region
+#   IMAGE_ARCH          - 'x86_64' (→ stage x86, tag :latest, public TensorRT base) or
+#                         'arm64'  (→ stage jetson, tag :jetson, NGC L4T base)
+#   NGC_SECRET_NAME     - (jetson only) Secrets Manager secret with the NGC API key
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date) for arch=$IMAGE_ARCH"
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      # Select Dockerfile target, build platform, and image tag from the arch.
+      - |
+        if [ "$IMAGE_ARCH" = "arm64" ]; then
+          export TARGET=jetson PLATFORM=linux/arm64 TAG=jetson
+          # The Jetson stage's L4T base lives on NGC — log in.
+          echo "Logging in to NGC (nvcr.io) for the L4T base..."
+          NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "$NGC_SECRET_NAME" --region "$AWS_DEFAULT_REGION" --query SecretString --output text)
+          echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+        else
+          export TARGET=x86 PLATFORM=linux/amd64 TAG=latest
+        fi
+      - 'echo "Building target=$TARGET platform=$PLATFORM tag=$TAG"'
+  build:
+    commands:
+      - docker build --platform "$PLATFORM" --target "$TARGET" -t "inference-$TARGET" -f containers/inference/Dockerfile .
+      - docker tag "inference-$TARGET:latest" "$ECR_REPO_URI:$TAG"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:$TAG"
+      - 'echo "Done. Image: $ECR_REPO_URI:$TAG"'

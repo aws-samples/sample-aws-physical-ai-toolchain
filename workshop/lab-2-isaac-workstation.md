@@ -146,8 +146,9 @@ You'll see 16 simulated robots training in real-time with full rendering.
 This is where you iterate:
 
 ```bash
-# Clone your repo on the workstation
-git clone git@ssh.gitlab.aws.dev:devris/aws-physical-ai-toolchain.git
+# Clone your repo on the workstation (the bootstrap already cloned it to
+# /home/ubuntu/aws-physical-ai-toolchain — or clone your own fork)
+git clone https://github.com/aws-samples/aws-physical-ai-toolchain.git
 cd aws-physical-ai-toolchain
 
 # Run the UR3 pick-and-place environment visually
@@ -187,24 +188,33 @@ Your work is preserved on the EBS volume — stopping only halts the compute cha
 
 ## Testing Training Containers Locally
 
-The workstation has Docker + NVIDIA Container Toolkit, so you can test your SageMaker training containers without waiting for SageMaker provisioning:
+The workstation has Docker + NVIDIA Container Toolkit, so you can pull the
+CodeBuild-built image from *your* ECR and run it exactly as SageMaker would —
+without waiting for SageMaker provisioning. The registry is derived from your own
+account/region, so nothing is hardcoded:
 
 ```bash
-# Pull the Isaac Lab training container from ECR
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 802782083985.dkr.ecr.us-east-1.amazonaws.com
-docker pull 802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+REGION=$(aws configure get region)
+ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
+IMAGE="$ECR_REGISTRY/physical-ai/isaac-lab:latest"
+
+# Pull the Isaac Lab training container from ECR (built for you by CodeBuild)
+aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+docker pull "$IMAGE"
 
 # Run it like SageMaker would (simulating the training invocation)
 docker run --gpus all \
   -v /tmp/test-output:/opt/ml/model \
   -v /tmp/test-config:/opt/ml/input/config \
-  802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest \
+  "$IMAGE" \
   train
-
-# Iterate on container changes in seconds instead of waiting for CodeBuild + SageMaker
 ```
 
-This is the fastest iteration loop for container issues (like the entrypoint fix we debugged).
+This is the fastest iteration loop for container issues. If you change the
+Dockerfile, you can rebuild in the cloud (`aws codebuild start-build
+--project-name physical-ai-isaac-lab-build`) or, on this x86 workstation, build
+locally and push to ECR yourself.
 
 ---
 

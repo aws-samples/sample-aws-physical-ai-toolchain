@@ -83,11 +83,12 @@
 - **Next:** Follow OSMO minimal deployment guide with correct values structure
 
 ### Phase 5: Build & Push Containers
-- 🔲 Build isaac-lab container locally (or in CodeBuild)
-- 🔲 Push to ECR
-- 🔲 Build inference container
-- 🔲 Push to ECR
-- **Expected issues:** NGC base image pull (needs NGC API key), large image sizes
+- ✅ All container builds moved to CodeBuild (`cdk/lib/constructs/container-build.ts`):
+  groot-training, isaac-lab, isaac-sim, inference, cosmos-mirror. S3-asset source,
+  auto-triggered on `cdk deploy`, NGC login via Secrets Manager for NVIDIA bases.
+  No local `docker build`/`docker pull` anymore — works on Apple Silicon.
+- **Resolved issue:** NGC base image pull happens in CodeBuild using the
+  `physical-ai/ngc-api-key` secret; large images build on X2_LARGE compute.
 
 ### Phase 6: Run Training Pipeline
 - 🔲 `osmo workflow submit -f workflows/pick-and-place.yaml`

@@ -50,7 +50,16 @@ import numpy as np
 from pathlib import Path
 
 REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-BUCKET = "physical-ai-dev-datasets-802782083985"
+PROJECT_NAME = os.environ.get("PROJECT_NAME", "physical-ai")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
+
+# Account/resource names are resolved from the caller's identity so this works in
+# any account — no hardcoded account ID. Override with env vars if you customized
+# the CDK projectName/environment.
+ACCOUNT_ID = boto3.client("sts", region_name=REGION).get_caller_identity()["Account"]
+BUCKET = os.environ.get("DATASETS_BUCKET", f"{PROJECT_NAME}-{ENVIRONMENT}-datasets-{ACCOUNT_ID}")
+ROLE_ARN = os.environ.get("SAGEMAKER_ROLE_ARN", f"arn:aws:iam::{ACCOUNT_ID}:role/{PROJECT_NAME}-{ENVIRONMENT}-sagemaker-role")
+ISAAC_LAB_IMAGE = os.environ.get("ISAAC_LAB_IMAGE", f"{ACCOUNT_ID}.dkr.ecr.{REGION}.amazonaws.com/{PROJECT_NAME}/isaac-lab:latest")
 
 
 def get_latest_model_package():
@@ -98,9 +107,9 @@ def pretrain_mlp_from_teleop():
     
     sm.create_training_job(
         TrainingJobName=job_name,
-        RoleArn=f"arn:aws:iam::802782083985:role/physical-ai-dev-sagemaker-role",
+        RoleArn=ROLE_ARN,
         AlgorithmSpecification={
-            "TrainingImage": "802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest",
+            "TrainingImage": ISAAC_LAB_IMAGE,
             "TrainingInputMode": "File",
         },
         InputDataConfig=[{
@@ -163,9 +172,9 @@ def launch_rl_refinement(pretrained_path: str = None):
     
     sm.create_training_job(
         TrainingJobName=job_name,
-        RoleArn=f"arn:aws:iam::802782083985:role/physical-ai-dev-sagemaker-role",
+        RoleArn=ROLE_ARN,
         AlgorithmSpecification={
-            "TrainingImage": "802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/isaac-lab:latest",
+            "TrainingImage": ISAAC_LAB_IMAGE,
             "TrainingInputMode": "File",
         },
         OutputDataConfig={

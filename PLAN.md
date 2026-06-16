@@ -359,7 +359,7 @@ If you're a new builder joining this repo:
 - [ ] Include MLflow tracking in V1 or defer?
 - [ ] AWS account for workshop: shared or per-participant?
 - [ ] GitLab repo location — which team namespace?
-- [ ] **CodeBuild source:** Currently uses PLACEHOLDER GitHub source. When repo goes public, update `foundation-stack.ts` CodeBuild projects to point to the real repo URL so customers can trigger builds without the zip-to-S3 workaround.
+- [x] ~~**CodeBuild source:** Currently uses PLACEHOLDER GitHub source.~~ → **Resolved.** All container builds now use a CDK S3 Asset of the local repo as the CodeBuild source (`cdk/lib/constructs/container-build.ts`), auto-triggered on `cdk deploy`. No GitHub coupling — works for anyone who clones and deploys. Covers groot-training, isaac-lab, isaac-sim, inference, and the Cosmos NGC mirror.
 
 ## Decisions Made (2026-06-12)
 
