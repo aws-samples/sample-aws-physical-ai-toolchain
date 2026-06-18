@@ -100,12 +100,12 @@ cdk deploy --context mode=full     # Foundation + EKS + OSMO (V3 scale path)
 - ✅ CDK: Network, Storage, EKS, OSMO, Edge stacks (all synthesize)
 - ✅ EKS cluster deployed and tested (v1.31, 3 nodes)
 - ✅ RDS + Redis deployed for OSMO
-- ✅ Isaac Lab RL environment (`training/envs/pick_and_place_ur3.py`)
-- ✅ Training, evaluation, export scripts
+- 🚧 Isaac Lab RL environment (`training/envs/pick_and_place_ur3.py`) — written but NOT yet `gym.register()`-ed; validated RL runs use built-in tasks (Anymal-D). See docs/ROADMAP.md.
+- ✅ Training, evaluation, export scripts (export.py requires a TorchScript checkpoint; end-to-end unvalidated)
 - ✅ Cosmos scene generation script
-- ✅ Dockerfiles for Isaac Sim, Isaac Lab, Inference containers
-- ✅ ROS2 TensorRT inference node (200Hz, Jetson + x86)
-- ✅ Greengrass component recipes (CDK inline)
+- ✅ Dockerfiles for Isaac Sim, Isaac Lab, Inference containers (all build in CodeBuild)
+- 🚧 ROS2 TensorRT inference node (Jetson + x86) — code exists; 200Hz target is a config default, not a measured/validated result; not yet a valid ROS2 package
+- 🚧 Greengrass component recipes (CDK inline) — synthesize; not deployed/validated on a device
 - ✅ OSMO workflow YAML
 
 ### From hackathon repo (`physical-ai-toolkit`):
@@ -161,7 +161,7 @@ The key insight: Isaac Lab RL isn't a separate training path — it **refines** 
 | 11c | Generate photorealistic scenes with Cosmos | 🚧 | API confirmed accepting requests (correct format). Inference runs but exceeds 10min timeout for 93 frames. **Next steps:** (1) increase client timeout to 15-20 min, or (2) use CP=8 (all 8 H100s parallel) to reduce per-request latency. The API works — just needs longer timeout or multi-GPU parallelism. See **[docs/cosmos-deployment-guide.md](docs/cosmos-deployment-guide.md)** for full deployment instructions, API format, Docker flags, and troubleshooting. |
 | 11d | Cosmos Predict (text/image → video generation) | 🔲 | **Placeholder.** Cosmos Predict generates entirely new video from text prompts or seed images. Use for: creating novel training environments that don't exist yet (e.g., "robot arm in a clean room" when you only have warehouse data). Different from Transfer (which reskins existing video). Needs same p5 infrastructure. |
 | 12 | Extend SM Pipeline: train → RL refine → eval → register | 🔲 | Full V2 pipeline combining Stage 1 + Stage 3 |
-| 13 | Workshop docs (Labs 0-6) | ✅ | Complete with intro, terminology, all labs written |
+| 13 | Workshop docs (Labs 0-6) | 🚧 | Labs 0-4 written; Lab 5 (edge) is a placeholder with wrong commands (task 22); Lab 6 (OSMO) partial |
 | 14 | Zarr → LeRobot v2 conversion | ✅ | Proven hackathon script. 27 UR3 episodes converted (3,467 frames). |
 | 15 | GR00T fine-tune with real UR3 data | ✅ | 100-step smoke test succeeded with real UR3 teleop data (27 episodes). |
 | 16 | MCAP → LeRobot v2 conversion tool | 🔲 | **Up for grabs.** For customers using ROS 2 bags. Reference: HuggingFace LeRobot MCAP loader. Same output format as task 14, different input parser. |
@@ -199,10 +199,10 @@ Only needed when single-GPU RL refinement isn't enough (100+ parallel environmen
 
 | # | Task | Status | Notes |
 |---|------|--------|-------|
-| 19 | Test Edge stack deployment (IoT Core + Greengrass) | 🔲 | CDK exists: `edge-stack.ts` |
-| 20 | Build inference container, push to ECR | 🔲 | Dockerfile exists (Jetson + x86) |
-| 21 | Test Greengrass component deployment | 🔲 | Needs Jetson or simulated device |
-| 22 | Workshop Lab 3 docs | 🔲 | |
+| 19 | Test Edge stack deployment (IoT Core + Greengrass) | 🔲 | CDK exists (`edge-stack.ts`); not deployed. Recipe ECR-URI literal fixed; edge scripts still missing — see docs/ROADMAP.md Feature 1 |
+| 20 | Build inference container, push to ECR | ✅ | Built in CodeBuild (x86 `:latest` + Jetson `:jetson`), in ECR |
+| 21 | Test Greengrass component deployment | 🔲 | Needs Jetson or simulated device (hardware-gated) |
+| 22 | Workshop Lab 5 (edge) docs — flesh out placeholder | 🔲 | lab-5 is a placeholder with wrong export flags/topics; needs rewrite. (Was mislabeled "Lab 3".) |
 
 ### Phase 4: Developer Experience
 

@@ -2,6 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import * as iot from 'aws-cdk-lib/aws-iot';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as ecr from 'aws-cdk-lib/aws-ecr';
 import * as greengrassv2 from 'aws-cdk-lib/aws-greengrassv2';
 import { Construct } from 'constructs';
 
@@ -10,6 +11,11 @@ export interface EdgeStackProps extends cdk.StackProps {
   thingGroupName: string;
   modelsBucket: s3.Bucket;
   telemetryBucket: s3.Bucket;
+  /**
+   * ECR repo holding the edge inference image. Its URI is baked into the
+   * Greengrass component recipe so devices pull the right container.
+   */
+  inferenceRepo: ecr.Repository;
 }
 
 /**
@@ -29,7 +35,7 @@ export class EdgeStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: EdgeStackProps) {
     super(scope, id, props);
 
-    const { thingGroupName, modelsBucket, telemetryBucket } = props;
+    const { thingGroupName, modelsBucket, telemetryBucket, inferenceRepo } = props;
 
     // --- IoT Thing Group ---
     // All robot edge devices belong to this group for batch operations
@@ -174,7 +180,9 @@ export class EdgeStack extends cdk.Stack {
         ],
         ComponentConfiguration: {
           DefaultConfiguration: {
-            containerUri: '${ECR_INFERENCE_REPO_URI}:latest',
+            // Resolved CDK token → the real ECR image URI for this account/region.
+            // (Previously a literal '${ECR_INFERENCE_REPO_URI}:latest' that never resolved.)
+            containerUri: `${inferenceRepo.repositoryUri}:latest`,
           },
         },
       }),
@@ -198,6 +206,16 @@ export class EdgeStack extends cdk.Stack {
                   + '--region ' + this.region,
               },
             },
+            // The Lifecycle script references {artifacts:path}/telemetry_collector.py,
+            // so the manifest MUST declare that artifact or Greengrass can't resolve it.
+            // The collector is delivered to s3://<models bucket>/edge/telemetry_collector.py
+            // by the edge deploy tooling (see docs/ROADMAP.md Feature 1).
+            Artifacts: [
+              {
+                Uri: `s3://${modelsBucket.bucketName}/edge/telemetry_collector.py`,
+                Unarchive: 'NONE',
+              },
+            ],
           },
         ],
       }),

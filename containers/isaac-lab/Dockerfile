@@ -39,7 +39,9 @@ RUN chmod +x /opt/ml/code/sm-train-entrypoint.sh
 COPY training/ /workspace/training/
 COPY workflows/ /workspace/workflows/
 
-# Copy custom UR3 environment (registered as Isaac Lab task)
+# Copy custom UR3 environment. NOTE: not yet gym.register()-ed as an Isaac Lab
+# task — see docs/ROADMAP.md (standalone RL feature). The validated RL path
+# currently uses Isaac Lab's built-in tasks (e.g. Isaac-Velocity-Flat-Anymal-D-v0).
 COPY training/envs/ /workspace/training/envs/
 
 # Set working directory

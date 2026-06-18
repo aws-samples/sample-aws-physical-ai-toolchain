@@ -30,7 +30,7 @@ Usage:
     # Step 3: RL refinement (launches Isaac Lab training with pretrained weights)
     python groot_to_rl_bridge.py rl-refine \
         --pretrained s3://bucket/mlp-pretrained/policy.pt \
-        --task PickAndPlace-UR3-v0 \
+        --task PickAndPlaceUR3-v0 \
         --num-envs 4096 \
         --max-iterations 500
 

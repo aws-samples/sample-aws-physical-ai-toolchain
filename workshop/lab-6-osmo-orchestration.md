@@ -127,7 +127,7 @@ spec:
         gpu_type: A10G
       depends_on: [groot-finetune]
       params:
-        task: PickAndPlace-UR3-v0
+        task: PickAndPlaceUR3-v0
         num_envs: 4096
         max_iterations: 500
 

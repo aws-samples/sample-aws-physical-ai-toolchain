@@ -354,7 +354,7 @@ export class FoundationStack extends cdk.Stack {
 
     new cdk.CfnOutput(this, 'Cosmos3RepoUri', {
       value: this.cosmos3Repo.repositoryUri,
-      description: 'ECR URI for the Cosmos 3 Generator container (mirrored from Docker Hub)',
+      description: 'ECR URI for the Cosmos 3 (cosmos-framework) container (built from source)',
       exportName: `${projectName}-${environment}-cosmos3-ecr`,
     });
 

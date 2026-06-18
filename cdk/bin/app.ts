@@ -127,6 +127,7 @@ if (includeEdge) {
     thingGroupName: config.edge.thingGroupName,
     modelsBucket: foundationStack.modelsBucket,
     telemetryBucket: foundationStack.datasetsBucket, // Reuse datasets bucket for telemetry in simple mode
+    inferenceRepo: foundationStack.inferenceRepo,
   });
 
   edgeStack.addDependency(foundationStack);
