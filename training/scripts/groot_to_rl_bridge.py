@@ -34,6 +34,12 @@ Usage:
         --num-envs 4096 \
         --max-iterations 500
 
+    # Step 4 (optional): render an MP4 of a trained checkpoint (play mode).
+    # Runs the isaac-lab container headless with Isaac Lab's VideoRecorder.
+    python groot_to_rl_bridge.py render-video \
+        --model-s3 s3://bucket/isaac-lab/output/<JOB>/output/model.tar.gz \
+        --task Isaac-Velocity-Flat-Anymal-D-v0
+
 For this demo (smoke test):
     We skip step 1 (generating rollouts from GR00T requires the model endpoint)
     and use the original teleop data directly as behavioral cloning data.
@@ -49,10 +55,9 @@ import boto3
 import numpy as np
 from pathlib import Path
 
-REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
+REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
 PROJECT_NAME = os.environ.get("PROJECT_NAME", "physical-ai")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
-
 # Account/resource names are resolved from the caller's identity so this works in
 # any account — no hardcoded account ID. Override with env vars if you customized
 # the CDK projectName/environment.
@@ -194,6 +199,60 @@ def launch_rl_refinement(pretrained_path: str = None):
     return job_name
 
 
+def render_video(model_s3: str, task: str = "Isaac-Velocity-Flat-Anymal-D-v0",
+                 video_length: int = 400):
+    """
+    Render an MP4 of a trained Isaac Lab policy.
+
+    Runs the isaac-lab container in 'play' mode: it loads the checkpoint from the
+    `model` input channel (model_s3 → the model.tar.gz a training job produced,
+    auto-extracted by SageMaker), rolls the policy out headless with Isaac Lab's
+    VideoRecorder, and writes the MP4 to the output S3 path.
+
+    Args:
+        model_s3: S3 URI of a trained job's model.tar.gz (contains model_*.pt)
+        task:     Isaac Lab task the checkpoint was trained on (must match)
+        video_length: number of sim steps to record
+    """
+    sm = boto3.client("sagemaker", region_name=REGION)
+    job_name = f"isaac-lab-video-{int(__import__('time').time())}"
+
+    sm.create_training_job(
+        TrainingJobName=job_name,
+        RoleArn=ROLE_ARN,
+        AlgorithmSpecification={
+            "TrainingImage": ISAAC_LAB_IMAGE,
+            "TrainingInputMode": "File",
+        },
+        InputDataConfig=[{
+            "ChannelName": "model",  # mounts at /opt/ml/input/data/model (tar auto-extracted)
+            "DataSource": {"S3DataSource": {
+                "S3DataType": "S3Prefix",
+                "S3Uri": model_s3,
+                "S3DataDistributionType": "FullyReplicated",
+            }},
+        }],
+        OutputDataConfig={"S3OutputPath": f"s3://{BUCKET}/isaac-lab/videos/"},
+        ResourceConfig={
+            "InstanceType": "ml.g5.xlarge",  # GPU needed for Isaac Sim rendering
+            "InstanceCount": 1,
+            "VolumeSizeInGB": 100,
+        },
+        StoppingCondition={"MaxRuntimeInSeconds": 1800},
+        HyperParameters={
+            "mode": "play",
+            "task": task,
+            "framework": "rsl_rl",
+            "video_length": str(video_length),
+        },
+    )
+
+    print(f"  Video render launched: {job_name}")
+    print(f"  Checkpoint: {model_s3}")
+    print(f"  Output MP4 → s3://{BUCKET}/isaac-lab/videos/{job_name}/output/model.tar.gz (videos/ inside)")
+    return job_name
+
+
 def run_end_to_end():
     """
     Run the full pipeline: GR00T model → RL refinement.
@@ -230,17 +289,26 @@ def run_end_to_end():
 
 def main():
     parser = argparse.ArgumentParser(description="GR00T → RL Bridge")
-    parser.add_argument("action", choices=["end-to-end", "pretrain-mlp", "rl-refine", "status"],
+    parser.add_argument("action", choices=["end-to-end", "pretrain-mlp", "rl-refine", "render-video", "status"],
                         help="Pipeline action")
     parser.add_argument("--pretrained", default=None, help="Path to pretrained MLP checkpoint")
+    parser.add_argument("--model-s3", default=None,
+                        help="(render-video) S3 URI of a trained job's model.tar.gz")
+    parser.add_argument("--task", default="Isaac-Velocity-Flat-Anymal-D-v0",
+                        help="(render-video) Isaac Lab task the checkpoint was trained on")
     args = parser.parse_args()
-    
+
     if args.action == "end-to-end":
         run_end_to_end()
     elif args.action == "pretrain-mlp":
         pretrain_mlp_from_teleop()
     elif args.action == "rl-refine":
         launch_rl_refinement(args.pretrained)
+    elif args.action == "render-video":
+        if not args.model_s3:
+            print("ERROR: --model-s3 required (the trained job's model.tar.gz)")
+            sys.exit(1)
+        render_video(args.model_s3, task=args.task)
     elif args.action == "status":
         get_latest_model_package()
 

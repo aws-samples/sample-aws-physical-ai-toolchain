@@ -4,7 +4,9 @@
 **Time:** 3 hours (30 min hands-on + training runs in background)
 **Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations)
 
-> **TODO:** Add video showing RL training progression — robot falling over at iteration 0 vs walking stably at iteration 100
+> **Want to see your policy in action?** Step 5b below renders an MP4 of a trained
+> checkpoint (early checkpoints stumble; well-trained ones walk stably) — a good
+> way to show RL progression by rendering at different iteration counts.
 
 ---
 
@@ -204,6 +206,36 @@ python training/scripts/evaluate.py \
   }
 }
 ```
+
+---
+
+## Step 5b: Render a Video of the Trained Policy
+
+Watch what your policy actually learned. This runs the `isaac-lab` container in
+**play mode** as a short SageMaker job: it loads a trained checkpoint, rolls the
+policy out headless, records an MP4 with Isaac Lab's `VideoRecorder`, and writes
+it to S3 — no local GPU or display needed.
+
+```bash
+# Point --model-s3 at a finished RL job's model.tar.gz; --task must match what
+# that job trained (the model.tar.gz contains model_<iter>.pt checkpoints).
+python training/scripts/groot_to_rl_bridge.py render-video \
+  --model-s3 s3://$BUCKET/isaac-lab/output/<RL_JOB_NAME>/output/model.tar.gz \
+  --task Isaac-Velocity-Flat-Anymal-D-v0
+
+# When it completes, the MP4 is inside the output artifact:
+aws s3 cp s3://$BUCKET/isaac-lab/videos/<VIDEO_JOB_NAME>/output/model.tar.gz /tmp/v.tar.gz
+tar -xzf /tmp/v.tar.gz -C /tmp && open /tmp/videos/*.mp4
+```
+
+> **What you'll see — set expectations honestly:**
+> - The video shows **whichever task the RL job trained**. Today the bridge uses
+>   the built-in `Isaac-Velocity-Flat-Anymal-D-v0` locomotion task as a placeholder
+>   (a quadruped), **not** UR3 pick-and-place. Wiring the UR3 env into the RL stage
+>   is a follow-up.
+> - A **short smoke-test checkpoint (~50 iterations) will stumble and fall**, not
+>   walk cleanly — locomotion needs ~1000+ iterations. The render proves the
+>   pipeline works; policy quality scales with training length.
 
 ---
 

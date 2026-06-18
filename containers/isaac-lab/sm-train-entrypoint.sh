@@ -43,11 +43,15 @@ if [ -f "$HYPERPARAMS" ]; then
     NUM_ENVS=$(python3 -c "import json; print(json.load(open('$HYPERPARAMS')).get('num_envs', '4096'))")
     MAX_ITERATIONS=$(python3 -c "import json; print(json.load(open('$HYPERPARAMS')).get('max_iterations', '100'))")
     FRAMEWORK=$(python3 -c "import json; print(json.load(open('$HYPERPARAMS')).get('framework', 'rsl_rl'))")
+    MODE=$(python3 -c "import json; print(json.load(open('$HYPERPARAMS')).get('mode', 'train'))")
+    VIDEO_LENGTH=$(python3 -c "import json; print(json.load(open('$HYPERPARAMS')).get('video_length', '400'))")
 else
     TASK="${TASK:-Isaac-Velocity-Flat-Anymal-D-v0}"
     NUM_ENVS="${NUM_ENVS:-4096}"
     MAX_ITERATIONS="${MAX_ITERATIONS:-100}"
     FRAMEWORK="${FRAMEWORK:-rsl_rl}"
+    MODE="${MODE:-train}"
+    VIDEO_LENGTH="${VIDEO_LENGTH:-400}"
 fi
 
 # --- Print info ---
@@ -62,11 +66,63 @@ echo "  Task:           $TASK"
 echo "  Num envs:       $NUM_ENVS"
 echo "  Max iterations: $MAX_ITERATIONS"
 echo "  Framework:      $FRAMEWORK"
+echo "  Mode:           $MODE"
 echo "============================================================"
 
 # --- Set Isaac Sim environment ---
 export ACCEPT_EULA=Y
 export OMNI_ENV_PRIVACY_CONSENT=Y
+
+# =============================================================================
+# PLAY / VIDEO MODE — load a trained checkpoint, roll it out headless, and
+# record an MP4. SageMaker mounts the trained model at /opt/ml/input/data/model/
+# (the model.tar.gz from a prior training job is auto-extracted there). The
+# recorded video is copied to /opt/ml/model/ so SageMaker uploads it to S3.
+# =============================================================================
+if [ "$MODE" = "play" ] || [ "$MODE" = "video" ]; then
+    echo "=== PLAY MODE: rendering a video of the trained policy ==="
+    MODEL_IN="/opt/ml/input/data/model"
+
+    # SageMaker delivers the input channel as-is — a plain S3 input does NOT
+    # auto-extract, so the checkpoint arrives inside model.tar.gz. Extract any
+    # tarballs first, then locate the checkpoint.
+    for tgz in $(find "$MODEL_IN" -name '*.tar.gz' 2>/dev/null); do
+        echo "Extracting $tgz ..."
+        tar -xzf "$tgz" -C "$MODEL_IN"
+    done
+
+    # Find the checkpoint (rsl_rl saves model_<iter>.pt under logs/.../<run>/).
+    CKPT=$(find "$MODEL_IN" -name 'model_*.pt' 2>/dev/null | sort -t_ -k2 -n | tail -1)
+    if [ -z "$CKPT" ]; then
+        echo "ERROR: no model_*.pt checkpoint found under $MODEL_IN"
+        echo "Pass the prior training job's model.tar.gz as the 'model' input channel."
+        ls -R "$MODEL_IN" 2>/dev/null | head -40
+        exit 1
+    fi
+    echo "Using checkpoint: $CKPT"
+
+    cd /workspace/isaaclab
+    PLAY_SCRIPT="scripts/reinforcement_learning/${FRAMEWORK}/play.py"
+
+    # Single env for a clean, watchable video. play.py writes the MP4 to
+    # <checkpoint_dir>/videos/play/, which we then copy to the SM output dir.
+    /isaac-sim/python.sh "$PLAY_SCRIPT" \
+        --task="$TASK" \
+        --num_envs=1 \
+        --checkpoint="$CKPT" \
+        --video \
+        --video_length="$VIDEO_LENGTH" \
+        --headless
+
+    echo "Collecting rendered video(s) → /opt/ml/model/ ..."
+    mkdir -p /opt/ml/model/videos
+    find "$(dirname "$CKPT")" -name '*.mp4' -exec cp -v {} /opt/ml/model/videos/ \;
+    # Also surface any videos written under the repo logs dir (path varies by version).
+    find /workspace/isaaclab/logs -name '*.mp4' -exec cp -v {} /opt/ml/model/videos/ \; 2>/dev/null || true
+    echo "Done. Video(s) in /opt/ml/model/videos/ (uploaded to S3 by SageMaker)."
+    ls -la /opt/ml/model/videos/ 2>/dev/null
+    exit 0
+fi
 
 # --- Determine training script based on framework ---
 case $FRAMEWORK in
