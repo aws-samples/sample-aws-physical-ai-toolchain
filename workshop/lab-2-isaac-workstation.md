@@ -119,14 +119,29 @@ The workstation auto-configures everything on first boot (~15 min). Once ready:
 Everything is pre-installed. Open a terminal on the workstation and run:
 
 ```bash
-# Activate the Isaac environment
-source ~/isaac-env/bin/activate
+# Opens Isaac Sim with a demo scene (NVIDIA sample warehouse) instead of an
+# empty stage, so you immediately have something to look at.
+~/run-isaac-sim-gui.sh
+```
 
-# Launch Isaac Sim GUI
+This wraps the demo launcher (`scripts/open_demo_scene.py`), which loads an NVIDIA
+sample environment from the Isaac Sim cloud asset server (no local Nucleus needed),
+and falls back to an empty Isaac Sim if the assets can't be reached.
+
+Prefer the raw, empty editor? Just run it directly:
+```bash
+source ~/isaac-env/bin/activate
 isaacsim
 ```
 
 You'll see the full Isaac Sim visual editor — 3D viewport, content browser with robots and environments, scene tree.
+
+> **Unverified note:** the exact `isaacsim` package version is whatever pip installs
+> at boot. The demo launcher uses NVIDIA's documented standalone-app API
+> (`SimulationApp` + `get_assets_root_path` + `open_stage`), but has not been run on
+> a live workstation in this repo yet — if the API differs on your installed version,
+> the wrapper falls back to a plain `isaacsim`. Isaac Sim needs a **G-family** GPU
+> (G5/G6/G6e); P-family (P4/P5) lacks RT Cores and will crash.
 
 **Or run Isaac Lab training with visual rendering:**
 ```bash
