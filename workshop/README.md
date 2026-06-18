@@ -34,6 +34,7 @@ A production-grade Physical AI pipeline with:
 | Lab 2 | Visual development and debugging in simulation | Isaac Sim, GPU remote desktop |
 | Lab 3 | Generate photorealistic training environments | Cosmos NIM API, domain gap |
 | Lab 4 | Improve policy robustness via reinforcement learning | Isaac Lab, PPO, domain randomization |
+| Lab 4b | Train RL in simulation standalone (no GR00T) | Isaac Lab, PPO, SageMaker (built-in task) |
 | Lab 5 | Deploy to physical hardware at the edge | TensorRT, Greengrass, Jetson |
 | Lab 6 | Orchestrate the full pipeline for production | NVIDIA OSMO, EKS, Kueue |
 
@@ -164,10 +165,11 @@ npx cdk deploy --all --context mode=simple
 | 2 | [Isaac Sim Workstation](lab-2-isaac-workstation.md) | 30 min | Lab 0 |
 | 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 2 |
 | 4 | [RL Refinement](lab-4-rl-refinement.md) | 3 hrs | Labs 1, 3 |
+| 4b | [Standalone RL (no GR00T)](lab-4b-standalone-rl.md) | 30 min | Lab 0 |
 | 5 | [Edge Deployment](lab-5-edge-deployment.md) | 2 hrs | Lab 4 |
 | 6 | [OSMO Orchestration](lab-6-osmo-orchestration.md) | 2-3 hrs | Labs 1-5 |
 
-Labs 2 and 3 can run in parallel with Lab 1. Lab 4 requires both Lab 1 (trained model) and Lab 3 (generated scenes) to be complete.
+Labs 2 and 3 can run in parallel with Lab 1. Lab 4 requires both Lab 1 (trained model) and Lab 3 (generated scenes) to be complete. **Lab 4b** is a standalone alternative to Lab 4 — RL in simulation with no GR00T/Lab 1 dependency (built-in task).
 
 ---
 
