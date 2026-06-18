@@ -25,6 +25,16 @@ import torch
 import math
 from dataclasses import dataclass
 
+# Resolve the NVIDIA Isaac assets root (hosted asset server) so USD paths don't
+# depend on a local Nucleus. get_assets_root_path() returns a root under which
+# assets live at "/Isaac/...". Falls back to a local Nucleus only if the helper
+# isn't importable (e.g. outside Isaac Sim).
+try:
+    from isaacsim.storage.native import get_assets_root_path
+    _ASSETS_ROOT = get_assets_root_path() or "omniverse://localhost/NVIDIA/Assets"
+except Exception:
+    _ASSETS_ROOT = "omniverse://localhost/NVIDIA/Assets"
+
 import omni.isaac.lab.sim as sim_utils
 from omni.isaac.lab.assets import ArticulationCfg, RigidObjectCfg
 from omni.isaac.lab.envs import ManagerBasedRLEnv, ManagerBasedRLEnvCfg
@@ -56,7 +66,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     robot = ArticulationCfg(
         prim_path="{ENV_REGEX_NS}/Robot",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/NVIDIA/Assets/Isaac/Robots/UniversalRobots/ur3e/ur3e_robotiq_2f85.usd",
+            usd_path=f"{_ASSETS_ROOT}/Isaac/Robots/UniversalRobots/ur3e/ur3e_robotiq_2f85.usd",
             activate_contact_sensors=True,
         ),
         init_state=ArticulationCfg.InitialStateCfg(
@@ -82,7 +92,7 @@ class PickAndPlaceSceneCfg(InteractiveSceneCfg):
     bin = RigidObjectCfg(
         prim_path="{ENV_REGEX_NS}/Bin",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="omniverse://localhost/NVIDIA/Assets/Isaac/Props/Bins/plastic_bin.usd",
+            usd_path=f"{_ASSETS_ROOT}/Isaac/Props/Bins/plastic_bin.usd",
         ),
         init_state=RigidObjectCfg.InitialStateCfg(
             pos=(0.5, 0.0, 0.0),  # 50cm in front of robot base
@@ -327,6 +337,7 @@ class PickAndPlaceUR3Env(ManagerBasedRLEnv):
     def __init__(self, cfg: PickAndPlaceUR3EnvCfg, **kwargs):
         super().__init__(cfg, **kwargs)
         self.success_threshold = 0.15  # meters above ground
+        self._ik_controller = None  # lazily built once in _apply_action
 
     def _apply_action(self, action: torch.Tensor):
         """Apply delta end-effector pose + gripper command."""
@@ -338,16 +349,20 @@ class PickAndPlaceUR3Env(ManagerBasedRLEnv):
         pos_delta = ee_delta[:, :3] * 0.01  # Max 1cm per step
         rot_delta = ee_delta[:, 3:6] * 0.05  # Max ~3 degrees per step
 
-        # Convert EE delta to joint commands via differential IK
-        # (Isaac Lab provides this utility)
-        from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
-
-        ik_cfg = DifferentialIKControllerCfg(
-            command_type="pose",
-            use_relative_mode=True,
-            ik_method="dls",  # Damped least squares
-        )
-        ik_controller = DifferentialIKController(ik_cfg, num_envs=self.num_envs, device=self.device)
+        # Convert EE delta to joint commands via differential IK. Build the
+        # controller ONCE and reuse it (constructing it every step is wasteful
+        # and resets internal state each call).
+        if getattr(self, "_ik_controller", None) is None:
+            from omni.isaac.lab.controllers import DifferentialIKController, DifferentialIKControllerCfg
+            ik_cfg = DifferentialIKControllerCfg(
+                command_type="pose",
+                use_relative_mode=True,
+                ik_method="dls",  # Damped least squares
+            )
+            self._ik_controller = DifferentialIKController(
+                ik_cfg, num_envs=self.num_envs, device=self.device
+            )
+        ik_controller = self._ik_controller
 
         # Compute joint targets
         joint_targets = ik_controller.compute(

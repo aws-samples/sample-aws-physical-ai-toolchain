@@ -1,7 +1,29 @@
 # Roadmap: 4 Proposed Features
 
-Status: **planning only — nothing here is built yet.** This doc scopes four requested
-features with honest effort/risk/testability, based on a code+external investigation.
+Status: **code-complete for all 4 (to the hardware boundary).** Every no-hardware
+slice is built, verified (cdk synth / parse / dry-run / one full TorchScript
+round-trip), and committed. What remains for each is *runtime validation* that
+genuinely requires a Jetson, a G-family GPU, or sustained p5 capacity — wired
+correctly and labelled "unvalidated", not done.
+
+### Status snapshot
+| Feature | Code | Validated without HW | Hardware-gated remainder |
+|---|---|---|---|
+| Tier 0 bugfixes | ✅ | ✅ cdk synth (3 modes) | — |
+| 1 — Robot deploy | ✅ ROS2 pkg, edge scripts, **TorchScript export helper** | ✅ dry-runs + scriptify round-trip | Jetson + UR3 run; object-pose perception |
+| 2 — Standalone RL | ✅ launch_rl.py, Lab 4b, **UR3 env registered** | ✅ dry-run + bare-import | UR3 env instantiation on a GPU (Anymal path already proven) |
+| 3 — Cosmos | ✅ v2 EC2/NIM runtime, **v3 generation runner** | ✅ dry-runs | p5 capacity + HF license; a real restyle/generate |
+| 4 — Isaac Sim demo | ✅ open_demo_scene.py + wiring | ✅ synth + parse | one G-family workstation run |
+
+The rest of this doc is the original scoping (kept for context); the items marked
+"build" / "no-hardware slice" below are now done.
+
+---
+
+## Original scoping (for context)
+
+This doc scoped four requested features with honest effort/risk/testability, based
+on a code+external investigation.
 
 The single most important finding: **each feature sits on top of pre-existing,
 in-repo bugs that ship broken today and need no GPU/hardware to fix.** Do that

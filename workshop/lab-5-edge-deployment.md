@@ -81,9 +81,14 @@ python training/scripts/export.py \
   --fp16
 ```
 
-> **Note:** `export.py` uses `torch.jit.load`, so `--checkpoint` must be a
-> **TorchScript** model. If your RL job emitted a plain state-dict, script/trace it
-> first. (This is a known gap — see `docs/ROADMAP.md` Feature 1.)
+> **TorchScript first:** `export.py` uses `torch.jit.load`, so `--checkpoint` must be
+> a **TorchScript** model. RL jobs save plain `model_*.pt` checkpoints, so convert first:
+> ```bash
+> python training/scripts/scriptify_policy.py \
+>   --checkpoint model_49.pt --output policy.pt --obs-dim 12308 --action-dim 7
+> # (use --inspect first to see the checkpoint's actor layer shapes)
+> ```
+> Then pass `policy.pt` to `export.py --checkpoint`.
 
 ### Step 2: Get the Inference Container
 
