@@ -97,11 +97,13 @@ On real hardware: the wrist camera sees "warehouse lighting" → policy already 
 
 ## Two Modes
 
-Mode A: Transfer (enhance existing scenes)
-  Isaac Lab renders scene → Cosmos makes it photorealistic → RL trains on enhanced images
+```
+Mode A — Transfer (this lab, available):
+  Isaac Lab renders a clip → Cosmos Transfer restyles it photorealistically → RL trains on it
 
-Mode B: Generate (create new environments)
-  Text prompt → Cosmos generates scene → Import to Isaac Lab → RL trains in new env
+Mode B — Generate (future, Cosmos Predict / Cosmos 3):
+  Text prompt → Cosmos generates a new scene → import to Isaac Lab
+  (separate model; not wired up yet — see docs/ROADMAP.md Feature 3)
 ```
 
 ---
@@ -109,116 +111,96 @@ Mode B: Generate (create new environments)
 ## Prerequisites
 
 - Lab 2 completed (Isaac Sim workstation for visual verification)
-- NVIDIA NIM API key (for Cosmos models)
-  - Sign up at https://build.nvidia.com
-  - Access Cosmos models: `nvidia/cosmos-transfer` and `nvidia/cosmos-generate`
-- Base Isaac Lab scenes created (at minimum, the UR3 pick-and-place environment)
+- **NGC API key** in Secrets Manager (`physical-ai/ngc-api-key`) — the Cosmos NIM
+  pulls model weights with it at container start
+- **P5 service quota** (defaults to 0 — request an increase) for the Spot p5 instance
+- Sim clips rendered to **MP4** (93–480 frames) to feed Cosmos Transfer
 
 ---
 
-## Step 1: Set Up Cosmos NIM Access
+## Step 1: Launch the Cosmos GPU Instance
 
-For the self-hosted approach (recommended for toolkit/production):
+Cosmos Transfer 2.5 runs as an NVIDIA **NIM container on an EC2 Spot p5** (8× H100),
+serving `POST /v1/infer` on port 8000. **It does not run on a SageMaker real-time
+endpoint** — SageMaker's managed GPUs ship NVIDIA driver 470, but Cosmos needs 580+.
+The full runbook is in [`docs/cosmos-deployment-guide.md`](../docs/cosmos-deployment-guide.md).
 
 ```bash
-# Deploy Cosmos Transfer 2.5 as a SageMaker endpoint (~10-15 min)
-python training/scripts/cosmos_setup.py deploy
+# Preview the launch (no AWS writes):
+python training/scripts/cosmos_setup.py launch --dry-run
 
-# Check status
-python training/scripts/cosmos_setup.py status
+# Launch the Spot p5 (boots scripts/cosmos-userdata.sh → driver, container, NIM):
+python training/scripts/cosmos_setup.py launch
 ```
 
-This spins up a p4d.24xlarge instance with the Cosmos NIM container. Cost: ~$32/hr while running.
-
-For the API approach (if you have NIM enterprise access):
+Prerequisites: **P5 service quota** (defaults to 0 — request an increase), an
+**NGC API key** in Secrets Manager (`physical-ai/ngc-api-key`), and an instance
+profile with ECR + Secrets Manager read. Bootstrap takes ~10–15 min. Cost: ~$7–8/hr
+on Spot — **terminate when done.**
 
 ```bash
-# Store your NIM API key
-aws secretsmanager create-secret \
-  --name physical-ai/nim-api-key \
-  --secret-string "nvapi-YOUR_KEY_HERE" \
-  --region us-east-1
+# Wait for the NIM to report ready (checked over SSM — no inbound port needed):
+python training/scripts/cosmos_setup.py status --instance-id i-xxxx
+# → Health: {"status":"ready"}
 ```
 
 ---
 
-## Step 2: Generate Scene Variations with Cosmos Transfer
+## Step 2: Restyle Sim Videos with Cosmos Transfer
 
-Cosmos Transfer takes a rendered sim image and makes it look real:
+Cosmos Transfer operates on **video** (MP4, 93–480 frames) — not single images. It
+takes a sim-rendered clip + a style prompt + a control modality (edge/depth/seg/vis)
+and returns a photorealistic clip with the same geometry/motion.
 
-```python
-# training/scripts/generate_scenes.py --mode transfer
+```bash
+# Render sim clips to MP4 first, then:
+python training/scripts/cosmos_setup.py generate \
+  --instance-id i-xxxx \
+  --input ./sim_videos/ \
+  --output ./cosmos_out/ \
+  --control edge \
+  --dry-run    # prints the exact /v1/infer payload; drop --dry-run to run
+```
 
-import requests
-import base64
+The request shape (per the runbook), for reference:
+```json
+POST http://localhost:8000/v1/infer
+{
+  "prompt": "industrial warehouse with fluorescent lighting and metal shelving",
+  "video": "<base64-encoded MP4, 93-480 frames>",
+  "edge": {"enabled": true},
+  "num_steps": 35,
+  "guidance": 3,
+  "resolution": "480"
+}
+```
 
-def cosmos_transfer(sim_image_path: str, style_prompt: str) -> bytes:
-    """Apply photorealistic transfer to a sim-rendered image."""
-    with open(sim_image_path, "rb") as f:
-        image_b64 = base64.b64encode(f.read()).decode()
+> **Performance note (from the runbook):** on a single GPU (CP=1) a 93-frame clip
+> can exceed a 10-min request timeout. The userdata starts the NIM with
+> `NIM_MODEL_PROFILE=latency` to use all 8 H100s (CP=8, ~8× faster). This path is
+> documented and the health/API are confirmed, but a full restyle has **not** been
+> validated end-to-end in this repo (blocked on sustained p5 capacity).
 
-    response = requests.post(
-        "https://ai.api.nvidia.com/v1/cosmos/transfer",
-        headers={"Authorization": f"Bearer {NIM_API_KEY}"},
-        json={
-            "image": image_b64,
-            "prompt": style_prompt,
-            "strength": 0.7,  # 0=keep original, 1=full restyle
-        }
-    )
-    return base64.b64decode(response.json()["image"])
-
-# Generate variations of the pick-and-place scene
-styles = [
-    "industrial warehouse with fluorescent lighting and metal shelving",
-    "bright factory floor with natural light from skylights",
-    "dimly lit manufacturing cell with task lighting only",
-    "dusty workshop with worn metal surfaces and oil stains",
-]
-
-for i, style in enumerate(styles):
-    result = cosmos_transfer("sim_render_base.png", style)
-    with open(f"scene_variation_{i}.png", "wb") as f:
-        f.write(result)
+When done, **terminate** to stop Spot charges:
+```bash
+python training/scripts/cosmos_setup.py terminate --instance-id i-xxxx
 ```
 
 ---
 
-## Step 3: Generate New Environments with Cosmos Generate
+## Step 3 (Future): Generate New Environments with Cosmos *Predict*
 
-Create entirely new training environments from text descriptions:
-
-```python
-# training/scripts/generate_scenes.py --mode generate
-
-def cosmos_generate(prompt: str, num_scenes: int = 10) -> list:
-    """Generate new environment backgrounds from text prompts."""
-    scenes = []
-    for i in range(num_scenes):
-        response = requests.post(
-            "https://ai.api.nvidia.com/v1/cosmos/generate",
-            headers={"Authorization": f"Bearer {NIM_API_KEY}"},
-            json={
-                "prompt": prompt,
-                "seed": i,  # Different seed = different variation
-                "resolution": "1024x1024",
-            }
-        )
-        scenes.append(base64.b64decode(response.json()["image"]))
-    return scenes
-
-# Generate diverse warehouse backgrounds
-prompts = [
-    "Empty industrial warehouse floor with metal shelving units, overhead fluorescent lights",
-    "Manufacturing workcell with robot arm, parts bins, and safety barriers",
-    "Clean room environment with white walls and bright even lighting",
-    "Automotive assembly line with conveyor belts and hanging tools",
-]
-
-for prompt in prompts:
-    scenes = cosmos_generate(prompt, num_scenes=25)
-    # Upload to S3 for Isaac Lab to use as background textures
-```
+> **Not implemented in this toolkit yet — different model from Transfer.** Creating
+> *entirely new* environments from a text prompt (rather than restyling an existing
+> sim clip) is the job of **Cosmos Predict / Cosmos 3** (`NVIDIA/cosmos-framework`),
+> a separate model from the Cosmos *Transfer* used in Steps 1–2. The Cosmos 3
+> Generator image is built in CodeBuild (`physical-ai/cosmos3` in ECR), but a
+> generation runner is not wired up, and Cosmos 3 does **not** yet support the
+> controlled (edge/depth/seg) *transfer* this lab needs.
+>
+> See [`docs/ROADMAP.md`](../docs/ROADMAP.md) (Feature 3) for the plan. For now,
+> use Step 2 (Transfer) for sim→photorealistic, and Isaac Lab's built-in domain
+> randomization for environment diversity.
 
 ---
 
@@ -268,9 +250,12 @@ python training/scripts/generate_scenes.py \
 ## Step 6: Upload Scenes for Lab 4
 
 ```bash
+# Resolve your datasets bucket from the Foundation stack (no hardcoded account):
+BUCKET=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
+  --query 'Stacks[0].Outputs[?OutputKey==`DatasetsBucketName`].OutputValue' --output text)
+
 # Upload generated scenes to S3 for RL training
-aws s3 sync ./cosmos_scenes/ s3://physical-ai-dev-datasets-802782083985/cosmos-scenes/ \
-  --region us-east-1
+aws s3 sync ./cosmos_out/ "s3://$BUCKET/cosmos-scenes/"
 
 echo "Ready for Lab 4: RL Refinement with Cosmos-enhanced environments"
 ```

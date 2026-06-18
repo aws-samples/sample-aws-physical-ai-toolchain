@@ -1,300 +1,224 @@
 """
-Cosmos NIM Setup and Scene Generation for Physical AI Toolchain
+Cosmos Transfer 2.5 runtime — EC2 Spot p5 + NIM /v1/infer (the validated path).
 
-Deploys Cosmos Transfer 2.5 (2B) as a SageMaker real-time endpoint for
-photorealistic scene generation. Takes Isaac Lab sim renders and produces
-photorealistic variations for training.
+Cosmos Transfer 2.5 restyles a sim-rendered VIDEO into a photorealistic one,
+guided by a prompt + a control modality (edge/depth/seg/vis). It runs as an NVIDIA
+NIM container serving `POST /v1/infer` on port 8000.
+
+It does NOT run on a SageMaker real-time endpoint: SageMaker's managed GPUs ship
+NVIDIA driver 470, but Cosmos needs 580+. So this script drives an **EC2 Spot
+p5.48xlarge** (8x H100) bootstrapped by `scripts/cosmos-userdata.sh`. Full runbook:
+docs/cosmos-deployment-guide.md.
+
+Account/region/image/role are resolved from the caller — nothing hardcoded.
 
 Usage:
-    # Deploy Cosmos endpoint (one time)
-    python cosmos_setup.py deploy
+    # Launch the Cosmos GPU instance (Spot p5) — preview first:
+    python cosmos_setup.py launch --dry-run
+    python cosmos_setup.py launch
 
-    # Generate scenes from sim renders
-    python cosmos_setup.py generate --input ./sim_renders/ --output ./cosmos_scenes/
+    # Check the NIM health endpoint (via SSM, no inbound port needed):
+    python cosmos_setup.py status --instance-id i-xxxx
 
-    # Delete endpoint when done (saves cost)
-    python cosmos_setup.py teardown
+    # Restyle sim videos (POST /v1/infer). Input MP4s must be 93-480 frames:
+    python cosmos_setup.py generate --instance-id i-xxxx \
+        --input ./sim_videos/ --output ./cosmos_out/ --dry-run
 
-Architecture:
-    Cosmos Transfer 2.5-2B runs on H100 GPU via SageMaker endpoint.
-    - Takes: sim-rendered image + control signal (edge/depth/segmentation)
-    - Returns: photorealistic version of the same scene
-    - Used for: domain randomization enhancement (Lab 3)
-
-Cost:
-    - p4d.24xlarge endpoint: ~$32/hr while running
-    - Generate 100 scenes: ~5 min = ~$2.70
-    - Remember to teardown when done!
-
-Why Cosmos (optional enhancement):
-    Isaac Lab's built-in domain randomization (random positions, lighting, colors)
-    achieves ~85-90% sim-to-real transfer for most manipulation tasks.
-    
-    Cosmos adds photorealistic visual diversity:
-    - Realistic material textures (scratched metal, plastic, wood grain)
-    - Complex lighting (mixed sources, shadows, reflections)
-    - Environmental context (cluttered backgrounds, dust, wear)
-    
-    This pushes sim-to-real transfer to ~95%+ for visually challenging tasks.
-    
-    You DON'T need Cosmos if:
-    - Your task is position-based (not appearance-sensitive)
-    - Built-in randomization gives acceptable real-world performance
-    - You're in early prototyping (get it working first, add Cosmos later)
-    
-    You DO need Cosmos if:
-    - Policy fails on real hardware due to visual domain gap
-    - Task involves color/texture discrimination (sorting, defect detection)
-    - Environment has complex backgrounds that confuse the camera
+    # Terminate when done (Spot p5 is expensive):
+    python cosmos_setup.py terminate --instance-id i-xxxx
 """
 
 import argparse
-import boto3
+import base64
 import json
 import os
 import sys
-import time
+from pathlib import Path
 
-REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
-ENDPOINT_NAME = "physical-ai-cosmos-transfer"
-MODEL_NAME = "cosmos-transfer-2-5-2b"
-INSTANCE_TYPE = "ml.p4d.24xlarge"  # 8x A100 80GB (Cosmos Transfer 2.5 needs H100 or A100)
+import boto3
 
-# Cosmos NIM container from our ECR (pulled from NGC via CodeBuild)
-COSMOS_IMAGE = "802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/cosmos-transfer:latest"
+REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
+PROJECT_NAME = os.environ.get("PROJECT_NAME", "physical-ai")
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
+INSTANCE_TYPE = os.environ.get("COSMOS_INSTANCE_TYPE", "p5.48xlarge")  # 8x H100
+PORT = 8000
 
-
-def get_ngc_key():
-    """Retrieve NGC API key from Secrets Manager."""
-    sm = boto3.client("secretsmanager", region_name=REGION)
-    return sm.get_secret_value(SecretId="physical-ai/ngc-api-key")["SecretString"]
-
-
-def get_nim_key():
-    """Retrieve NIM API key from Secrets Manager."""
-    sm = boto3.client("secretsmanager", region_name=REGION)
-    return sm.get_secret_value(SecretId="physical-ai/nim-api-key")["SecretString"]
+# Default Cosmos control modality + inference params (see the deployment runbook).
+DEFAULT_CONTROL = "edge"
+DEFAULT_NUM_STEPS = 35
+DEFAULT_GUIDANCE = 3
+DEFAULT_RESOLUTION = "480"
 
 
-def deploy_endpoint():
-    """Deploy Cosmos Transfer 2.5 as a SageMaker endpoint."""
-    sagemaker = boto3.client("sagemaker", region_name=REGION)
-    
-    # Get the SageMaker execution role
-    iam = boto3.client("iam", region_name=REGION)
-    role_arn = f"arn:aws:iam::{boto3.client('sts').get_caller_identity()['Account']}:role/physical-ai-dev-sagemaker-role"
-    
-    ngc_key = get_ngc_key()
-    
-    print(f"{'='*60}")
-    print(f"  Deploying Cosmos Transfer 2.5-2B")
-    print(f"  Instance: {INSTANCE_TYPE}")
-    print(f"  Endpoint: {ENDPOINT_NAME}")
-    print(f"  Cost: ~$32/hr while running")
-    print(f"{'='*60}")
-    
-    # Step 1: Create SageMaker Model
-    # Using the NIM container pattern — NIM auto-downloads model weights on first start
-    print("\n  Creating SageMaker model...")
-    try:
-        sagemaker.create_model(
-            ModelName=MODEL_NAME,
-            PrimaryContainer={
-                "Image": COSMOS_IMAGE,
-                "Environment": {
-                    "NGC_API_KEY": ngc_key,
-                    "NIM_MODEL_SIZE": "2b",
-                },
-            },
-            ExecutionRoleArn=role_arn,
-        )
-    except sagemaker.exceptions.ClientError as e:
-        if "Cannot create already existing model" in str(e):
-            print("  Model already exists, skipping...")
-        else:
-            raise
-    
-    # Step 2: Create endpoint config
-    print("  Creating endpoint configuration...")
-    config_name = f"{ENDPOINT_NAME}-config"
-    try:
-        sagemaker.create_endpoint_config(
-            EndpointConfigName=config_name,
-            ProductionVariants=[{
-                "VariantName": "primary",
-                "ModelName": MODEL_NAME,
-                "InstanceType": INSTANCE_TYPE,
-                "InitialInstanceCount": 1,
-                "ContainerStartupHealthCheckTimeoutInSeconds": 900,  # NIM takes time to load
-            }],
-        )
-    except sagemaker.exceptions.ClientError as e:
-        if "Cannot create already existing" in str(e):
-            print("  Config already exists, skipping...")
-        else:
-            raise
-    
-    # Step 3: Create endpoint
-    print("  Creating endpoint (this takes 10-15 min for model loading)...")
-    try:
-        sagemaker.create_endpoint(
-            EndpointName=ENDPOINT_NAME,
-            EndpointConfigName=config_name,
-        )
-    except sagemaker.exceptions.ClientError as e:
-        if "Cannot create already existing" in str(e):
-            print("  Endpoint already exists.")
-            return
-        else:
-            raise
-    
-    # Wait for endpoint
-    print("  Waiting for endpoint to be InService...")
-    waiter = sagemaker.get_waiter("endpoint_in_service")
-    waiter.wait(
-        EndpointName=ENDPOINT_NAME,
-        WaiterConfig={"Delay": 30, "MaxAttempts": 60}
+def _account() -> str:
+    return boto3.client("sts", region_name=REGION).get_caller_identity()["Account"]
+
+
+def _userdata() -> str:
+    """The validated cosmos-userdata.sh bootstrap (read from the repo).
+
+    cosmos_setup.py is at <repo>/training/scripts/, so the repo root is parents[2]
+    and the bootstrap lives at <repo>/scripts/cosmos-userdata.sh.
+    """
+    p = Path(__file__).resolve().parents[2] / "scripts" / "cosmos-userdata.sh"
+    return p.read_text()
+
+
+def _ssm_run(instance_id: str, command: str, timeout: int = 60) -> str:
+    """Run a shell command on the instance via SSM and return stdout."""
+    ssm = boto3.client("ssm", region_name=REGION)
+    resp = ssm.send_command(
+        InstanceIds=[instance_id],
+        DocumentName="AWS-RunShellScript",
+        Parameters={"commands": [command]},
+        TimeoutSeconds=timeout,
     )
-    print("  ✅ Endpoint is live!")
-    print(f"\n  Endpoint: {ENDPOINT_NAME}")
-    print(f"  To stop: python cosmos_setup.py teardown")
-
-
-def teardown_endpoint():
-    """Delete the Cosmos endpoint to save cost."""
-    sagemaker = boto3.client("sagemaker", region_name=REGION)
-    
-    print("  Deleting Cosmos endpoint...")
+    cmd_id = resp["Command"]["CommandId"]
+    waiter = ssm.get_waiter("command_executed")
     try:
-        sagemaker.delete_endpoint(EndpointName=ENDPOINT_NAME)
-        print("  Endpoint deleted.")
-    except Exception as e:
-        print(f"  {e}")
-    
-    try:
-        sagemaker.delete_endpoint_config(EndpointConfigName=f"{ENDPOINT_NAME}-config")
-        print("  Endpoint config deleted.")
-    except Exception as e:
-        print(f"  {e}")
-    
-    try:
-        sagemaker.delete_model(ModelName=MODEL_NAME)
-        print("  Model deleted.")
-    except Exception as e:
-        print(f"  {e}")
-    
-    print("  ✅ Cosmos resources cleaned up. No more charges.")
+        waiter.wait(CommandId=cmd_id, InstanceId=instance_id,
+                    WaiterConfig={"Delay": 5, "MaxAttempts": max(2, timeout // 5)})
+    except Exception:
+        pass
+    out = ssm.get_command_invocation(CommandId=cmd_id, InstanceId=instance_id)
+    return out.get("StandardOutputContent", "") + out.get("StandardErrorContent", "")
 
 
-def generate_scenes(input_dir: str, output_dir: str, num_variations: int = 4):
-    """
-    Generate photorealistic scene variations from sim renders.
-    
-    Takes rendered images from Isaac Lab and uses Cosmos Transfer to
-    produce photorealistic versions with different styles.
-    """
-    import base64
-    from pathlib import Path
-    
-    runtime = boto3.client("sagemaker-runtime", region_name=REGION)
-    input_path = Path(input_dir)
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
-    
-    # Style prompts for domain randomization
-    styles = [
-        "industrial warehouse with fluorescent overhead lighting, metal shelving, concrete floor",
-        "modern factory floor with natural skylights, white walls, robotic cells",
-        "dimly lit workshop with task lighting, oil-stained surfaces, tool racks on walls",
-        "clean room environment with bright even lighting, stainless steel surfaces",
-        "aged manufacturing facility with worn paint, mixed lighting, cluttered background",
-    ]
-    
-    image_files = list(input_path.glob("*.png")) + list(input_path.glob("*.jpg"))
-    
-    if not image_files:
-        print(f"  No images found in {input_dir}")
-        print(f"  Generate sim renders first with Isaac Lab, then run this.")
+def launch(dry_run: bool):
+    """Launch a Spot p5 that boots the Cosmos NIM (port 8000 /v1/infer)."""
+    ec2 = boto3.client("ec2", region_name=REGION)
+    ami = boto3.client("ssm", region_name=REGION).get_parameter(
+        Name="/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+    )["Parameter"]["Value"] if not dry_run else "<ubuntu-22.04-ami>"
+
+    spec = {
+        "ImageId": ami,
+        "InstanceType": INSTANCE_TYPE,
+        "InstanceMarketOptions": {"MarketType": "spot"},
+        "UserData": _userdata(),
+        "IamInstanceProfile": {"Name": os.environ.get(
+            "COSMOS_INSTANCE_PROFILE", f"{PROJECT_NAME}-{ENVIRONMENT}-cosmos-profile")},
+        "BlockDeviceMappings": [{"DeviceName": "/dev/sda1",
+                                 "Ebs": {"VolumeSize": 500, "VolumeType": "gp3"}}],
+        "TagSpecifications": [{"ResourceType": "instance",
+                               "Tags": [{"Key": "Name", "Value": f"{PROJECT_NAME}-cosmos-transfer"}]}],
+    }
+
+    print(f"{'='*60}")
+    print(f"  Launch Cosmos Transfer 2.5 (EC2 Spot {INSTANCE_TYPE}, 8x H100)")
+    print(f"  Region:  {REGION}")
+    print(f"  Boots:   scripts/cosmos-userdata.sh → NIM on :{PORT} (/v1/infer)")
+    print(f"  Note:    p5 Spot capacity + P5 quota required; ~$7-8/hr Spot.")
+    print(f"{'='*60}")
+
+    if dry_run:
+        print("[dry-run] Would ec2.run_instances with (UserData elided):")
+        print(json.dumps({k: v for k, v in spec.items() if k != "UserData"}, indent=2))
+        print("[dry-run] No AWS calls made.")
         return
-    
-    print(f"  Found {len(image_files)} input images")
-    print(f"  Generating {num_variations} variations each")
-    print(f"  Output: {output_dir}")
-    
-    total = 0
-    for img_file in image_files:
-        with open(img_file, "rb") as f:
-            img_b64 = base64.b64encode(f.read()).decode()
-        
-        for i, style in enumerate(styles[:num_variations]):
-            payload = json.dumps({
-                "input_image": img_b64,
-                "prompt": style,
-                "control_type": "edge",  # Use edge detection as control signal
-                "strength": 0.7,  # Balance between original structure and style
-                "seed": i * 42,
-            })
-            
-            try:
-                response = runtime.invoke_endpoint(
-                    EndpointName=ENDPOINT_NAME,
-                    ContentType="application/json",
-                    Body=payload,
-                )
-                
-                result = json.loads(response["Body"].read())
-                output_img = base64.b64decode(result["output_image"])
-                
-                out_name = f"{img_file.stem}_style{i:02d}.png"
-                with open(output_path / out_name, "wb") as f:
-                    f.write(output_img)
-                
-                total += 1
-                print(f"    Generated: {out_name}")
-                
-            except Exception as e:
-                print(f"    Error generating {img_file.name} style {i}: {e}")
-    
-    print(f"\n  ✅ Generated {total} photorealistic scene variations")
-    print(f"  Output: {output_path}")
-    print(f"\n  Next: Upload to S3 for RL training:")
-    print(f"    aws s3 sync {output_path} s3://physical-ai-dev-datasets-802782083985/cosmos-scenes/")
+
+    resp = ec2.run_instances(MinCount=1, MaxCount=1, **spec)
+    iid = resp["Instances"][0]["InstanceId"]
+    print(f"  Launched: {iid}")
+    print(f"  Bootstrap takes ~10-15 min (driver + image pull + model load).")
+    print(f"  Check: python {sys.argv[0]} status --instance-id {iid}")
 
 
-def status():
-    """Check Cosmos endpoint status."""
-    sagemaker = boto3.client("sagemaker", region_name=REGION)
-    try:
-        resp = sagemaker.describe_endpoint(EndpointName=ENDPOINT_NAME)
-        print(f"  Endpoint: {ENDPOINT_NAME}")
-        print(f"  Status: {resp['EndpointStatus']}")
-        print(f"  Instance: {INSTANCE_TYPE}")
-        if resp["EndpointStatus"] == "InService":
-            print(f"  ⚠️  Running — costing ~$32/hr. Run 'teardown' when done.")
-    except sagemaker.exceptions.ClientError:
-        print(f"  Endpoint '{ENDPOINT_NAME}' not found. Run 'deploy' first.")
+def status(instance_id: str):
+    print(f"  Checking Cosmos NIM health on {instance_id} (via SSM)...")
+    out = _ssm_run(instance_id, f"curl -s http://localhost:{PORT}/v1/health/ready || echo NOT_READY")
+    print(f"  Health: {out.strip() or '(no response — still booting?)'}")
+
+
+def generate(instance_id: str, input_dir: str, output_dir: str, control: str,
+             num_steps: int, guidance: int, resolution: str, dry_run: bool):
+    """Restyle each input MP4 via the NIM /v1/infer video API (run on the box via SSM)."""
+    in_path, out_path = Path(input_dir), Path(output_dir)
+    videos = sorted(list(in_path.glob("*.mp4")))
+
+    print(f"{'='*60}")
+    print(f"  Cosmos Transfer 2.5 — restyle videos")
+    print(f"  Instance: {instance_id}  control={control}  steps={num_steps}")
+    print(f"  Input:    {input_dir} ({len(videos)} mp4s)  →  Output: {output_dir}")
+    print(f"  API:      POST http://localhost:{PORT}/v1/infer (93-480 frames per clip)")
+    print(f"{'='*60}")
+
+    if not videos and not dry_run:
+        print("  No .mp4 files found. Render sim clips first (MP4, 93-480 frames).")
+        return
+
+    example_payload = {
+        "prompt": "<style prompt, e.g. 'industrial warehouse, fluorescent lighting'>",
+        "video": "<base64 MP4, 93-480 frames>",
+        control: {"enabled": True},
+        "num_steps": num_steps,
+        "guidance": guidance,
+        "resolution": resolution,
+    }
+
+    if dry_run:
+        print("[dry-run] For each input MP4, would POST to /v1/infer on the instance:\n")
+        print(json.dumps(example_payload, indent=2))
+        print(f"\n[dry-run] {len(videos)} clip(s) would be processed. No AWS/HTTP calls made.")
+        return
+
+    out_path.mkdir(parents=True, exist_ok=True)
+    for v in videos:
+        b64 = base64.b64encode(v.read_bytes()).decode()
+        payload = dict(example_payload, video=b64,
+                       prompt=os.environ.get("COSMOS_PROMPT",
+                                             "industrial warehouse with fluorescent lighting"))
+        # Run the request on the instance (NIM is bound to localhost there).
+        remote = (
+            f"python3 - <<'PY'\nimport json,urllib.request,base64\n"
+            f"req=urllib.request.Request('http://localhost:{PORT}/v1/infer',"
+            f"data=json.dumps({json.dumps(payload)}).encode(),"
+            f"headers={{'Content-Type':'application/json'}})\n"
+            f"r=urllib.request.urlopen(req,timeout=1200).read()\n"
+            f"open('/tmp/out.mp4','wb').write(base64.b64decode(json.loads(r)['video']))\n"
+            f"print('ok')\nPY"
+        )
+        print(f"  Restyling {v.name} (this can take minutes on CP=8)...")
+        result = _ssm_run(instance_id, remote, timeout=1800)
+        print(f"    {result.strip()[-200:]}")
+    print(f"\n  Done. Pull results off the instance, then upload for RL training.")
+
+
+def terminate(instance_id: str):
+    ec2 = boto3.client("ec2", region_name=REGION)
+    ec2.terminate_instances(InstanceIds=[instance_id])
+    print(f"  Terminating {instance_id}. No more charges once shut down.")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Cosmos NIM Setup for Physical AI Toolchain")
-    parser.add_argument("action", choices=["deploy", "teardown", "generate", "status"],
-                        help="Action to perform")
-    parser.add_argument("--input", default="./sim_renders/",
-                        help="Input directory with sim-rendered images")
-    parser.add_argument("--output", default="./cosmos_scenes/",
-                        help="Output directory for generated scenes")
-    parser.add_argument("--variations", type=int, default=4,
-                        help="Number of style variations per image")
-    args = parser.parse_args()
-    
-    if args.action == "deploy":
-        deploy_endpoint()
-    elif args.action == "teardown":
-        teardown_endpoint()
-    elif args.action == "generate":
-        generate_scenes(args.input, args.output, args.variations)
+    p = argparse.ArgumentParser(description="Cosmos Transfer 2.5 runtime (EC2 p5 + NIM /v1/infer)")
+    sub = p.add_subparsers(dest="action", required=True)
+
+    sub.add_parser("launch").add_argument("--dry-run", action="store_true")
+
+    ps = sub.add_parser("status"); ps.add_argument("--instance-id", required=True)
+    pt = sub.add_parser("terminate"); pt.add_argument("--instance-id", required=True)
+
+    pg = sub.add_parser("generate")
+    pg.add_argument("--instance-id", required=True)
+    pg.add_argument("--input", default="./sim_videos/")
+    pg.add_argument("--output", default="./cosmos_out/")
+    pg.add_argument("--control", default=DEFAULT_CONTROL, choices=["edge", "depth", "seg", "vis"])
+    pg.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
+    pg.add_argument("--guidance", type=int, default=DEFAULT_GUIDANCE)
+    pg.add_argument("--resolution", default=DEFAULT_RESOLUTION)
+    pg.add_argument("--dry-run", action="store_true")
+
+    args = p.parse_args()
+    if args.action == "launch":
+        launch(args.dry_run)
     elif args.action == "status":
-        status()
+        status(args.instance_id)
+    elif args.action == "terminate":
+        terminate(args.instance_id)
+    elif args.action == "generate":
+        generate(args.instance_id, args.input, args.output, args.control,
+                 args.num_steps, args.guidance, args.resolution, args.dry_run)
 
 
 if __name__ == "__main__":
