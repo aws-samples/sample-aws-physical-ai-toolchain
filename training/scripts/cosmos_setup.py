@@ -86,10 +86,12 @@ def _ssm_run(instance_id: str, command: str, timeout: int = 60) -> str:
 
 def launch(dry_run: bool):
     """Launch a Spot p5 that boots the Cosmos NIM (port 8000 /v1/infer)."""
-    ec2 = boto3.client("ec2", region_name=REGION)
-    ami = boto3.client("ssm", region_name=REGION).get_parameter(
-        Name="/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
-    )["Parameter"]["Value"] if not dry_run else "<ubuntu-22.04-ami>"
+    # Resolve the AMI from SSM only on a real launch; dry-run makes NO AWS calls.
+    ami = "<ubuntu-22.04-ami>"
+    if not dry_run:
+        ami = boto3.client("ssm", region_name=REGION).get_parameter(
+            Name="/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
+        )["Parameter"]["Value"]
 
     spec = {
         "ImageId": ami,
@@ -117,6 +119,7 @@ def launch(dry_run: bool):
         print("[dry-run] No AWS calls made.")
         return
 
+    ec2 = boto3.client("ec2", region_name=REGION)
     resp = ec2.run_instances(MinCount=1, MaxCount=1, **spec)
     iid = resp["Instances"][0]["InstanceId"]
     print(f"  Launched: {iid}")

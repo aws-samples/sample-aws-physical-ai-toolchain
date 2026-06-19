@@ -175,6 +175,41 @@ export class FoundationStack extends cdk.Stack {
     }));
 
     // =========================================================================
+    // IAM: COSMOS EC2 INSTANCE PROFILE
+    // =========================================================================
+    // The Cosmos Transfer runtime (training/scripts/cosmos_setup.py → EC2 Spot p5)
+    // needs an instance profile so the box can: pull the cosmos image from ECR,
+    // read the NGC/HF keys from Secrets Manager, read/write S3, and be driven over
+    // SSM. cosmos_setup.py defaults to this profile name.
+    const cosmosRole = new iam.Role(this, 'CosmosInstanceRole', {
+      roleName: `${projectName}-${environment}-cosmos-role`,
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      managedPolicies: [
+        // SSM Session Manager + RunShellScript (status/generate commands).
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+        // Pull the Cosmos container image from ECR.
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonEC2ContainerRegistryReadOnly'),
+      ],
+    });
+    // Read the NGC + HF secrets the NIM needs at startup.
+    cosmosRole.addToPolicy(new iam.PolicyStatement({
+      actions: ['secretsmanager:GetSecretValue'],
+      resources: [
+        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/ngc-api-key*`,
+        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/hf-token*`,
+        `arn:aws:secretsmanager:${region}:${account}:secret:${projectName}/nim-api-key*`,
+      ],
+    }));
+    // S3 access for input clips / output scenes.
+    this.datasetsBucket.grantReadWrite(cosmosRole);
+    this.modelsBucket.grantReadWrite(cosmosRole);
+
+    const cosmosInstanceProfile = new iam.CfnInstanceProfile(this, 'CosmosInstanceProfile', {
+      instanceProfileName: `${projectName}-${environment}-cosmos-profile`,
+      roles: [cosmosRole.roleName],
+    });
+
+    // =========================================================================
     // CODEBUILD: CONTAINER IMAGE BUILDS (cloud builds → ECR, no local Docker)
     // =========================================================================
     //
@@ -356,6 +391,12 @@ export class FoundationStack extends cdk.Stack {
       value: this.cosmos3Repo.repositoryUri,
       description: 'ECR URI for the Cosmos 3 (cosmos-framework) container (built from source)',
       exportName: `${projectName}-${environment}-cosmos3-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'CosmosInstanceProfileName', {
+      value: cosmosInstanceProfile.ref,
+      description: 'Instance profile for the Cosmos EC2 runtime (cosmos_setup.py launch)',
+      exportName: `${projectName}-${environment}-cosmos-instance-profile`,
     });
 
     new cdk.CfnOutput(this, 'BuildConsole', {
