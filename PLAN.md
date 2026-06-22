@@ -79,8 +79,8 @@ These stages form a **pipeline**, not independent paths. A customer can stop at 
 
 **All stages run on SageMaker** (Training Jobs + Processing Jobs). No EKS needed unless you need 100+ parallel sim environments at scale (OSMO path, deferred to V3).
 
-### What's deployed today (us-east-1):
-- **S3:** `physical-ai-dev-datasets-802782083985` (datasets + model output)
+### What's deployed today (us-west-2):
+- **S3:** `physical-ai-dev-datasets-<ACCOUNT_ID>` (datasets + model output)
 - **ECR:** `physical-ai/groot-training` (training container, pushed)
 - **IAM:** `physical-ai-dev-sagemaker-role` (SM execution role)
 - **Pipeline:** `groot-finetune-pipeline` (Stage 1: train → register)

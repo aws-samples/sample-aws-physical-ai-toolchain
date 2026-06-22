@@ -1,7 +1,7 @@
 """
 Launch GR00T Fine-Tuning on SageMaker (Path A)
 
-Submits a SageMaker Training Job that fine-tunes NVIDIA GR00T N1.7-3B
+Submits a SageMaker Training Job that fine-tunes NVIDIA GR00T N1.6-3B
 on a customer's LeRobot-format dataset stored in S3.
 
 Usage:
@@ -32,7 +32,7 @@ def launch_training_job(
     max_steps: int = 5000,
     batch_size: int = 8,
     learning_rate: float = 1e-4,
-    base_model: str = "nvidia/GR00T-N1.7-3B",
+    base_model: str = "nvidia/GR00T-N1.6-3B",
     instance_type: str = "ml.g5.12xlarge",
     region: str = "us-west-2",
     dry_run: bool = False,
@@ -79,10 +79,19 @@ def launch_training_job(
         "StoppingCondition": {
             "MaxRuntimeInSeconds": 86400,  # 24 hours max
         },
-        "Environment": {
-            "HF_TOKEN": "__PLACEHOLDER__",  # Set via env or Secrets Manager in production
-        },
     }
+
+    # Inject the HuggingFace token from the environment (both names the SDK reads).
+    # Never bake a token or a placeholder into the request.
+    import os
+    hf_token = os.environ.get("HF_TOKEN", "")
+    if hf_token:
+        training_config["Environment"] = {
+            "HF_TOKEN": hf_token,
+            "HUGGING_FACE_HUB_TOKEN": hf_token,
+        }
+    else:
+        print("  WARNING: HF_TOKEN not set — the base-model download may hit rate limits.")
 
     # Cost estimation
     # ml.g5.12xlarge: ~$7.09/hr (on-demand, us-west-2, June 2026)
@@ -101,17 +110,6 @@ def launch_training_job(
 
     # Launch the job
     sm_client = boto3.client("sagemaker", region_name=region)
-
-    # Remove placeholder env var (should be injected via Secrets Manager in real usage)
-    if "HF_TOKEN" in training_config.get("Environment", {}):
-        import os
-        hf_token = os.environ.get("HF_TOKEN", "")
-        if hf_token:
-            training_config["Environment"]["HF_TOKEN"] = hf_token
-        else:
-            del training_config["Environment"]["HF_TOKEN"]
-            print("  WARNING: HF_TOKEN not set. Model download may fail.")
-
     sm_client.create_training_job(**training_config)
 
     # Wait for job to start
@@ -138,7 +136,7 @@ def main():
     parser.add_argument("--max-steps", type=int, default=5000, help="Training steps (5000=~11hrs)")
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--base-model", default="nvidia/GR00T-N1.7-3B")
+    parser.add_argument("--base-model", default="nvidia/GR00T-N1.6-3B")
     parser.add_argument("--instance-type", default="ml.g5.12xlarge")
     parser.add_argument("--region", default="us-west-2")
     parser.add_argument("--dry-run", action="store_true", help="Show config without launching")

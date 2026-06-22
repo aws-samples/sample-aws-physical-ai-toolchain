@@ -2,26 +2,32 @@
 """
 Convert Zarr episodes to LeRobot v2 format for GR00T fine-tuning.
 
-Reads episodes from data/episodes/ and writes to data/lerobot/ in the
+Reads raw teleop episodes (Zarr) and writes a LeRobot v2 dataset in the
 format expected by NVIDIA GR00T's LeRobotSingleDataset.
 
-Usage:
-    cd profiles/ur3
-
+Usage (from the repo root):
     # Convert all episodes
-    python3 examples/convert_to_lerobot.py
+    python training/groot/convert_zarr_to_lerobot.py \
+        --episodes-dir training/data/ur3_episodes/episodes \
+        --output-dir   training/data/ur3_lerobot_dataset
 
     # Convert specific episodes
-    python3 examples/convert_to_lerobot.py -e episode_001_pick episode_002_pick
+    python training/groot/convert_zarr_to_lerobot.py \
+        --episodes-dir training/data/ur3_episodes/episodes \
+        --output-dir   training/data/ur3_lerobot_dataset \
+        -e episode_001_pick episode_002_pick
 
-    # Then upload to S3
-    aws s3 sync data/lerobot/ s3://groot-ur3-agweber/groot-data/USERNAME/dataset/
+    # Then upload to S3 (BUCKET = DatasetsBucketName stack output)
+    aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/dataset/"
 
-    # Then train
-    ./bin/train-groot.sh --username USERNAME
+    # Then train (see workshop/lab-1-train-groot.md)
+    python training/groot/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100
+
+Bring your own data: the input Zarr schema is documented in docs/ZARR_SCHEMA.md.
+Point --episodes-dir at your own recordings and the same script applies.
 
 Prerequisites:
-    pip install zarr numpy opencv-python pandas pyarrow
+    pip install -r training/requirements.txt   # zarr, numpy, opencv-python, pandas, pyarrow
 """
 
 import argparse
@@ -322,6 +328,54 @@ def write_metadata(output_dir: Path, episode_metas: list[dict],
             f.write(json.dumps({"task_index": i, "task": task}) + "\n")
 
 
+def _compute_stats(arr: np.ndarray) -> dict:
+    """Per-dimension stats (mean/std/min/max/q01/q99). Matches the proven reference."""
+    return {
+        "mean": arr.mean(axis=0).tolist(),
+        "std": arr.std(axis=0).tolist(),
+        "min": arr.min(axis=0).tolist(),
+        "max": arr.max(axis=0).tolist(),
+        "q01": np.percentile(arr, 1, axis=0).tolist(),
+        "q99": np.percentile(arr, 99, axis=0).tolist(),
+    }
+
+
+def write_stats(output_dir: Path):
+    """Write meta/stats.json by reading back the written parquet (states+actions).
+
+    GR00T's data pipeline requires meta/stats.json for normalization, and the
+    inference loader asserts it exists. (Our earlier converter dropped this — it
+    is present in the proven reference pipeline.)
+    """
+    meta_dir = output_dir / "meta"
+    parquet_files = sorted((output_dir / "data").rglob("*.parquet"))
+    if not parquet_files:
+        print("  WARNING: no parquet files found, skipping stats.json")
+        return
+
+    states, actions, timestamps = [], [], []
+    for pf in parquet_files:
+        df = pd.read_parquet(pf)
+        if "observation.state" in df.columns:
+            states.append(np.stack(df["observation.state"].values))
+        if "action" in df.columns:
+            actions.append(np.stack(df["action"].values))
+        if "timestamp" in df.columns:
+            timestamps.append(np.asarray(df["timestamp"].values, dtype=np.float64))
+
+    stats = {}
+    if states:
+        stats["observation.state"] = _compute_stats(np.concatenate(states))
+    if actions:
+        stats["action"] = _compute_stats(np.concatenate(actions))
+    if timestamps:
+        stats["timestamp"] = _compute_stats(np.concatenate(timestamps).reshape(-1, 1))
+
+    with open(meta_dir / "stats.json", "w") as f:
+        json.dump(stats, f, indent=2)
+    print(f"  Wrote meta/stats.json ({len(stats)} feature(s))")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Zarr episodes to LeRobot v2")
     parser.add_argument("--episodes-dir", default=str(EPISODES_DIR))
@@ -378,16 +432,17 @@ def main():
     write_metadata(output_dir, episode_metas,
                    output_camera_key="wrist",
                    image_shape=image_shape, fps=fps)
+    write_stats(output_dir)
 
     total_frames = sum(m["length"] for m in episode_metas)
     print(f"\nDone! Converted {len(episode_metas)} episodes ({total_frames} total frames)")
     print(f"\nOutput: {output_dir}/")
     print(f"  data/chunk-000/       ({len(episode_metas)} parquet files)")
     print(f"  videos/chunk-000/     ({len(episode_metas)} mp4 files per camera)")
-    print(f"  meta/                 (modality.json, episodes.jsonl, info.json, tasks.jsonl)")
+    print(f"  meta/                 (modality.json, episodes.jsonl, info.json, tasks.jsonl, stats.json)")
     print(f"\nNext steps:")
-    print(f"  aws s3 sync {output_dir}/ s3://<bucket>/groot-data/<username>/dataset/")
-    print(f"  ./bin/train-groot.sh --username <username>")
+    print(f'  aws s3 sync {output_dir}/ "s3://$BUCKET/groot-data/ur3/dataset/"')
+    print(f"  python training/groot/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100")
 
 
 if __name__ == "__main__":

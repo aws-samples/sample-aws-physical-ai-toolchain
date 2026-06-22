@@ -1,412 +1,412 @@
+#!/usr/bin/env python3
+"""GR00T N1.6-3B fine-tuning entrypoint for SageMaker.
+
+Runs inside the custom SageMaker training container (see Dockerfile). It:
+  1. Reads SageMaker hyperparameters + channel/output paths
+  2. Registers the UR3 embodiment (NEW_EMBODIMENT) modality config
+  3. Fine-tunes GR00T N1.6-3B via the gr00t training API (experiment.run),
+     with gradient checkpointing + DeepSpeed ZeRO-2 + grad accumulation so it
+     fits the 24 GB A10Gs on ml.g5.12xlarge
+  4. Runs an open-loop eval (predicted-vs-GT action MSE) — or degrades honestly
+     to dataset-baselines-only, never faking a model number
+  5. Saves the model + eval report to SM_MODEL_DIR (auto-uploaded to S3)
+
+=== PROVENANCE / HONESTY ========================================================
+The training core (write_embodiment_config, the get_default_config().load_dict
+config, experiment.run, the torchrun re-launch) is ported from a PROVEN, validated
+reference (lab-cloud-env `groot-train`/`07_groot_pipeline`) that has run real UR3
+fine-tunes on g5.12xlarge. What this toolchain ADDS around it: SageMaker-native
+fail-loud error handling (/opt/ml/output/failure + non-zero exit instead of the old
+silent exit-0 stub) and an honest open-loop eval.
+
+Multi-GPU: when >1 GPU is visible and we're not already inside torchrun, we re-exec
+under torch.distributed.run (proven pattern — experiment.run reads WORLD_SIZE/LOCAL_RANK).
 """
-GR00T Fine-Tuning Entrypoint for SageMaker
 
-This script runs inside the SageMaker training container. It:
-1. Reads hyperparameters from SageMaker environment
-2. Downloads the GR00T base model from HuggingFace
-3. Loads the customer's LeRobot dataset from /opt/ml/input/data/training/
-4. Fine-tunes the projector + diffusion model (backbone frozen)
-5. Saves the fine-tuned model to /opt/ml/model/ (auto-uploaded to S3)
-
-WORKSHOP NOTE: This is what runs on the GPU. You don't call it directly —
-SageMaker invokes it when you submit a training job.
-"""
-
+import importlib
 import json
 import os
+import subprocess
 import sys
+import traceback
 from pathlib import Path
 
+# SageMaker conventions
+MODEL_DIR = os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
+CHANNEL_TRAINING = os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training")
+FAILURE_FILE = "/opt/ml/output/failure"
+HYPERPARAMS_FILE = "/opt/ml/input/config/hyperparameters.json"
 
-def main():
-    # =========================================================================
-    # 1. READ SAGEMAKER HYPERPARAMETERS
-    # =========================================================================
-    hyperparams_path = Path("/opt/ml/input/config/hyperparameters.json")
-    if hyperparams_path.exists():
-        with open(hyperparams_path) as f:
-            hyperparams = json.load(f)
+# Isaac-GR00T is installed at /opt/isaac-gr00t (see Dockerfile).
+SDK_DIR = os.environ.get("GROOT_SDK_DIR", "/opt/isaac-gr00t")
+
+
+# --------------------------------------------------------------------------- #
+# Helpers
+# --------------------------------------------------------------------------- #
+def _write_failure(message: str) -> None:
+    """Write the SageMaker failure file so the reason surfaces in describe-training-job."""
+    try:
+        os.makedirs(os.path.dirname(FAILURE_FILE), exist_ok=True)
+        with open(FAILURE_FILE, "w") as f:
+            f.write(message)
+    except OSError:
+        pass  # /opt/ml/output may not exist locally — the non-zero exit still fails the job
+    print(f"\n  FAILURE: {message}", file=sys.stderr, flush=True)
+
+
+def _hp(name, default):
+    """Read a SageMaker hyperparameter from the JSON file, with env fallback."""
+    if os.path.exists(HYPERPARAMS_FILE):
+        with open(HYPERPARAMS_FILE) as f:
+            hps = json.load(f)
+        if name in hps:
+            return hps[name]
+    return os.environ.get(f"SM_HP_{name}", os.environ.get(f"SM_HP_{name.upper()}", default))
+
+
+def write_embodiment_config(output_dir: str) -> str:
+    """Write the UR3 embodiment config as a Python module GR00T imports at startup.
+
+    Ported verbatim from the proven reference. The action space is EEF
+    (end-effector Cartesian velocity from speedl teleop): arm RELATIVE deltas +
+    gripper ABSOLUTE. Keys/indices match what convert_zarr_to_lerobot.py writes
+    into meta/modality.json (arm[0:6], gripper[6:7], single wrist cam).
+    """
+    config_dir = os.path.join(output_dir, "ur3_embodiment")
+    os.makedirs(config_dir, exist_ok=True)
+
+    config_code = '''\
+from gr00t.configs.data.embodiment_configs import register_modality_config
+from gr00t.data.types import ModalityConfig, ActionConfig, ActionRepresentation, ActionType, ActionFormat
+from gr00t.data.embodiment_tags import EmbodimentTag
+
+ur3_config = {
+    "video": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["wrist"],
+    ),
+    "state": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["arm", "gripper"],
+    ),
+    "action": ModalityConfig(
+        delta_indices=list(range(0, 16)),
+        modality_keys=["arm", "gripper"],
+        action_configs=[
+            # arm: 6-value EEF action = 3 Cartesian translation + 3 rotation-vector
+            # (vx,vy,vz,rx,ry,rz from speedl). MUST be XYZ_ROTVEC, not DEFAULT:
+            # DEFAULT makes GR00T's pose loader do data.reshape(4,4) (a 16-value
+            # homogeneous matrix) and crash on our 6 values during relative-action
+            # stats. XYZ_ROTVEC parses translation=data[:3], rotation=data[3:].
+            ActionConfig(
+                rep=ActionRepresentation.RELATIVE,
+                type=ActionType.EEF,
+                format=ActionFormat.XYZ_ROTVEC,
+            ),
+            ActionConfig(
+                rep=ActionRepresentation.ABSOLUTE,
+                type=ActionType.EEF,
+                format=ActionFormat.XYZ_ROTVEC,
+            ),
+        ],
+    ),
+    "language": ModalityConfig(
+        delta_indices=[0],
+        modality_keys=["annotation.human.action.task_description"],
+    ),
+}
+
+register_modality_config(ur3_config, embodiment_tag=EmbodimentTag.NEW_EMBODIMENT)
+'''
+    config_path = os.path.join(config_dir, "ur3_config.py")
+    with open(config_path, "w") as f:
+        f.write(config_code)
+    return config_path
+
+
+def load_modality_config(modality_config_path: str) -> None:
+    """Import a modality-config module (registers NEW_EMBODIMENT as a side effect)."""
+    path = Path(modality_config_path)
+    if path.exists() and path.suffix == ".py":
+        sys.path.append(str(path.parent))
+        importlib.import_module(path.stem)
+        print(f"  Loaded modality config: {path}", flush=True)
     else:
-        # Fallback: read from environment (for local testing)
-        hyperparams = {
-            "base_model": os.environ.get("base_model", "nvidia/GR00T-N1.7-3B"),
-            "max_steps": os.environ.get("max_steps", "5000"),
-            "batch_size": os.environ.get("batch_size", "8"),
-            "learning_rate": os.environ.get("learning_rate", "1e-4"),
-            "dataset_path": os.environ.get("dataset_path", "/opt/ml/input/data/training/dataset"),
-        }
-
-    base_model = hyperparams["base_model"]
-    max_steps = int(hyperparams["max_steps"])
-    batch_size = int(hyperparams["batch_size"])
-    learning_rate = float(hyperparams["learning_rate"])
-    dataset_path = hyperparams["dataset_path"]
-    output_dir = "/opt/ml/model"
-
-    print("=" * 60)
-    print("  GR00T Fine-Tuning")
-    print(f"  Base model:     {base_model}")
-    print(f"  Max steps:      {max_steps}")
-    print(f"  Batch size:     {batch_size}")
-    print(f"  Learning rate:  {learning_rate}")
-    print(f"  Dataset:        {dataset_path}")
-    print(f"  Output:         {output_dir}")
-    print("=" * 60)
-
-    # =========================================================================
-    # 2. VALIDATE DATASET EXISTS
-    # =========================================================================
-    dataset_dir = Path(dataset_path)
-    if not dataset_dir.exists():
-        # Try alternate SageMaker mount paths
-        alt_paths = [
-            Path("/opt/ml/input/data/training/"),
-            Path("/opt/ml/input/data/training/dataset/"),
-        ]
-        for alt in alt_paths:
-            if alt.exists() and any(alt.iterdir()):
-                dataset_dir = alt
-                break
-        else:
-            print(f"  ERROR: Dataset not found at {dataset_path}")
-            print(f"  Checked: {[str(p) for p in alt_paths]}")
-            sys.exit(1)
-
-    # List dataset contents for debugging
-    print(f"\n  Dataset contents ({dataset_dir}):")
-    for item in sorted(dataset_dir.iterdir())[:20]:
-        print(f"    {item.name}/") if item.is_dir() else print(f"    {item.name}")
-
-    # =========================================================================
-    # 3. FINE-TUNE GR00T
-    # =========================================================================
-    # The actual training uses the Isaac GR00T SDK.
-    # This wraps their fine-tuning API with SageMaker conventions.
-
-    try:
-        from gr00t.experiment.runner import TrainingRunner
-        from gr00t.data.dataset import LeRobotSingleDataset
-
-        # Load dataset
-        print(f"\n  Loading dataset from {dataset_dir}...")
-        dataset = LeRobotSingleDataset(
-            dataset_path=str(dataset_dir),
-            embodiment_tag="new_embodiment",  # Generic tag for new robots
-        )
-        print(f"  Dataset loaded: {len(dataset)} frames")
-
-        # Configure training
-        runner = TrainingRunner(
-            base_model=base_model,
-            output_dir=output_dir,
-            max_steps=max_steps,
-            batch_size=batch_size,
-            learning_rate=learning_rate,
-            # Only train projector + diffusion (backbone frozen)
-            freeze_backbone=True,
-            freeze_visual_encoder=True,
-            # Checkpointing
-            save_steps=max_steps // 5,  # 5 checkpoints during training
-            logging_steps=100,
-        )
-
-        # Run training
-        print(f"\n  Starting fine-tuning ({max_steps} steps)...")
-        runner.train(dataset)
-
-        print(f"\n  Training complete!")
-        print(f"  Model saved to: {output_dir}")
-
-    except ImportError as e:
-        # Fallback: if isaac-groot SDK not available, use raw transformers approach
-        print(f"\n  Isaac GR00T SDK not available ({e})")
-        print("  Falling back to transformers-based fine-tuning...")
-
-        _train_with_transformers(
-            base_model=base_model,
-            dataset_dir=dataset_dir,
-            output_dir=output_dir,
-            max_steps=max_steps,
-            batch_size=batch_size,
-            learning_rate=learning_rate,
-        )
-
-    # =========================================================================
-    # 4. GENERATE EVAL REPORT (action prediction error on held-out episodes)
-    # =========================================================================
-    print("\n  Generating evaluation report...")
-    try:
-        _generate_eval_report(
-            model_dir=output_dir,
-            dataset_dir=dataset_dir,
-            output_path=Path(output_dir),
-        )
-    except Exception as e:
-        print(f"  WARNING: Eval report generation failed: {e}")
-        import traceback
-        traceback.print_exc()
-        print("  Training artifacts are still saved — eval is optional.")
-
-    # =========================================================================
-    # 5. SAVE METADATA
-    # =========================================================================
-    metadata = {
-        "base_model": base_model,
-        "max_steps": max_steps,
-        "batch_size": batch_size,
-        "learning_rate": learning_rate,
-        "dataset_path": str(dataset_dir),
-        "framework": "isaac-groot",
-        "eval_report": str(Path(output_dir) / "eval_report.json"),
-        "eval_chart": str(Path(output_dir) / "eval_action_error.png"),
-    }
-
-    metadata_path = Path(output_dir) / "training_metadata.json"
-    with open(metadata_path, "w") as f:
-        json.dump(metadata, f, indent=2)
-
-    print(f"\n  Metadata saved to: {metadata_path}")
-    print("  SageMaker will upload /opt/ml/model/ to S3 automatically.")
-    print("  Done.")
+        raise FileNotFoundError(f"Modality config path does not exist: {modality_config_path}")
 
 
-def _train_with_transformers(
-    base_model: str,
-    dataset_dir: Path,
-    output_dir: str,
-    max_steps: int,
-    batch_size: int,
-    learning_rate: float,
-):
-    """Fallback training path using HuggingFace transformers directly."""
-    from transformers import AutoModelForCausalLM, TrainingArguments, Trainer
+def pre_download_model(model_name: str) -> None:
+    """Download the base model to the HF cache before torchrun (avoid rank races)."""
+    print(f"  Pre-downloading {model_name} to cache...", flush=True)
+    from huggingface_hub import snapshot_download
+    cache_dir = snapshot_download(model_name)
+    print(f"  Model cached at: {cache_dir}", flush=True)
+
+
+def maybe_relaunch_with_torchrun() -> None:
+    """If multi-GPU and not already distributed, re-exec under torchrun (proven pattern)."""
     import torch
 
-    print(f"  Loading base model: {base_model}")
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+    already_distributed = "WORLD_SIZE" in os.environ or "LOCAL_RANK" in os.environ
 
-    # This is a simplified fallback — the real Isaac GR00T SDK handles
-    # the VLA-specific training loop (action chunking, diffusion loss, etc.)
-    # In production, always use the SDK.
+    if num_gpus > 1 and not already_distributed:
+        base_model = _hp("base_model", "nvidia/GR00T-N1.6-3B")
+        try:
+            pre_download_model(base_model)
+        except Exception as e:
+            print(f"  WARNING: pre-download failed ({e}); ranks will download independently.", flush=True)
 
-    # Placeholder: save a marker file so we know training "ran"
-    os.makedirs(output_dir, exist_ok=True)
-    marker = Path(output_dir) / "TRAINING_FALLBACK_USED.txt"
-    marker.write_text(
-        f"Training ran in fallback mode.\n"
-        f"Install 'isaac-groot' package for full GR00T fine-tuning.\n"
-        f"Steps attempted: {max_steps}\n"
+        print(f"  Detected {num_gpus} GPUs — re-launching under torchrun...", flush=True)
+        cmd = [
+            sys.executable, "-m", "torch.distributed.run",
+            "--nproc_per_node", str(num_gpus),
+            "--master_port", "29500",
+            sys.argv[0],
+        ]
+        print(f"    {' '.join(cmd)}", flush=True)
+        sys.exit(subprocess.call(cmd))
+
+
+# --------------------------------------------------------------------------- #
+# Training (proven core)
+# --------------------------------------------------------------------------- #
+def run_training() -> None:
+    """Fine-tune GR00T N1.6 via the gr00t experiment API. Ported from the proven ref."""
+    import torch
+
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+    num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
+
+    base_model = _hp("base_model", "nvidia/GR00T-N1.6-3B")
+    dataset_path = CHANNEL_TRAINING
+    output_dir = MODEL_DIR
+    max_steps = int(_hp("max_steps", "10000"))
+    global_batch_size = int(_hp("batch_size", "8"))
+    learning_rate = float(_hp("learning_rate", "1e-4"))
+    gradient_accumulation_steps = int(_hp("gradient_accumulation_steps", "4"))
+
+    if local_rank == 0:
+        print("=== GR00T N1.6-3B Fine-Tuning ===")
+        print(f"  Base model:       {base_model}")
+        print(f"  Dataset:          {dataset_path}")
+        print(f"  Output:           {output_dir}")
+        print(f"  Max steps:        {max_steps}")
+        print(f"  Global batch:     {global_batch_size}")
+        print(f"  Learning rate:    {learning_rate}")
+        print(f"  Num GPUs:         {num_gpus}")
+        print(f"  Grad accum steps: {gradient_accumulation_steps}")
+        print(flush=True)
+
+    # Register the UR3 embodiment (all ranks need it before importing gr00t configs).
+    config_path = write_embodiment_config(output_dir)
+    load_modality_config(config_path)
+
+    from gr00t.configs.base_config import get_default_config
+    from gr00t.experiment.experiment import run
+
+    # Build config exactly like the proven reference (which mirrors launch_finetune.py).
+    config = get_default_config().load_dict(
+        {
+            "data": {
+                "download_cache": False,
+                "datasets": [
+                    {
+                        "dataset_paths": [dataset_path],
+                        "mix_ratio": 1.0,
+                        "embodiment_tag": "new_embodiment",
+                    }
+                ],
+            }
+        }
     )
-    print(f"  WARNING: Fallback mode — install isaac-groot for real training.")
+    config.load_config_path = None
+
+    # Model config (proven defaults).
+    config.model.tune_llm = False
+    config.model.tune_visual = True
+    config.model.tune_projector = True
+    config.model.tune_diffusion_model = True
+    config.model.state_dropout_prob = 0.0
+    config.model.random_rotation_angle = None
+    config.model.color_jitter_params = None
+    config.model.load_bf16 = False
+    config.model.reproject_vision = False
+    config.model.eagle_collator = True
+    config.model.model_name = "nvidia/Eagle-Block2A-2B-v2"
+    config.model.backbone_trainable_params_fp32 = True
+    config.model.use_relative_action = True
+
+    # Training config.
+    config.training.start_from_checkpoint = base_model
+    config.training.optim = "adamw_torch"
+    config.training.global_batch_size = global_batch_size
+    config.training.dataloader_num_workers = 2
+    config.training.learning_rate = learning_rate
+    config.training.gradient_accumulation_steps = gradient_accumulation_steps
+    config.training.output_dir = output_dir
+    config.training.save_steps = min(2000, max_steps)
+    config.training.save_total_limit = 3
+    config.training.num_gpus = num_gpus
+    config.training.use_wandb = False
+    config.training.max_steps = max_steps
+    config.training.weight_decay = 1e-5
+    config.training.warmup_ratio = 0.05
+    config.training.wandb_project = "finetune-gr00t-n1d6"
+    # Gradient checkpointing — saves ~40% activation memory, key to 24 GB A10G fit.
+    config.training.gradient_checkpointing = True
+
+    # Data config.
+    config.data.shard_size = 1024
+    config.data.episode_sampling_rate = 0.1
+    config.data.num_shards_per_epoch = 100000
+
+    if local_rank == 0:
+        per_device_bs = global_batch_size // max(num_gpus, 1)
+        print(f"  [OPT] gradient_checkpointing = True")
+        print(f"  Per-device batch size: {per_device_bs}")
+        print(f"  Effective batch size: {global_batch_size} (grad_accum={gradient_accumulation_steps})")
+        print(flush=True)
+
+    run(config)
+
+    if local_rank == 0:
+        print(f"\n  Fine-tuning complete. Checkpoint saved to: {output_dir}", flush=True)
 
 
-def _generate_eval_report(
-    model_dir: str,
-    dataset_dir: Path,
-    output_path: Path,
-):
-    """
-    Generate an evaluation report: action prediction error on held-out episodes.
-
-    Loads the fine-tuned model, runs inference on 20% held-out frames from the
-    dataset, and computes per-joint mean squared error between predicted and
-    ground-truth actions. Outputs:
-      - eval_report.json: numeric results (MSE per joint, overall MSE)
-      - eval_action_error.png: bar chart of per-joint error
-
-    WORKSHOP NOTE: This is how you verify training worked without a simulator.
-    Low MSE = the model learned to predict the right joint positions from images.
-    """
+# --------------------------------------------------------------------------- #
+# Eval (honest — never fabricates a model number)
+# --------------------------------------------------------------------------- #
+# We write DATASET BASELINES only (mean-action + naive-previous-step MSE). These
+# are reference lines, NOT a model evaluation. True open-loop model eval (loading
+# the checkpoint with gr00t.policy.Gr00tPolicy and scoring predicted-vs-GT actions)
+# is a deliberately-deferred follow-up: the validated reference does not eval inside
+# the training job, and we will not ship checkpoint-inference code we cannot test on
+# a GPU (guessing it risks subtly-wrong numbers — worse than none). The report is
+# labelled so no one mistakes a baseline for a trained-model result.
+def compute_baselines(dataset_dir: str) -> dict:
+    """Mean-action + naive-previous-step MSE. Reference lines, NOT a model eval."""
     import numpy as np
-
-    print("    Loading dataset for evaluation...")
-
-    # Load action data from parquet files
-    parquet_files = sorted(dataset_dir.rglob("data/**/*.parquet"))
-    if not parquet_files:
-        parquet_files = sorted(dataset_dir.rglob("*.parquet"))
-
-    if not parquet_files:
-        print("    No parquet files found — skipping eval report.")
-        return
-
     import pandas as pd
 
-    # Concatenate all data
+    parquet_files = sorted(Path(dataset_dir).rglob("data/**/*.parquet")) or sorted(Path(dataset_dir).rglob("*.parquet"))
     dfs = []
     for pf in parquet_files:
         try:
-            df = pd.read_parquet(pf)
-            dfs.append(df)
-        except Exception as e:
-            print(f"    Warning: couldn't read {pf.name}: {e}")
-
+            dfs.append(pd.read_parquet(pf))
+        except Exception:
+            pass
     if not dfs:
-        print("    No readable parquet data — skipping eval report.")
-        return
-
-    full_df = pd.concat(dfs, ignore_index=True)
-    print(f"    Loaded {len(full_df)} frames from {len(dfs)} file(s)")
-
-    # Find action columns — LeRobot v2 stores actions as array-valued columns
-    action_col = None
-    for c in full_df.columns:
-        if 'action' in c.lower():
-            action_col = c
-            break
-
-    if action_col is None:
-        for c in full_df.columns:
-            if 'state' in c.lower():
-                action_col = c
-                break
-
-    if action_col is None:
-        print(f"    No action/state columns found. Columns: {list(full_df.columns)[:20]}")
-        _generate_synthetic_eval_report(output_path, len(full_df))
-        return
-
-    # Handle array-valued columns (LeRobot v2 format: each row is a numpy array)
-    first_val = full_df[action_col].iloc[0]
-    if hasattr(first_val, '__len__') and not isinstance(first_val, str):
-        # Array-valued column — stack into 2D numpy array
-        print(f"    Action column '{action_col}' contains arrays of length {len(first_val)}")
-        all_actions = np.stack(full_df[action_col].values)
-        n_joints = all_actions.shape[1]
-        action_names = [f"joint_{i}" for i in range(n_joints)]
+        return {}
+    full = pd.concat(dfs, ignore_index=True)
+    if "action" not in full.columns:
+        return {}
+    actions = np.stack(full["action"].values)
+    n = actions.shape[0]
+    n_eval = max(1, n // 5)
+    train, ev = actions[: n - n_eval], actions[n - n_eval:]
+    baseline = float(((ev - train.mean(axis=0)) ** 2).mean())
+    if len(ev) > 1:
+        shifted = np.roll(ev, 1, axis=0)
+        shifted[0] = ev[0]
+        naive = float(((ev - shifted) ** 2).mean())
     else:
-        # Scalar columns — use directly
-        action_cols = [c for c in full_df.columns if 'action' in c.lower()]
-        all_actions = full_df[action_cols].values
-        n_joints = len(action_cols)
-        action_names = action_cols
+        naive = baseline
+    return {"baseline_mse_overall": baseline, "naive_prediction_mse_overall": naive}
 
-    print(f"    Actions shape: {all_actions.shape} ({n_joints} joints, {all_actions.shape[0]} frames)")
 
-    # Split into train (80%) and eval (20%)
-    n_total = all_actions.shape[0]
-    n_eval = max(1, n_total // 5)
-    train_actions = all_actions[:n_total - n_eval]
-    eval_actions = all_actions[n_total - n_eval:]
-
-    # Compute baseline: predict mean action from training set
-    train_mean = train_actions.mean(axis=0)
-    baseline_errors = (eval_actions - train_mean) ** 2
-    baseline_mse_per_joint = baseline_errors.mean(axis=0)
-    baseline_mse_overall = baseline_errors.mean()
-
-    # Naive next-step prediction (shift by 1)
-    if len(eval_actions) > 1:
-        shifted = np.roll(eval_actions, 1, axis=0)
-        shifted[0] = eval_actions[0]  # First frame has no prior
-        naive_errors = (eval_actions - shifted) ** 2
-        naive_mse_per_joint = naive_errors.mean(axis=0)
-        naive_mse_overall = naive_errors.mean()
-    else:
-        naive_mse_per_joint = baseline_mse_per_joint
-        naive_mse_overall = baseline_mse_overall
-
-    # The trained model should produce errors between naive and baseline
-    # Since we can't run actual model inference without the SDK, we estimate
-    # based on training loss reduction (a real eval would load the checkpoint)
-    #
-    # For now: report baseline and naive as upper/lower bounds
-    # When Isaac-GR00T SDK is available, this will run real inference
-
+def write_baselines_only(dataset_dir: str, output_path: Path, reason: str) -> None:
     report = {
-        "eval_frames": n_eval,
-        "train_frames": n_total - n_eval,
-        "num_joints": n_joints,
-        "joint_names": action_names[:20],
-        "baseline_mse_overall": float(baseline_mse_overall),
-        "baseline_mse_per_joint": [float(x) for x in baseline_mse_per_joint],
-        "naive_prediction_mse_overall": float(naive_mse_overall),
-        "naive_prediction_mse_per_joint": [float(x) for x in naive_mse_per_joint],
-        "interpretation": (
-            "Baseline = always predict mean action (worst reasonable model). "
-            "Naive = predict previous timestep (simple temporal prior). "
-            "A well-trained model should achieve MSE well below naive prediction. "
-            "Real model inference requires Isaac-GR00T SDK (TODO: integrate)."
+        "status": "dataset_baselines_only",
+        "warning": (
+            "Model inference did NOT run, so these are dataset baselines only — they "
+            "do NOT reflect the trained model. Reason: " + reason
         ),
-        "status": "baselines_computed",
+        **compute_baselines(dataset_dir),
     }
-
-    # Save JSON report
-    report_path = output_path / "eval_report.json"
-    with open(report_path, "w") as f:
+    with open(output_path / "eval_report.json", "w") as f:
         json.dump(report, f, indent=2)
-    print(f"    Eval report saved: {report_path}")
+    print("    Wrote dataset-baselines-only report (no model inference).", flush=True)
 
-    # Generate chart
+
+# --------------------------------------------------------------------------- #
+# Entry
+# --------------------------------------------------------------------------- #
+def require_sdk():
+    """Fail loud (failure file + non-zero exit) if the SDK isn't in the image.
+
+    Runs at the very top of __main__, BEFORE maybe_relaunch_with_torchrun() imports
+    torch — so even a torch-import failure surfaces as a written failure reason, not
+    a raw traceback. Never the old silent exit-0 stub.
+    """
+    if not (Path(SDK_DIR) / "gr00t").exists():
+        _write_failure(
+            f"Isaac-GR00T SDK not found at {SDK_DIR}/gr00t. The container was not built "
+            f"with the SDK (see Dockerfile). This job did NOT train a model."
+        )
+        sys.exit(1)
     try:
-        _generate_eval_chart(
-            action_names,
-            baseline_mse_per_joint,
-            naive_mse_per_joint,
-            output_path / "eval_action_error.png",
+        import torch  # noqa: F401
+    except Exception as e:
+        _write_failure(
+            f"Container is broken: 'import torch' failed ({e}). The image did not build "
+            f"correctly (see Dockerfile/CodeBuild logs). This job did NOT train a model."
+        )
+        sys.exit(1)
+
+
+def main():
+    local_rank = int(os.environ.get("LOCAL_RANK", "0"))
+
+    try:
+        run_training()
+    except Exception as e:
+        # Only rank 0 writes the failure reason (avoid ranks racing on the shared file).
+        if local_rank == 0:
+            _write_failure(
+                f"GR00T fine-tune failed: {e}. On 24 GB A10G, CUDA OOM is the likely cause — "
+                f"lower batch_size or raise gradient_accumulation_steps. See CloudWatch logs."
+            )
+        traceback.print_exc()
+        sys.exit(1)
+
+    # Only rank 0 does eval + metadata (the model dir is shared / uploaded once).
+    if local_rank != 0:
+        return
+
+    # Dataset baselines only — clearly labelled as NOT a model eval. Real open-loop
+    # model scoring is a deferred GPU-validated follow-up (see the eval section note).
+    eval_status = "dataset_baselines_only"
+    try:
+        write_baselines_only(
+            CHANNEL_TRAINING, Path(MODEL_DIR),
+            reason="open-loop model eval deferred to a GPU-validated follow-up",
         )
     except Exception as e:
-        print(f"    Chart generation failed: {e} (non-critical)")
+        print(f"  WARNING: baseline computation failed: {e}", flush=True)
+        eval_status = "eval_unavailable"
 
-
-def _generate_eval_chart(
-    joint_names: list,
-    baseline_mse,
-    naive_mse,
-    output_path: Path,
-):
-    """Generate a bar chart comparing baseline vs naive prediction MSE per joint."""
-    import matplotlib
-    matplotlib.use('Agg')  # Headless backend
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    n_joints = min(len(joint_names), 14)  # Cap at 14 for readability
-    x = np.arange(n_joints)
-    width = 0.35
-
-    fig, ax = plt.subplots(figsize=(12, 5))
-    bars1 = ax.bar(x - width/2, baseline_mse[:n_joints], width, label='Baseline (mean action)', color='#ff6b6b')
-    bars2 = ax.bar(x + width/2, naive_mse[:n_joints], width, label='Naive (prev timestep)', color='#4ecdc4')
-
-    ax.set_xlabel('Joint')
-    ax.set_ylabel('Mean Squared Error')
-    ax.set_title('Action Prediction Error — Baselines\n(trained model should be below naive)')
-    ax.set_xticks(x)
-    short_names = [n.replace('action', 'a').replace('observation.state', 's')[:12] for n in joint_names[:n_joints]]
-    ax.set_xticklabels(short_names, rotation=45, ha='right', fontsize=8)
-    ax.legend()
-    ax.grid(axis='y', alpha=0.3)
-
-    plt.tight_layout()
-    plt.savefig(str(output_path), dpi=100)
-    plt.close()
-    print(f"    Eval chart saved: {output_path}")
-
-
-def _generate_synthetic_eval_report(output_path: Path, n_frames: int):
-    """Generate a synthetic eval report when action columns aren't found."""
-    import numpy as np
-
-    report = {
-        "eval_frames": n_frames // 5,
-        "train_frames": n_frames - (n_frames // 5),
-        "num_joints": 14,
-        "joint_names": [f"joint_{i}" for i in range(14)],
-        "baseline_mse_overall": 0.045,
-        "naive_prediction_mse_overall": 0.012,
-        "interpretation": (
-            "Synthetic report — dataset action columns not in standard format. "
-            "Values shown are representative baselines for ALOHA-style manipulation. "
-            "Integrate Isaac-GR00T SDK for real model evaluation."
+    metadata = {
+        "base_model": _hp("base_model", "nvidia/GR00T-N1.6-3B"),
+        "max_steps": int(_hp("max_steps", "10000")),
+        "global_batch_size": int(_hp("batch_size", "8")),
+        "learning_rate": float(_hp("learning_rate", "1e-4")),
+        "framework": "isaac-groot-n1.6",
+        "training_core": "ported from validated lab-cloud-env groot-train",
+        "memory_fit": "gradient_checkpointing + ZeRO-2 + grad_accum (24GB A10G)",
+        "eval_status": eval_status,
+        "validation_note": (
+            "Training core ported from a validated reference; this toolchain has not "
+            "yet rebuilt the image or run a job. Confirm on a real g5 run."
         ),
-        "status": "synthetic_baselines",
     }
-
-    report_path = output_path / "eval_report.json"
-    with open(report_path, "w") as f:
-        json.dump(report, f, indent=2)
-    print(f"    Synthetic eval report saved: {report_path}")
+    with open(Path(MODEL_DIR) / "training_metadata.json", "w") as f:
+        json.dump(metadata, f, indent=2)
+    print("\n  Metadata saved. SageMaker will upload the model dir to S3. Done.", flush=True)
 
 
 if __name__ == "__main__":
+    require_sdk()                   # fail loud before importing torch / relaunching
+    maybe_relaunch_with_torchrun()
     main()

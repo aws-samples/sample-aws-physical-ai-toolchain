@@ -14,26 +14,34 @@
 #   - HF_TOKEN set (for model download during training)
 #
 # Usage:
-#   ./run-path-a.sh                          # Use demo dataset
-#   ./run-path-a.sh --dataset-dir ./my-data  # Use your own data
-#   ./run-path-a.sh --dry-run                # Show what would happen
+#   ./run-path-a.sh                                # Use the bundled UR3 dataset
+#   ./run-path-a.sh --dataset-dir ./my-data        # Use your own data (space or = form)
+#   ./run-path-a.sh --dataset-dir=./my-data --dry-run
+#   ./run-path-a.sh --dry-run                      # Show what would happen
 # =============================================================================
 
 set -euo pipefail
 
 STACK_NAME="PhysicalAi-dev-Foundation"
-DATASET_DIR="${1:-./data/demo-dataset}"
-PREFIX="groot-data/demo"
+DATASET_DIR="training/data/ur3_lerobot_dataset"   # the dataset that ships in this repo
+PREFIX="groot-data/ur3"                            # matches Lab 1 + pipeline.py defaults
 MAX_STEPS=5000
 DRY_RUN=""
 
-# Parse flags
-for arg in "$@"; do
-  case $arg in
-    --dry-run) DRY_RUN="--dry-run" ;;
-    --dataset-dir=*) DATASET_DIR="${arg#*=}" ;;
-    --max-steps=*) MAX_STEPS="${arg#*=}" ;;
+# Parse flags. Supports both "--flag value" and "--flag=value" forms, and a bare
+# positional dataset dir. (A bare "--dry-run" must NOT be captured as the dataset
+# path — that was the old bug.)
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --dry-run)        DRY_RUN="--dry-run" ;;
+    --dataset-dir)    DATASET_DIR="$2"; shift ;;
+    --dataset-dir=*)  DATASET_DIR="${1#*=}" ;;
+    --max-steps)      MAX_STEPS="$2"; shift ;;
+    --max-steps=*)    MAX_STEPS="${1#*=}" ;;
+    --*)              echo "Unknown flag: $1" >&2; exit 2 ;;
+    *)                DATASET_DIR="$1" ;;   # bare positional dataset dir
   esac
+  shift
 done
 
 echo ""

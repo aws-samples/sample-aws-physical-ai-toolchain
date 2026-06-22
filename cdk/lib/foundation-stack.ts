@@ -223,12 +223,14 @@ export class FoundationStack extends cdk.Stack {
     //
     // Builds that pull an NVIDIA NGC base image (isaac-lab, isaac-sim, cosmos)
     // need an NGC API key in Secrets Manager at `${projectName}/ngc-api-key`.
-    // See Lab 0 for how to create it. groot-training builds from a public CUDA
-    // base, so it works with no extra credentials.
+    // See Lab 0 for how to create it. groot-training builds from an AWS Deep
+    // Learning Container base (cross-account ECR) — see requiresDlcLogin below.
 
     const sourceAsset = ContainerBuild.sourceAsset(this, 'ContainerSource');
 
-    // GR00T fine-tuning container (Path A) — public CUDA base, no NGC needed.
+    // GR00T fine-tuning container (Path A) — AWS PyTorch DLC base + Isaac-GR00T
+    // from source. requiresDlcLogin grants the cross-account ECR pull from the
+    // DLC account (763104351884); the buildspec also `docker login`s to it.
     const grootBuild = new ContainerBuild(this, 'GrootTrainingBuild', {
       projectName,
       imageName: 'groot-training',
@@ -236,7 +238,8 @@ export class FoundationStack extends cdk.Stack {
       buildSpecPath: 'containers/groot-training/buildspec.yml',
       sourceAsset,
       computeType: codebuild.ComputeType.LARGE,
-      timeout: cdk.Duration.minutes(45),
+      timeout: cdk.Duration.minutes(60),
+      requiresDlcLogin: true,
     });
 
     // Isaac Lab RL container (Path B) — NGC base (~16 GB), needs big builder.

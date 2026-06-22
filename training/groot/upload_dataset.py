@@ -4,10 +4,10 @@ Upload a local LeRobot dataset to the S3 datasets bucket.
 Reads the bucket name from CloudFormation outputs (or accepts it as a flag).
 
 Usage:
-    python upload_dataset.py --dataset-dir ./data/demo-dataset --prefix groot-data/demo
-    python upload_dataset.py --dataset-dir ./data/demo-dataset --prefix groot-data/demo --bucket my-bucket
+    python upload_dataset.py --dataset-dir training/data/ur3_lerobot_dataset --prefix groot-data/ur3
+    python upload_dataset.py --dataset-dir ./my-data --prefix groot-data/myrobot --bucket my-bucket
 
-WORKSHOP NOTE: Run this after download_demo_dataset.py and before launch_training.py.
+WORKSHOP NOTE: Run this after converting/downloading a dataset and before launch_training.py.
 """
 
 import argparse
@@ -75,7 +75,7 @@ def upload_dataset(dataset_dir: str, bucket: str, prefix: str) -> dict:
 def main():
     parser = argparse.ArgumentParser(description="Upload dataset to S3")
     parser.add_argument("--dataset-dir", required=True, help="Local dataset directory")
-    parser.add_argument("--prefix", default="groot-data/demo", help="S3 prefix (under the bucket)")
+    parser.add_argument("--prefix", default="groot-data/ur3", help="S3 prefix (under the bucket)")
     parser.add_argument("--bucket", default=None, help="S3 bucket name (auto-detected from CDK if not provided)")
     parser.add_argument("--stack-name", default="PhysicalAi-dev-Foundation", help="CDK stack name to read outputs from")
     args = parser.parse_args()

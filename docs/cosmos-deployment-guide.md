@@ -7,7 +7,7 @@ How to deploy and run NVIDIA Cosmos Transfer 2.5-2B for photorealistic scene gen
 - **Region:** us-east-2 (Ohio)
 - **Type:** p5.48xlarge (8× H100 80GB)
 - **Driver:** NVIDIA 580.159.03
-- **Container:** 802782083985.dkr.ecr.us-east-1.amazonaws.com/physical-ai/cosmos-transfer:latest
+- **Container:** `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/cosmos-transfer:latest`
 - **Port:** 8000
 - **Security Group:** sg-056c501bbd5a64dcd (port 8000 open)
 

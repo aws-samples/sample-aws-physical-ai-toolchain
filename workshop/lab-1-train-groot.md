@@ -18,8 +18,8 @@ A robot manipulation policy trained via **imitation learning**. Here's what that
 4. The result is a model that can control the robot autonomously for that task
 
 **What GR00T fine-tuning actually trains:**
-- The backbone (vision encoder + language model) stays **frozen** — NVIDIA already trained this on millions of robot videos
-- Only the **projector** (maps vision features to action space) and **diffusion action head** (predicts action sequences) get updated
+- The **language model** backbone stays **frozen** — NVIDIA already trained it on millions of robot videos
+- The **vision tower**, the **projector** (maps vision features to action space), and the **diffusion action head** (predicts action sequences) get updated
 - This is why 50 demos are enough — you're not training from scratch, you're teaching an existing model a new task
 
 **The limitation of imitation learning alone:**
@@ -47,12 +47,12 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 ```
 
 **Key details:**
-- **Instance:** `ml.g5.12xlarge` — 4× NVIDIA A10G GPUs, 48 GB GPU RAM, 192 GB system RAM
+- **Instance:** `ml.g5.12xlarge` — 4× NVIDIA A10G GPUs, **24 GB per GPU (96 GB total)**, 192 GB system RAM. GR00T fine-tuning fits 24 GB here via gradient checkpointing + DeepSpeed ZeRO-2 + gradient accumulation (a single A10G OOMs — the 4-GPU box is required).
 - **Container:** `groot-training` (7.1 GB, based on `nvidia/cuda:12.4.1-devel-ubuntu22.04`)
 - **Dataset format:** LeRobot v2 — parquet files (actions, states, episode metadata) + MP4 video (camera observations)
 - **Training time:** ~8 sec/step. 100 steps = 15 min (smoke test). 5000 steps = 11 hrs (full)
 - **Cost:** SageMaker on-demand pricing for ml.g5.12xlarge is ~$7.09/hr. No idle cost — you only pay while training runs.
-- **Output:** `model.tar.gz` in S3 containing: model checkpoint + `eval_report.json` + `eval_action_error.png`
+- **Output:** `model.tar.gz` in S3 containing: the fine-tuned model checkpoint + `eval_report.json` (dataset baselines — see Step 7)
 
 ---
 
@@ -60,9 +60,10 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 
 - Foundation stack deployed (`cdk deploy --context mode=simple` — see Lab 0). This
   already triggered the CodeBuild job that builds the training container in the cloud.
-- `HF_TOKEN` environment variable set (HuggingFace token for downloading GR00T base model weights)
+- `HF_TOKEN` environment variable set (HuggingFace token for the GR00T base-model
+  download; set one to avoid anonymous rate limits during the multi-GB download)
   - Get one at https://huggingface.co/settings/tokens
-  - Accept the GR00T license at https://huggingface.co/nvidia/GR00T-N1.7-3B
+  - Review the model card / license at https://huggingface.co/nvidia/GR00T-N1.6-3B
 - Python 3.11+ with `boto3` and `huggingface-hub` installed
 
 ---
@@ -129,7 +130,21 @@ training/data/ur3_lerobot_dataset/
     └── observation.images.wrist/  # Wrist camera MP4s (one per episode)
 ```
 
-**Bringing your own data:** If you have Zarr episodes from a different robot, this same script works — just point `--episodes-dir` at your recordings. The Zarr schema expects `observations/joints`, `observations/gripper_position`, `images/wrist`, and `commands.json`. See `convert_zarr_to_lerobot.py` for the full format specification.
+**Bringing your own data:** If you have Zarr episodes from your own teleop setup,
+the one-command ingestion path converts → uploads → (optionally) trains:
+
+```bash
+python training/groot/ingest_customer_data.py \
+  --episodes-dir ./my_robot_episodes \
+  --prefix groot-data/myrobot \
+  --train --max-steps 100
+```
+
+The expected Zarr schema (`observations/joints`, `observations/gripper_position`,
+`images/wrist`, `commands.json`, and the `zarr.json` attrs) is documented in full in
+[docs/ZARR_SCHEMA.md](../docs/ZARR_SCHEMA.md). For a non-UR3 robot you also update the
+state/action dimensions in `convert_zarr_to_lerobot.py` and the GR00T modality config
+(`containers/groot-training/ur3_modality_config.py`) — both are explained there.
 
 ---
 
@@ -170,10 +185,10 @@ aws codebuild start-build --project-name physical-ai-groot-training-build
 ```
 
 **What's in the container:**
-- CUDA 12.4 + PyTorch 2.5 (GPU compute)
-- HuggingFace transformers + diffusers (model loading)
-- LeRobot (dataset loading)
-- pandas + matplotlib (eval report generation)
+- AWS SageMaker PyTorch DLC base (PyTorch 2.5.1 / CUDA 12.4 / Python 3.11)
+- NVIDIA Isaac-GR00T (N1.6) installed from source, with flash-attn + decord
+- `transformers==4.51.3` (GR00T N1.6 / Eagle backbone compatibility)
+- pandas + pyarrow (dataset baselines for the eval report)
 - `train_entrypoint.py` — the script SageMaker runs
 
 <details>
@@ -199,24 +214,50 @@ For everyone else, the CodeBuild image above is all you need.
 
 ## Step 5: Launch Training (Smoke Test)
 
-Start with 100 steps to verify everything works (~15 min, ~$2):
+The training runs as a **SageMaker Pipeline** (`groot-finetune-pipeline`) that
+trains and then registers the model. You create the pipeline once, then execute it.
+
+**5a — Create the pipeline (one-time):**
 
 ```bash
-# One command to run the full pipeline (train + register to Model Registry)
-python training/groot/pipeline.py --execute \
-  --max-steps 100 \
-  --dataset-prefix groot-data/ur3
+python training/groot/pipeline.py --create \
+  --s3-bucket $BUCKET \
+  --role-arn $ROLE_ARN \
+  --ecr-image $ECR_URI:latest \
+  --region us-west-2
 ```
 
-That's it. The pipeline handles:
+> You only do this once. `--execute` fails with a clear "run --create first" message
+> if the pipeline doesn't exist yet.
+
+**5b — Execute a 100-step smoke run** (~15 min, ~$2):
+
+```bash
+python training/groot/pipeline.py --execute \
+  --max-steps 100 \
+  --dataset-prefix groot-data/ur3 \
+  --region us-west-2
+```
+
+The pipeline handles:
 1. Provisioning an ml.g5.12xlarge instance (4× A10G GPUs)
 2. Pulling your container from ECR
 3. Downloading the UR3 dataset from S3
-4. Downloading GR00T N1.7-3B base model from HuggingFace
-5. Fine-tuning projector + action head for 100 steps
+4. Downloading GR00T N1.6-3B base model from HuggingFace
+5. Fine-tuning the vision tower + projector + action head (LLM backbone frozen) for 100 steps
 6. Generating an eval report (action prediction error)
 7. Registering the trained model to the `groot-models` Model Registry
 8. Terminating the instance (no idle charges)
+
+**What the pipeline adds over a raw training job:** automatic model registration
+to the `groot-models` registry, versioned model packages with an approval workflow,
+a DAG view in SageMaker Studio, and re-execution with new parameters without editing code.
+
+> **GPU-memory note:** GR00T N1.6 fine-tuning fits the 24 GB A10Gs in
+> `ml.g5.12xlarge` via gradient checkpointing + DeepSpeed ZeRO-2 + gradient
+> accumulation (the training core is ported from a validated reference). A single
+> A10G OOMs — the 4-GPU box is required. If a run still OOMs, lower `batch_size` or
+> raise `gradient_accumulation_steps` (see Troubleshooting).
 
 ---
 
@@ -239,8 +280,8 @@ Status progression: `Pending` → `Downloading` → `Training` → `Uploading` �
 ## Step 7: Review Results
 
 ```bash
-# Download the model artifact
-aws s3 cp "s3://$BUCKET/groot-data/demo/output/$JOB_NAME/output/model.tar.gz" /tmp/
+# Download the model artifact (pipeline output path)
+aws s3 cp "s3://$BUCKET/pipeline-output/$JOB_NAME/output/model.tar.gz" /tmp/
 tar -xzf /tmp/model.tar.gz -C /tmp/model-output/
 
 # View eval report
@@ -248,49 +289,37 @@ cat /tmp/model-output/eval_report.json
 ```
 
 **What the eval report shows:**
-- `baseline_mse_overall` — error if the model always predicted the mean action (worst reasonable)
-- `naive_prediction_mse_overall` — error if the model just repeated the previous timestep
-- A well-trained model should achieve MSE well below the naive baseline
-- `eval_action_error.png` — bar chart showing per-joint error for both baselines
+- `baseline_mse_overall` — error if you always predicted the mean action (worst reasonable)
+- `naive_prediction_mse_overall` — error if you just repeated the previous timestep
+- `status` — currently `dataset_baselines_only`. **These are dataset reference lines,
+  not a model evaluation.** Scoring the trained checkpoint open-loop (loading it with
+  `Gr00tPolicy` and comparing predicted vs ground-truth actions) is a deliberately
+  deferred follow-up — we don't ship checkpoint-inference code we can't validate on a
+  GPU. Until then, judge training from the loss curve in the CloudWatch/TensorBoard logs.
 
 ---
 
-## Step 5b (Optional): Use the SageMaker Pipeline
-
-Instead of a one-off job, use the pipeline for a production workflow:
+## Step 7b: List recent runs
 
 ```bash
-# Create the pipeline (one-time setup)
-python training/groot/pipeline.py --create \
-  --s3-bucket $BUCKET \
-  --role-arn $ROLE_ARN \
-  --ecr-image $ECR_URI:latest \
-  --region us-east-1
-
-# Execute (train + register model to Model Registry)
-python training/groot/pipeline.py --execute --max-steps 100 --region us-east-1
-
-# Check runs
-python training/groot/pipeline.py --list-runs --region us-east-1
+python training/groot/pipeline.py --list-runs --region us-west-2
 ```
-
-**What the pipeline adds over a raw training job:**
-- Automatic model registration to `groot-models` Model Registry group
-- Versioned model packages (v1, v2, v3...) with approval workflow
-- Visible in SageMaker Studio UI as a DAG
-- Re-executable with different parameters without editing code
 
 ---
 
-## Step 6b (Optional): Full Training Run
+## Step 8 (Optional): Full Training Run
 
 Once the smoke test passes, kick off the real training:
 
 ```bash
-python training/groot/pipeline.py --execute --max-steps 5000 --dataset-prefix groot-data/ur3
+python training/groot/pipeline.py --execute --max-steps 5000 \
+  --dataset-prefix groot-data/ur3 --region us-west-2
 ```
 
-This runs overnight (~11 hrs, ~$79). The model will be significantly better — loss should drop from ~0.4 to <0.05.
+This runs for several hours (~11 hrs, ~$79 at the smoke-test config). With more steps
+the training loss should drop substantially; the exact curve depends on the data and the
+24 GB-fit settings, and **the numbers in this lab have not yet been validated on a real
+g5 run** — treat them as expectations, not measured results.
 
 ---
 
@@ -299,7 +328,7 @@ This runs overnight (~11 hrs, ~$79). The model will be significantly better — 
 You've completed Lab 1 if you can answer:
 - [ ] What dataset did we train on? (27 real UR3 pick-and-place episodes, recorded via Xbox controller teleop)
 - [ ] What format does GR00T expect? (LeRobot v2 — parquet + MP4, with modality.json for embodiment config)
-- [ ] What parts of GR00T get trained? (projector + diffusion action head; backbone is frozen)
+- [ ] What parts of GR00T get trained? (vision tower + projector + diffusion action head; the LLM backbone stays frozen)
 - [ ] What instance type did we use? (ml.g5.12xlarge — 4× A10G GPUs)
 - [ ] Where is the trained model? (S3 bucket + Model Registry `groot-models`)
 - [ ] What's the limitation? (imitation only — fails on unseen variations → Lab 4 fixes this with RL)
@@ -324,9 +353,11 @@ Lab 1 gave you a trained policy. Next, you'll set up a visual development workst
 |---------|----------|
 | `ResourceLimitExceeded` on ml.g5.12xlarge | Request GPU quota increase in Service Quotas console |
 | Container pull fails | Ensure ECR URI is correct and in same region as training job |
-| `HF_TOKEN` error during training | Set `HF_TOKEN` env var; accept GR00T license on HuggingFace |
+| `HF_TOKEN` error during training | Set `HF_TOKEN` env var (the base model is ungated, but a token avoids download rate limits) |
 | Training job stays in `Pending` for >20 min | GPU capacity shortage — try a different AZ or instance type |
 | Eval report missing from model.tar.gz | Check CloudWatch logs for errors in the eval step |
+| CUDA out-of-memory during training | A10G is 24 GB. The container already uses gradient checkpointing + ZeRO-2 + grad accumulation; lower the `batch_size` hyperparameter (e.g. 4 or 2) or raise `gradient_accumulation_steps` |
+| Job fails with "GR00T SDK not available" | Expected if the container wasn't built with the SDK — the job now fails loudly (non-zero exit) instead of silently producing an empty model. Rebuild the container (Step 4) |
 
 ---
 

@@ -19,11 +19,13 @@ This document captures known issues and areas that need verification when testin
 
 ### Lab 1: Train from Demonstrations
 
-| Step | Risk | Issue | Potential Fix |
-|------|------|-------|--------------|
-| Step 2 (zarr conversion) | Medium | Script needs `zarr`, `numpy`, `opencv-python`, `pandas`, `pyarrow` installed. These aren't in a `requirements.txt` yet. | Add `training/requirements.txt` |
-| Step 4 (container build) | Medium | HF_TOKEN must be set as env var before build. Docs mention it but the actual `train_entrypoint.py` reads it from SageMaker env. May need to pass via `--environment` in the training job. | Verify HF_TOKEN flow end-to-end |
-| Step 5 (pipeline.py) | Low | Proven to work. But `dataset-prefix` must match exactly (`groot-data/ur3` not `groot-data/ur3/dataset`). | Already documented but easy to get wrong |
+| Step | Risk | Issue | Status |
+|------|------|-------|--------|
+| Step 2 (zarr conversion) | Low | Needs `zarr`, `opencv-python`, `pandas`, `pyarrow`. Earlier converter also dropped `meta/stats.json` (GR00T needs it). | Fixed — deps in `training/requirements.txt`; converter now writes `stats.json` (ported from the proven reference); bundled dataset regenerated. |
+| Step 4 (container build) | **High — UNVALIDATED** | Container now builds the **real** Isaac-GR00T SDK (N1.6), mirroring a **validated** reference (SageMaker PyTorch DLC base, `pip install -e .`, `transformers==4.51.3`, flash-attn, decord). This toolchain has **not** rebuilt the image in its own CodeBuild→ECR yet. | Needs a real CodeBuild run to confirm the build (pins copied from a working source). |
+| Step 5 (pipeline.py) | Low | Orchestration is fine, but `--execute` requires `--create` first; prefix must be `groot-data/ur3`. | Fixed — `--execute` now fails with a clear "run --create first" message; lab doc reordered. |
+| Training itself | **High — UNVALIDATED here** | The entrypoint now runs the **real** GR00T N1.6 training (`experiment.run` + `get_default_config`, gradient checkpointing + ZeRO-2 + grad accum for 24 GB A10G) — core **ported from a validated reference** that ran real UR3 fine-tunes on `ml.g5.12xlarge`. Was previously a silent no-op stub that exited 0. The job now **fails loudly** if the SDK is missing or training errors. | Needs a real `ml.g5.12xlarge` run in THIS account reaching `Completed` with a non-empty checkpoint. |
+| Eval | Low — honest by design | Writes dataset baselines clearly labelled **not** a model eval. Open-loop model scoring is a deliberately deferred GPU-validated follow-up (we don't ship checkpoint-inference code we can't test). | Judge training from the loss curve until open-loop eval is wired + validated. |
 
 ### Lab 2: Isaac Sim Workstation
 
@@ -91,7 +93,7 @@ python training/groot/convert_zarr_to_lerobot.py \
   --output-dir training/data/ur3_lerobot_dataset
 
 # S3 upload (proven)
-aws s3 sync training/data/ur3_lerobot_dataset/ s3://physical-ai-dev-datasets-802782083985/groot-data/ur3/dataset/
+aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/dataset/"   # $BUCKET = DatasetsBucketName stack output
 
 # GR00T training (proven — multiple times)
 python training/groot/pipeline.py --execute --max-steps 100 --dataset-prefix groot-data/ur3

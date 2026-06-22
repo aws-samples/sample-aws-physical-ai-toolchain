@@ -46,6 +46,15 @@ export interface ContainerBuildProps {
   readonly requiresNgcLogin?: boolean;
 
   /**
+   * When true, grants the build IAM permission to PULL from the AWS Deep
+   * Learning Container ECR account (763104351884). Required for any image whose
+   * base is an AWS DLC (e.g. groot-training's pytorch-inference base) — without
+   * it, `docker build` 403s resolving the base manifest even though the
+   * buildspec logged in. The buildspec must still `docker login` to that account.
+   */
+  readonly requiresDlcLogin?: boolean;
+
+  /**
    * Project name prefix, used to name the CodeBuild project and locate the
    * NGC secret. e.g. `physical-ai`.
    */
@@ -170,6 +179,17 @@ export class ContainerBuild extends Construct {
         resources: [
           `arn:aws:secretsmanager:${region}:${account}:secret:${props.projectName}/ngc-api-key*`,
         ],
+      }));
+    }
+
+    if (props.requiresDlcLogin) {
+      // AWS Deep Learning Containers live in a per-region AWS-owned account
+      // (763104351884 in the standard partition). grantPullPush only covers our
+      // own repo, so add image-read on the DLC repos explicitly — otherwise the
+      // base-image pull 403s. (GetAuthorizationToken is already account-wide above.)
+      this.project.addToRolePolicy(new iam.PolicyStatement({
+        actions: ['ecr:BatchGetImage', 'ecr:GetDownloadUrlForLayer', 'ecr:BatchCheckLayerAvailability'],
+        resources: [`arn:aws:ecr:${region}:763104351884:repository/*`],
       }));
     }
 

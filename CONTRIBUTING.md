@@ -43,6 +43,6 @@ pip install -r training/requirements.txt  # Python dependencies for training scr
 
 ## AWS Account
 
-- Account: 802782083985
-- Region: us-east-1 (primary), us-east-2 (Cosmos Spot)
-- Secrets in Secrets Manager: `physical-ai/ngc-api-key`, `physical-ai/nim-api-key`
+- Account: `<YOUR_ACCOUNT_ID>` (derive at runtime; do not hardcode in code — see `tests/test_repo_hygiene.py`)
+- Region: `us-west-2` (primary, where the toolchain is validated)
+- Secrets in Secrets Manager (regional — keep them in the deploy region): `physical-ai/ngc-api-key`, `physical-ai/nim-api-key`

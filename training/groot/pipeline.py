@@ -11,11 +11,11 @@ Usage:
     python pipeline.py --create \
         --s3-bucket physical-ai-dev-datasets-<ACCOUNT> \
         --role-arn arn:aws:iam::<ACCOUNT>:role/physical-ai-dev-sagemaker-role \
-        --ecr-image <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/physical-ai/groot-training:latest
+        --ecr-image <ACCOUNT>.dkr.ecr.us-west-2.amazonaws.com/physical-ai/groot-training:latest
 
-    # Execute a run:
+    # Execute a run (the pipeline must already exist — run --create first):
     python pipeline.py --execute \
-        --dataset-prefix groot-data/demo \
+        --dataset-prefix groot-data/ur3 \
         --max-steps 5000
 
     # List recent runs:
@@ -41,7 +41,7 @@ def create_pipeline(
     s3_bucket: str,
     role_arn: str,
     ecr_image: str,
-    region: str = "us-east-1",
+    region: str = "us-west-2",
     instance_type: str = "ml.g5.12xlarge",
 ) -> dict:
     """Create or update the SageMaker Pipeline using boto3 API directly."""
@@ -69,7 +69,7 @@ def create_pipeline(
             {
                 "Name": "DatasetPrefix",
                 "Type": "String",
-                "DefaultValue": "groot-data/demo",
+                "DefaultValue": "groot-data/ur3",
             },
             {
                 "Name": "MaxSteps",
@@ -84,7 +84,7 @@ def create_pipeline(
             {
                 "Name": "BaseModel",
                 "Type": "String",
-                "DefaultValue": "nvidia/GR00T-N1.7-3B",
+                "DefaultValue": "nvidia/GR00T-N1.6-3B",
             },
             {
                 "Name": "InstanceType",
@@ -205,25 +205,41 @@ def create_pipeline(
         "pipeline_name": PIPELINE_NAME,
         "model_package_group": MODEL_PACKAGE_GROUP,
         "parameters": {
-            "DatasetPrefix": "groot-data/demo",
+            "DatasetPrefix": "groot-data/ur3",
             "MaxSteps": 5000,
             "BatchSize": 8,
-            "BaseModel": "nvidia/GR00T-N1.7-3B",
+            "BaseModel": "nvidia/GR00T-N1.6-3B",
             "InstanceType": instance_type,
         },
     }
 
 
 def execute_pipeline(
-    dataset_prefix: str = "groot-data/demo",
+    dataset_prefix: str = "groot-data/ur3",
     max_steps: int = 5000,
     batch_size: int = 8,
-    region: str = "us-east-1",
+    region: str = "us-west-2",
 ) -> dict:
     """Start a new pipeline execution."""
 
     sm = boto3.client("sagemaker", region_name=region)
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # The pipeline must exist before it can be executed. Fail with a clear,
+    # actionable message instead of a raw boto3 traceback (the lab's Step 5
+    # sends fresh users straight to --execute; --create is easy to skip).
+    try:
+        sm.describe_pipeline(PipelineName=PIPELINE_NAME)
+    except sm.exceptions.ResourceNotFound:
+        return {
+            "status": "error",
+            "message": (
+                f"Pipeline '{PIPELINE_NAME}' does not exist yet. "
+                f"Create it first:\n"
+                f"  python pipeline.py --create --s3-bucket <BUCKET> "
+                f"--role-arn <ROLE_ARN> --ecr-image <ECR_URI>:latest"
+            ),
+        }
 
     response = sm.start_pipeline_execution(
         PipelineName=PIPELINE_NAME,
@@ -251,7 +267,7 @@ def execute_pipeline(
     }
 
 
-def list_runs(region: str = "us-east-1") -> dict:
+def list_runs(region: str = "us-west-2") -> dict:
     """List recent pipeline executions."""
     sm = boto3.client("sagemaker", region_name=region)
 
@@ -287,10 +303,10 @@ def main():
     parser.add_argument("--role-arn", help="SageMaker execution role ARN")
     parser.add_argument("--ecr-image", help="ECR URI for training container")
     parser.add_argument("--instance-type", default="ml.g5.12xlarge")
-    parser.add_argument("--region", default="us-east-1")
+    parser.add_argument("--region", default="us-west-2")
 
     # Execute params
-    parser.add_argument("--dataset-prefix", default="groot-data/demo")
+    parser.add_argument("--dataset-prefix", default="groot-data/ur3")
     parser.add_argument("--max-steps", type=int, default=5000)
     parser.add_argument("--batch-size", type=int, default=8)
 
