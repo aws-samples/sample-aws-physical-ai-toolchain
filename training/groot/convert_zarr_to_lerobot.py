@@ -6,14 +6,14 @@ Reads raw teleop episodes (Zarr) and writes a LeRobot v2 dataset in the
 format expected by NVIDIA GR00T's LeRobotSingleDataset.
 
 Usage (from the repo root):
-    # Convert all episodes
+    # Convert all episodes (after: unzip ur3_episodes_001_027.zip -d training/data/episodes)
     python training/groot/convert_zarr_to_lerobot.py \
-        --episodes-dir training/data/ur3_episodes/episodes \
+        --episodes-dir training/data/episodes/episodes \
         --output-dir   training/data/ur3_lerobot_dataset
 
     # Convert specific episodes
     python training/groot/convert_zarr_to_lerobot.py \
-        --episodes-dir training/data/ur3_episodes/episodes \
+        --episodes-dir training/data/episodes/episodes \
         --output-dir   training/data/ur3_lerobot_dataset \
         -e episode_001_pick episode_002_pick
 
@@ -45,8 +45,11 @@ import zarr
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-EPISODES_DIR = Path("./data/episodes")
-OUTPUT_DIR = Path("./data/lerobot")
+# Canonical paths (match README unzip target + Lab 1 Step 2). The zip's internal
+# root is `episodes/`, so `unzip ... -d training/data/episodes` yields
+# training/data/episodes/episodes/episode_*.
+EPISODES_DIR = Path("training/data/episodes/episodes")
+OUTPUT_DIR = Path("training/data/ur3_lerobot_dataset")
 
 # UR3 has 6 joints + 1 gripper = 7D state/action
 STATE_DIM = 7   # 6 joints + 1 gripper
@@ -98,6 +101,7 @@ def _parse_commands(episode_dir: Path) -> list[dict] | None:
 
 def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
                     output_dir: Path, global_frame_offset: int,
+                    task_to_index: dict[str, int],
                     camera_key: str = "wrist", output_camera_key: str = "wrist") -> dict:
     """Convert one Zarr episode to LeRobot v2 parquet + video.
 
@@ -105,11 +109,17 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
     scaled by dt as EEF actions (matching speedl teleop). Observation joint
     state comes from Zarr telemetry.
 
+    `task_to_index` maps each episode's task description to its global task index
+    (the same ordering written to tasks.jsonl), so the per-frame `task_index` is
+    the episode's REAL task — not a hardcoded 0 (which would collapse a multi-task
+    dataset to a single task and drop the language label a VLA conditions on).
+
     Returns metadata dict for episodes.jsonl.
     """
     episode_dir = episodes_dir / episode_id
     root = zarr.open(str(episode_dir), mode="r")
     task_name = root.attrs.get("task_name", "manipulation task").replace("_", " ")
+    task_index = task_to_index[task_name]
 
     # Load telemetry
     telem_ts = np.array(root["observations"]["timestamps"])
@@ -188,7 +198,7 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
             "next.done": is_last,
             "next.success": is_last,
             "index": global_frame_offset + frame_idx,
-            "task_index": 0,
+            "task_index": task_index,
         })
 
     # Write parquet
@@ -225,9 +235,14 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
 
 
 def write_metadata(output_dir: Path, episode_metas: list[dict],
+                    task_to_index: dict[str, int],
                     output_camera_key: str = "wrist",
                     image_shape: tuple = (480, 640, 3), fps: int = 5):
-    """Write meta/ directory: modality.json, episodes.jsonl, info.json."""
+    """Write meta/ directory: modality.json, episodes.jsonl, info.json, tasks.jsonl.
+
+    `task_to_index` is the SAME map used to stamp per-frame task_index in the
+    parquet, so tasks.jsonl and the data agree.
+    """
     meta_dir = output_dir / "meta"
     meta_dir.mkdir(parents=True, exist_ok=True)
 
@@ -319,13 +334,11 @@ def write_metadata(output_dir: Path, episode_metas: list[dict],
     with open(meta_dir / "info.json", "w") as f:
         json.dump(info, f, indent=2)
 
-    # tasks.jsonl
-    tasks = set()
-    for m in episode_metas:
-        tasks.update(m["tasks"])
+    # tasks.jsonl — written from the shared task_to_index map (same indices the
+    # parquet task_index column uses), ordered by index.
     with open(meta_dir / "tasks.jsonl", "w") as f:
-        for i, task in enumerate(sorted(tasks)):
-            f.write(json.dumps({"task_index": i, "task": task}) + "\n")
+        for task, idx in sorted(task_to_index.items(), key=lambda kv: kv[1]):
+            f.write(json.dumps({"task_index": idx, "task": task}) + "\n")
 
 
 def _compute_stats(arr: np.ndarray) -> dict:
@@ -376,6 +389,24 @@ def write_stats(output_dir: Path):
     print(f"  Wrote meta/stats.json ({len(stats)} feature(s))")
 
 
+def build_task_index(episodes_dir: Path, episode_ids: list[str]) -> dict[str, int]:
+    """Pre-pass: read each episode's task_name and build a deterministic
+    task -> index map (sorted by description). This is the single source of truth
+    for both the per-frame task_index in the parquet and the tasks.jsonl entries,
+    so a multi-task dataset keeps its distinct task/language labels.
+    """
+    tasks = set()
+    for ep_id in episode_ids:
+        try:
+            root = zarr.open(str(episodes_dir / ep_id), mode="r")
+            tasks.add(root.attrs.get("task_name", "manipulation task").replace("_", " "))
+        except Exception:
+            # Unreadable episodes are skipped here; convert_episode will also error
+            # on them and they'll be dropped from the output.
+            pass
+    return {task: i for i, task in enumerate(sorted(tasks))}
+
+
 def main():
     parser = argparse.ArgumentParser(description="Convert Zarr episodes to LeRobot v2")
     parser.add_argument("--episodes-dir", default=str(EPISODES_DIR))
@@ -403,6 +434,10 @@ def main():
     print(f"  Output: {output_dir}")
     print()
 
+    # Pre-pass: build the task -> index map so per-frame task_index is the real task.
+    task_to_index = build_task_index(episodes_dir, episode_ids)
+    print(f"  Tasks: {len(task_to_index)} distinct")
+
     episode_metas = []
     global_frame_offset = 0
 
@@ -411,7 +446,7 @@ def main():
         try:
             meta = convert_episode(
                 episodes_dir, ep_id, ep_index, output_dir,
-                global_frame_offset, camera_key=args.camera,
+                global_frame_offset, task_to_index, camera_key=args.camera,
             )
             global_frame_offset += meta["length"]
             episode_metas.append(meta)
@@ -429,7 +464,7 @@ def main():
     image_shape = tuple(first_ep["images"][args.camera].shape[1:])  # (H, W, 3)
     fps = first_ep.attrs.get("camera_hz", 5)
 
-    write_metadata(output_dir, episode_metas,
+    write_metadata(output_dir, episode_metas, task_to_index,
                    output_camera_key="wrist",
                    image_shape=image_shape, fps=fps)
     write_stats(output_dir)

@@ -91,6 +91,15 @@ def create_pipeline(
                 "Type": "String",
                 "DefaultValue": instance_type,
             },
+            {
+                # HuggingFace token for the GR00T base-model download. Passed at
+                # execute time (do NOT bake a token into the pipeline definition).
+                # Default "" → container runs unauthenticated (fine for the ungated
+                # N1.6 base, but rate-limit-prone); supply a real token to avoid that.
+                "Name": "HFToken",
+                "Type": "String",
+                "DefaultValue": "",
+            },
         ],
         "Steps": [
             {
@@ -107,6 +116,13 @@ def create_pipeline(
                         "batch_size": {"Get": "Parameters.BatchSize"},
                         "learning_rate": "0.0001",
                         "dataset_path": "/opt/ml/input/data/training/dataset",
+                    },
+                    # HuggingFace token for the base-model pull (both env names the
+                    # SDK reads). Sourced from the HFToken pipeline parameter so the
+                    # pipeline path can authenticate just like launch_training.py.
+                    "Environment": {
+                        "HF_TOKEN": {"Get": "Parameters.HFToken"},
+                        "HUGGING_FACE_HUB_TOKEN": {"Get": "Parameters.HFToken"},
                     },
                     "InputDataConfig": [
                         {
@@ -241,14 +257,24 @@ def execute_pipeline(
             ),
         }
 
+    # Pass HF_TOKEN from the environment if set (never hardcode it). The pipeline
+    # parameter defaults to "" so this is optional.
+    import os
+    params = [
+        {"Name": "DatasetPrefix", "Value": dataset_prefix},
+        {"Name": "MaxSteps", "Value": str(max_steps)},
+        {"Name": "BatchSize", "Value": str(batch_size)},
+    ]
+    hf_token = os.environ.get("HF_TOKEN", "")
+    if hf_token:
+        params.append({"Name": "HFToken", "Value": hf_token})
+    else:
+        print("  Note: HF_TOKEN not set — base-model download runs unauthenticated.")
+
     response = sm.start_pipeline_execution(
         PipelineName=PIPELINE_NAME,
         PipelineExecutionDisplayName=f"run-{timestamp}",
-        PipelineParameters=[
-            {"Name": "DatasetPrefix", "Value": dataset_prefix},
-            {"Name": "MaxSteps", "Value": str(max_steps)},
-            {"Name": "BatchSize", "Value": str(batch_size)},
-        ],
+        PipelineParameters=params,
     )
 
     arn = response["PipelineExecutionArn"]

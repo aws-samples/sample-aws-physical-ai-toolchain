@@ -101,9 +101,18 @@ export ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-
 The training data is 27 episodes of UR3 pick-and-place, recorded via Xbox controller teleoperation. The raw data is in Zarr format (how our recording tools capture it) and needs to be converted to LeRobot v2 format (what GR00T reads).
 
 ```bash
-# Convert Zarr episodes → LeRobot v2 format
+# 2a. Install the conversion dependencies (zarr, opencv, pandas, pyarrow)
+pip install -r training/requirements.txt
+
+# 2b. Pull the dataset from Git LFS and extract it.
+#     The zip's internal root is `episodes/`, so this yields
+#     training/data/episodes/episodes/episode_*.
+git lfs pull
+unzip -o training/data/ur3_episodes_001_027.zip -d training/data/episodes
+
+# 2c. Convert Zarr episodes → LeRobot v2 format
 python training/groot/convert_zarr_to_lerobot.py \
-  --episodes-dir training/data/ur3_episodes/episodes \
+  --episodes-dir training/data/episodes/episodes \
   --output-dir training/data/ur3_lerobot_dataset
 ```
 
