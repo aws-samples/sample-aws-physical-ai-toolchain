@@ -8,8 +8,6 @@
 
 ## What You're Building
 
-> **TODO:** Add images or video of teleoperation showing operator using Xbox controller with UR3 arm
-
 A robot manipulation policy trained via **imitation learning**. Here's what that means:
 
 1. A human teleoperated a robot arm to perform a task (pick and place) — 27 demonstrations were recorded. Teleoperation is typically done using a game controller (we used Xbox), a VR headset (Apple Vision Pro is increasingly popular), or a 3D Space Mouse. The operator controls the robot's end-effector while camera and joint data are recorded automatically.
@@ -30,8 +28,6 @@ A robot manipulation policy trained via **imitation learning**. Here's what that
 ---
 
 ## The Pipeline
-
-> TODO: Insert pipeline architecture diagram here (showing data flow from S3 → SageMaker → Evaluation → Model Registry)
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
