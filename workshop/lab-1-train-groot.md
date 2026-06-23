@@ -332,6 +332,49 @@ g5 run** — treat them as expectations, not measured results.
 
 ---
 
+## Step 9: Deploy the Fine-Tuned Model
+
+Serve the trained policy as a SageMaker real-time endpoint so an application (or a
+robot) can ask it for actions. The endpoint runs the `groot-inference` container
+(built in Lab 0 alongside the training image) and loads your `model.tar.gz`.
+
+```bash
+# The S3 path of a completed training job's model.tar.gz (from Step 7):
+MODEL_S3="s3://$BUCKET/groot-data/ur3/output/<JOB_NAME>/output/model.tar.gz"
+
+# Preview exactly what gets created (no AWS calls):
+python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" \
+  --endpoint-name groot-ur3 --dry-run
+
+# Deploy (creates model → endpoint-config → endpoint; ~10–30 min to come InService):
+python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
+```
+
+The endpoint runs on `ml.g5.2xlarge` (GR00T inference needs a GPU). GR00T loads
+slowly, so the container's startup health-check timeout is set to 30 minutes.
+
+**Call the endpoint** — give it a wrist image + the 7D robot state + the task:
+
+```bash
+python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
+  --image-path wrist.jpg \
+  --state "0,-1.57,1.57,-1.57,-1.57,0,0" \
+  --task "pick up the red cube"
+# → {"actions": [[vx, vy, vz, rx, ry, rz, gripper], ...], "action_dim": 7}
+```
+
+**Tear it down** when finished (a running GPU endpoint bills continuously):
+
+```bash
+python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
+```
+
+> **Status:** the deploy/serve path is wired against the proven GR00T N1.6 serving
+> API. Standing up a live endpoint needs a GPU instance and is billed hourly — run
+> it when you're ready to serve, and `--delete` when done.
+
+---
+
 ## ✅ Lab 1 Checkpoint
 
 You've completed Lab 1 if you can answer:

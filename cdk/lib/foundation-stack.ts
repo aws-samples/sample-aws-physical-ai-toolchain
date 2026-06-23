@@ -33,6 +33,7 @@ export class FoundationStack extends cdk.Stack {
   public readonly modelsBucket: s3.Bucket;
   public readonly checkpointsBucket: s3.Bucket;
   public readonly grootTrainingRepo: ecr.Repository;
+  public readonly grootInferenceRepo: ecr.Repository;
   public readonly isaacLabRepo: ecr.Repository;
   public readonly isaacSimRepo: ecr.Repository;
   public readonly inferenceRepo: ecr.Repository;
@@ -92,6 +93,16 @@ export class FoundationStack extends cdk.Stack {
     // GR00T fine-tuning container (Path A)
     this.grootTrainingRepo = new ecr.Repository(this, 'GrootTrainingRepo', {
       repositoryName: `${projectName}/groot-training`,
+      imageScanOnPush: true,
+      lifecycleRules: [{ maxImageCount: 5 }],
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      emptyOnDelete: true,
+    });
+
+    // GR00T inference/serving container — serves a fine-tuned GR00T model as a
+    // SageMaker real-time endpoint (Lab 1 deployment step).
+    this.grootInferenceRepo = new ecr.Repository(this, 'GrootInferenceRepo', {
+      repositoryName: `${projectName}/groot-inference`,
       imageScanOnPush: true,
       lifecycleRules: [{ maxImageCount: 5 }],
       removalPolicy: cdk.RemovalPolicy.DESTROY,
@@ -242,6 +253,18 @@ export class FoundationStack extends cdk.Stack {
       requiresDlcLogin: true,
     });
 
+    // GR00T inference/serving container — same DLC base + GR00T pin as training.
+    new ContainerBuild(this, 'GrootInferenceBuild', {
+      projectName,
+      imageName: 'groot-inference',
+      repository: this.grootInferenceRepo,
+      buildSpecPath: 'containers/groot-inference/buildspec.yml',
+      sourceAsset,
+      computeType: codebuild.ComputeType.LARGE,
+      timeout: cdk.Duration.minutes(60),
+      requiresDlcLogin: true,
+    });
+
     // Isaac Lab RL container (Path B) — NGC base (~16 GB), needs big builder.
     new ContainerBuild(this, 'IsaacLabBuild', {
       projectName,
@@ -364,6 +387,12 @@ export class FoundationStack extends cdk.Stack {
       value: this.grootTrainingRepo.repositoryUri,
       description: 'ECR URI for the GR00T training container',
       exportName: `${projectName}-${environment}-groot-training-ecr`,
+    });
+
+    new cdk.CfnOutput(this, 'GrootInferenceRepoUri', {
+      value: this.grootInferenceRepo.repositoryUri,
+      description: 'ECR URI for the GR00T inference/serving container (Lab 1 deploy)',
+      exportName: `${projectName}-${environment}-groot-inference-ecr`,
     });
 
     new cdk.CfnOutput(this, 'InferenceRepoUri', {

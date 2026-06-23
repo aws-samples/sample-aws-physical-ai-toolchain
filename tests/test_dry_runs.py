@@ -65,3 +65,16 @@ def test_edge_scripts_dry_run(fake_boto3, capsys):
     out2 = _run("edge/deploy_to_fleet.py", ["--dry-run"], capsys)
     assert "physical-ai-dev-robots" in out2
     assert "No AWS writes" in out2
+
+
+def test_groot_deploy_endpoint_dry_run(fake_boto3, capsys):
+    """deploy_endpoint --dry-run prints the create_model/config/endpoint plan and
+    makes NO sagemaker calls (only sts for account resolution, stubbed)."""
+    out = _run("training/groot/deploy_endpoint.py",
+               ["--model-s3", "s3://b/groot-data/ur3/output/job/output/model.tar.gz",
+                "--endpoint-name", "groot-ur3", "--dry-run"], capsys)
+    assert "create_endpoint_config" in out
+    assert "groot-inference" in out          # uses the inference image URI
+    assert fake_boto3 in out                 # resolved account in image/role
+    assert "ContainerStartupHealthCheckTimeoutInSeconds" in out  # GR00T slow-load handling
+    assert "[dry-run] No AWS calls made." in out

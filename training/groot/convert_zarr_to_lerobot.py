@@ -119,6 +119,11 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
     episode_dir = episodes_dir / episode_id
     root = zarr.open(str(episode_dir), mode="r")
     task_name = root.attrs.get("task_name", "manipulation task").replace("_", " ")
+    # Defensive: the pre-pass (build_task_index) normally contains every task, but
+    # if an episode was unreadable there yet readable here, fall back to appending
+    # it rather than KeyError-ing. Keeps the map and tasks.jsonl consistent.
+    if task_name not in task_to_index:
+        task_to_index[task_name] = len(task_to_index)
     task_index = task_to_index[task_name]
 
     # Load telemetry
