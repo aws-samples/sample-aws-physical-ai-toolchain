@@ -9,6 +9,8 @@ import { EdgeStack } from '../lib/edge-stack';
 import { WorkstationStack } from '../lib/workstation-stack';
 import { devConfig } from '../config/dev';
 import { prodConfig } from '../config/prod';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * AWS Physical AI Toolchain — CDK Application
@@ -31,6 +33,11 @@ import { prodConfig } from '../config/prod';
  */
 const app = new cdk.App();
 
+// Load root-level config.json (workstation settings, AMI mapping, etc.)
+const rootConfig = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../../config.json'), 'utf-8')
+);
+
 // --- Configuration ---
 const envName = app.node.tryGetContext('env') || 'dev';
 const mode = app.node.tryGetContext('mode') || 'simple'; // 'simple' | 'full'
@@ -40,9 +47,18 @@ const includeWorkstation = app.node.tryGetContext('workstation') === 'true'; // 
 const config = envName === 'prod' ? prodConfig : devConfig;
 const projectName = 'physical-ai';
 
+// Region resolution — config.json is the single source of truth (fixes F-006 region drift,
+// where the shell's AWS_REGION/CDK_DEFAULT_REGION could silently win over the documented region).
+// Precedence: explicit --context region= override > config.json aws.region > shell default > us-east-1.
+const region =
+  app.node.tryGetContext('region') ||
+  rootConfig.aws?.region ||
+  process.env.CDK_DEFAULT_REGION ||
+  'us-east-1';
+
 const env: cdk.Environment = {
   account: process.env.CDK_DEFAULT_ACCOUNT,
-  region: process.env.CDK_DEFAULT_REGION || 'us-west-2',
+  region,
 };
 
 const prefix = `PhysicalAi-${config.environment}`;
@@ -127,7 +143,6 @@ if (includeEdge) {
     thingGroupName: config.edge.thingGroupName,
     modelsBucket: foundationStack.modelsBucket,
     telemetryBucket: foundationStack.datasetsBucket, // Reuse datasets bucket for telemetry in simple mode
-    inferenceRepo: foundationStack.inferenceRepo,
   });
 
   edgeStack.addDependency(foundationStack);
@@ -138,15 +153,23 @@ if (includeEdge) {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 if (includeWorkstation) {
-  const allowedCidr = app.node.tryGetContext('allowedCidr') || '0.0.0.0/0';
+  // Context flags override config.json for backward-compatibility
+  const allowedCidr = app.node.tryGetContext('allowedCidr') || rootConfig.workstation.allowedCidr; // no default — WorkstationStack throws if missing (avoids silent 0.0.0.0/0)
+  const instanceType = app.node.tryGetContext('instanceType') || rootConfig.workstation.instanceType;
   const repoUrl = app.node.tryGetContext('repoUrl'); // optional override
+  const availabilityZone = app.node.tryGetContext('availabilityZone'); // optional AZ pin
 
   new WorkstationStack(app, `${prefix}-Workstation`, {
     env,
     environment: config.environment,
     allowedCidr,
+    instanceType,
+    amiMapping: rootConfig.workstation.amiMapping,
+    volumeSizeGb: rootConfig.workstation.volumeSizeGb,
+    dcvPort: rootConfig.workstation.dcvPort,
     projectName,
     repoUrl,
+    availabilityZone,
   });
 }
 

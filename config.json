@@ -1,0 +1,22 @@
+{
+  "_comment": "AWS Physical AI Toolchain configuration. The workstation amiMapping uses the NVIDIA Isaac Sim Marketplace AMI (product ID: prodview-bl35herdyozhw, https://aws.amazon.com/marketplace/pp/prodview-bl35herdyozhw). You MUST subscribe to this product in the AWS Marketplace before deploying, or the EC2 launch will fail with a subscription required error. The AMI comes pre-baked with NVIDIA drivers, NICE DCV, and Isaac Sim installed.",
+  "aws": {
+    "region": "us-east-1"
+  },
+  "workstation": {
+    "instanceType": "g6e.4xlarge",
+    "amiMapping": {
+      "us-east-1": "ami-060c4408852b1bd22",
+      "us-east-2": "ami-06ac39229caa361ef",
+      "us-west-2": "ami-06b60fc990ad774c8",
+      "eu-north-1": "ami-008f69691c28d9b67",
+      "eu-south-2": "ami-05ff28cc02053a568",
+      "eu-central-1": "ami-02550de8cd411ced8",
+      "ap-northeast-1": "ami-0fc5724978e744bb6",
+      "ap-northeast-2": "ami-0aff0d08f1ef5048f"
+    },
+    "volumeSizeGb": 512,
+    "allowedCidr": "",
+    "dcvPort": 8443
+  }
+}

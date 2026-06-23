@@ -12,9 +12,22 @@ export interface WorkstationStackProps extends cdk.StackProps {
   allowedCidr?: string;
   /**
    * EC2 instance type. Must be a GPU instance for Isaac Sim.
-   * g6e.8xlarge recommended (L40S GPU, good price/performance).
+   * Default: g6e.4xlarge (1x L40S GPU, optimal for Isaac Sim).
    */
   instanceType?: string;
+  /**
+   * Region-to-AMI mapping for the Isaac Sim Marketplace AMI.
+   * Product ID: prodview-bl35herdyozhw.
+   */
+  amiMapping: Record<string, string>;
+  /**
+   * EBS volume size in GB. Default: 512.
+   */
+  volumeSizeGb: number;
+  /**
+   * DCV remote desktop port. Default: 8443.
+   */
+  dcvPort: number;
   /**
    * Project name prefix used for ECR repo paths (e.g. `physical-ai/isaac-lab`).
    * Must match the FoundationStack projectName. Default: 'physical-ai'.
@@ -28,19 +41,34 @@ export interface WorkstationStackProps extends cdk.StackProps {
    * just leaves the box without the repo, it doesn't fail the deploy).
    */
   repoUrl?: string;
+  /**
+   * Availability Zone to pin the workstation instance to.
+   * Useful for working around per-AZ GPU capacity constraints (e.g., when us-east-1a
+   * has no g5.4xlarge capacity but us-east-1b does). If unset, CDK places the instance
+   * deterministically in the lexically first AZ (typically *a), which may hit capacity limits.
+   * Pass via --context availabilityZone=<az-id> or let the deploy-workstation.sh wrapper
+   * script automatically retry across AZs on InsufficientInstanceCapacity errors.
+   */
+  availabilityZone?: string;
 }
 
 /**
  * Isaac Sim Development Workstation
  *
  * Deploys a GPU EC2 instance with:
- * - NVIDIA Isaac Sim AMI (from AWS Marketplace)
+ * - NVIDIA Isaac Sim Marketplace AMI (pre-installed driver + DCV + Isaac Sim)
  * - NICE DCV for remote desktop access
- * - ROS2 Jazzy (installed via UserData)
+ * - Docker + NVIDIA Container Toolkit for Isaac Lab containers
  * - S3 access for datasets and models
  *
  * Use this to visually develop and debug Isaac Lab RL environments.
  * Connect via DCV client or web browser at https://<IP>:8443
+ *
+ * AMI Source: AWS Marketplace product prodview-bl35herdyozhw
+ *   https://aws.amazon.com/marketplace/pp/prodview-bl35herdyozhw
+ *   IMPORTANT: You MUST subscribe to this product in the AWS Marketplace before deploying.
+ *   The AMI comes pre-baked with NVIDIA drivers, NICE DCV, and Isaac Sim already installed,
+ *   so the bootstrap is minimal (no driver/desktop/DCV installation needed).
  *
  * Based on: https://github.com/aws-samples/sample-physical-ai-scaffolding-kit/tree/main/isaacsim-workstation
  *
@@ -54,13 +82,24 @@ export class WorkstationStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props: WorkstationStackProps) {
     super(scope, id, props);
 
-    // For dev environments, allow all IPs since DCV requires password authentication.
-    // For production, restrict to corporate CIDR via the allowedCidr context parameter.
+    // DCV security: MUST explicitly specify allowedCidr. While DCV requires password auth,
+    // the default password (pai-lab1) is documented, so 0.0.0.0/0 is not safe. Users
+    // should pass --context allowedCidr=<ip>/32 or use deploy-workstation.sh which auto-detects.
     // Note: VPN often blocks port 8443 outbound — users typically connect off-VPN.
-    const allowedCidr = props.allowedCidr || '0.0.0.0/0';
-    const instanceType = props.instanceType || 'g5.4xlarge';
+    if (!props.allowedCidr) {
+      throw new Error(
+        'allowedCidr is required for DCV access security. Pass --context allowedCidr=YOUR_IP/32 ' +
+        'or use deploy-workstation.sh which auto-detects your IP. To explicitly allow all ' +
+        '(not recommended for production), pass allowedCidr=0.0.0.0/0'
+      );
+    }
+    const allowedCidr = props.allowedCidr;
+    const instanceType = props.instanceType || 'g6e.4xlarge';
+    const volumeSizeGb = props.volumeSizeGb || 512;
+    const dcvPort = props.dcvPort || 8443;
     const projectName = props.projectName || 'physical-ai';
     const repoUrl = props.repoUrl || 'https://github.com/aws-samples/aws-physical-ai-toolchain.git';
+    const availabilityZone = props.availabilityZone;
 
     // ECR registry for this account/region (resolved at deploy time via CDK tokens).
     const ecrRegistry = `${cdk.Aws.ACCOUNT_ID}.dkr.ecr.${cdk.Aws.REGION}.amazonaws.com`;
@@ -69,14 +108,14 @@ export class WorkstationStack extends cdk.Stack {
     // Use default VPC for simplicity
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
 
-    // Security group: DCV (8443) + SSH (22)
+    // Security group: DCV (configurable port) + SSH (22)
     const sg = new ec2.SecurityGroup(this, 'WorkstationSg', {
       vpc,
       securityGroupName: `physical-ai-${props.environment}-workstation-sg`,
       description: 'Isaac Sim workstation: DCV + SSH access',
       allowAllOutbound: true,
     });
-    sg.addIngressRule(ec2.Peer.ipv4(allowedCidr), ec2.Port.tcp(8443), 'DCV remote desktop');
+    sg.addIngressRule(ec2.Peer.ipv4(allowedCidr), ec2.Port.tcp(dcvPort), 'DCV remote desktop');
     sg.addIngressRule(ec2.Peer.ipv4(allowedCidr), ec2.Port.tcp(22), 'SSH');
 
     // IAM role for the instance
@@ -114,135 +153,100 @@ export class WorkstationStack extends cdk.Stack {
       resources: ['*'],
     }));
 
-    // UserData: Full bootstrap based on proven pattern from
-    // github.com/aws-samples/sample-physical-ai-scaffolding-kit
+    // UserData: Minimal bootstrap for the Marketplace AMI (driver + DCV + Isaac Sim already installed)
     const userData = ec2.UserData.forLinux();
     userData.addCommands(
       '#!/bin/bash',
-      'set -e',
       'exec > /var/log/workstation-bootstrap.log 2>&1',
       'export DEBIAN_FRONTEND=noninteractive',
       '',
-      '# Wait for apt locks to clear',
-      'while fuser /var/lib/dpkg/lock >/dev/null 2>&1; do sleep 3; done',
-      'while fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do sleep 3; done',
+      'echo "=== Workstation Bootstrap Starting ==="',
+      'date',
       '',
-      'echo "=== Step 1: Base packages ==="',
-      'apt-get update -yq',
-      'apt-get install -yq ca-certificates curl wget gnupg lsb-release jq unzip',
+      '# Detect the default user (Marketplace AMI may use ubuntu or another account)',
+      'DEFAULT_USER=$(getent passwd 1000 | cut -d: -f1 || echo ubuntu)',
+      'echo "Default user: $DEFAULT_USER"',
       '',
-      'echo "=== Step 2: NVIDIA driver ==="',
-      'apt-get install -yq ubuntu-drivers-common',
-      'ubuntu-drivers autoinstall',
+      'echo "=== Step 1: Set user password for DCV login ==="',
+      'echo "$DEFAULT_USER:pai-lab1" | chpasswd',
       '',
-      'echo "=== Step 3: Desktop + GDM ==="',
-      'apt-get install -yq ubuntu-desktop gdm3 dbus-x11',
-      'sed -i "s/^#\\(WaylandEnable=false\\)/\\1/" /etc/gdm3/custom.conf || true',
-      '',
-      'echo "=== Step 4: Install NICE DCV ==="',
-      'cd /tmp',
-      'wget -q "https://d1uj6qtbmh3dt5.cloudfront.net/2024.0/Servers/nice-dcv-2024.0-19030-ubuntu2204-x86_64.tgz" -O /tmp/dcv.tgz',
-      'tar -xzf /tmp/dcv.tgz -C /tmp',
-      'cd /tmp/nice-dcv-2024.0-19030-ubuntu2204-x86_64',
-      'apt-get install -yq ./nice-dcv-server_*.deb ./nice-dcv-web-viewer_*.deb ./nice-xdcv_*.deb || apt-get install -yf',
-      'usermod -aG video dcv || true',
-      'systemctl enable dcvserver',
-      'systemctl restart dcvserver',
-      '',
-      'echo "=== Step 5: DCV auto-session ==="',
-      'cat > /usr/local/bin/auto-create-dcv.sh << \'SCRIPT\'',
-      '#!/bin/bash',
-      'sleep 5',
-      'until systemctl is-active --quiet dcvserver; do sleep 3; done',
-      'if ! dcv list-sessions | grep -q "^Session:"; then',
-      '  dcv create-session --type virtual --owner ubuntu --name "Isaac Sim" main',
+      'echo "=== Step 2: Install AWS CLI v2 (if missing) ==="',
+      'if ! command -v aws &>/dev/null; then',
+      '  curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip',
+      '  unzip -q /tmp/awscliv2.zip -d /tmp',
+      '  /tmp/aws/install',
+      '  rm -rf /tmp/aws /tmp/awscliv2.zip',
       'fi',
-      'SCRIPT',
-      'chmod +x /usr/local/bin/auto-create-dcv.sh',
-      'cat > /etc/systemd/system/auto-dcv.service << \'SVC\'',
-      '[Unit]',
-      'Description=Auto-create DCV session',
-      'After=dcvserver.service',
-      '[Service]',
-      'Type=oneshot',
-      'ExecStart=/usr/local/bin/auto-create-dcv.sh',
-      'RemainAfterExit=yes',
-      '[Install]',
-      'WantedBy=multi-user.target',
-      'SVC',
-      'systemctl daemon-reload',
-      'systemctl enable auto-dcv.service',
       '',
-      'echo "=== Step 6: Docker + NVIDIA Container Toolkit ==="',
-      'curl -fsSL https://get.docker.com | sh',
-      'systemctl enable docker && systemctl start docker',
-      'usermod -aG docker ubuntu || true',
-      'curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg',
-      'curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null',
-      'apt-get update -yq && apt-get install -yq nvidia-container-toolkit',
-      'systemctl restart docker',
+      'echo "=== Step 3: Install Docker + NVIDIA Container Toolkit (if missing) ==="',
+      'if ! command -v docker &>/dev/null; then',
+      '  curl -fsSL https://get.docker.com | sh',
+      '  systemctl enable docker && systemctl start docker',
+      'fi',
+      'usermod -aG docker $DEFAULT_USER || true',
       '',
-      'echo "=== Step 7: Set ubuntu password ==="',
-      'echo "ubuntu:pai-lab1" | chpasswd',
+      'if ! dpkg -l | grep -q nvidia-container-toolkit; then',
+      '  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg',
+      '  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed "s#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g" | tee /etc/apt/sources.list.d/nvidia-container-toolkit.list > /dev/null',
+      '  apt-get update -yq && apt-get install -yq nvidia-container-toolkit',
+      '  systemctl restart docker',
+      'fi',
       '',
-      'echo "=== Step 8: AWS CLI v2 ==="',
-      'curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip',
-      'unzip -q /tmp/awscliv2.zip -d /tmp',
-      '/tmp/aws/install --update',
+      'echo "=== Step 4: Ensure DCV session exists ==="',
+      'if command -v dcv &>/dev/null; then',
+      '  if ! dcv list-sessions | grep -q "^Session:"; then',
+      '    dcv create-session --type console --owner $DEFAULT_USER main || echo "DCV session creation failed (may already exist)"',
+      '  fi',
+      'fi',
       '',
-      'echo "=== Step 9: Pull Isaac Lab container from ECR ==="',
-      `aws ecr get-login-password --region ${cdk.Aws.REGION} | docker login --username AWS --password-stdin ${ecrRegistry}`,
-      `docker pull ${isaacLabImage} || echo "isaac-lab image not in ECR yet — the CodeBuild build may still be running; pull later"`,
+      'echo "=== Step 5: ECR login + pull Isaac Lab container (best-effort) ==="',
+      `aws ecr get-login-password --region ${cdk.Aws.REGION} | docker login --username AWS --password-stdin ${ecrRegistry} || echo "ECR login failed (non-fatal)"`,
+      `docker pull ${isaacLabImage} || echo "isaac-lab image not in ECR yet (CodeBuild may still be running)"`,
       '',
-      'echo "=== Step 10: Install Isaac Sim + Isaac Lab (host, for visual mode) ==="',
-      'su - ubuntu -c "python3 -m venv ~/isaac-env"',
-      'su - ubuntu -c "source ~/isaac-env/bin/activate && pip install --upgrade pip && pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cu121"',
-      'su - ubuntu -c "source ~/isaac-env/bin/activate && pip install \'isaacsim[all,extscache]\' --extra-index-url https://pypi.nvidia.com"',
+      'echo "=== Step 6: Clone toolchain repo (best-effort) ==="',
+      `su - $DEFAULT_USER -c "git clone ${repoUrl} /home/$DEFAULT_USER/aws-physical-ai-toolchain" || echo "Repo clone failed (non-fatal)"`,
       '',
-      'echo "=== Step 11: Clone toolchain repo ==="',
-      `su - ubuntu -c "git clone ${repoUrl} /home/ubuntu/aws-physical-ai-toolchain || true"`,
-      '',
-      'echo "=== Step 12: Create convenience scripts ==="',
-      'cat > /home/ubuntu/run-isaac-lab.sh << \'RUNSCRIPT\'',
+      'echo "=== Step 7: Create convenience scripts ==="',
+      'cat > /home/$DEFAULT_USER/run-isaac-lab.sh << \'RUNSCRIPT\'',
       '#!/bin/bash',
-      '# Run Isaac Lab training (headless via Docker) — same as SageMaker',
+      '# Run Isaac Lab training (headless via Docker)',
       'docker run --gpus all --rm \\',
       `  ${isaacLabImage} \\`,
       '  train',
       'RUNSCRIPT',
-      'cat > /home/ubuntu/run-isaac-sim-gui.sh << \'GUISCRIPT\'',
+      '',
+      'cat > /home/$DEFAULT_USER/run-isaac-sim-gui.sh << \'GUISCRIPT\'',
       '#!/bin/bash',
-      '# Launch Isaac Sim with a demo scene (NVIDIA sample warehouse) so the UI is',
-      "# not empty on first open. Falls back to bare 'isaacsim' if the demo script",
-      '# or its assets are unavailable (e.g. no network to the NVIDIA asset server).',
-      'source ~/isaac-env/bin/activate',
-      'DEMO=/home/ubuntu/aws-physical-ai-toolchain/scripts/open_demo_scene.py',
-      'if [ -f "$DEMO" ]; then',
-      '  python "$DEMO" "$@" || { echo "Demo scene failed to load — opening empty Isaac Sim"; isaacsim; }',
-      'else',
-      '  echo "Demo script not found at $DEMO — opening empty Isaac Sim"; isaacsim',
-      'fi',
+      '# Launch Isaac Sim visual UI (the Marketplace AMI includes Isaac Sim)',
+      'isaacsim',
       'GUISCRIPT',
-      'chmod +x /home/ubuntu/run-isaac-lab.sh /home/ubuntu/run-isaac-sim-gui.sh',
-      'chown ubuntu:ubuntu /home/ubuntu/run-isaac-lab.sh /home/ubuntu/run-isaac-sim-gui.sh',
+      '',
+      'chmod +x /home/$DEFAULT_USER/run-isaac-lab.sh /home/$DEFAULT_USER/run-isaac-sim-gui.sh',
+      'chown $DEFAULT_USER:$DEFAULT_USER /home/$DEFAULT_USER/run-isaac-lab.sh /home/$DEFAULT_USER/run-isaac-sim-gui.sh',
       '',
       'echo "Workstation bootstrap complete" > /var/log/workstation-bootstrap.summary',
-      'echo "DCV URL: https://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):8443"',
-      'echo "Username: ubuntu  Password: pai-lab1 (change it with: sudo passwd ubuntu)"',
+      'echo "DCV URL: https://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):' + dcvPort.toString() + '"',
+      'echo "Username: $DEFAULT_USER  Password: pai-lab1 (change it with: sudo passwd $DEFAULT_USER)"',
       '',
-      '# Reboot to finalize NVIDIA driver + desktop',
-      'shutdown -r +1 "Rebooting to finalize workstation setup"',
+      'echo "=== Workstation Bootstrap Complete ==="',
+      'date',
     );
 
-    // EC2 Instance
-    // Option 1: Use Isaac Sim AMI from Marketplace (requires subscription)
+    // EC2 Instance using the Isaac Sim Marketplace AMI
+    // IMPORTANT: The AMI mapping comes from config.json and points to the NVIDIA Isaac Sim
+    // Marketplace AMI (product ID prodview-bl35herdyozhw). This AMI is PRE-BAKED with:
+    //   - NVIDIA GPU drivers
+    //   - NICE DCV server
+    //   - Isaac Sim already installed
+    // You MUST subscribe to the Marketplace product before deploying, or the instance launch
+    // will fail with a subscription required error. Visit:
     //   https://aws.amazon.com/marketplace/pp/prodview-bl35herdyozhw
-    // Option 2: Use Ubuntu + install Isaac Sim via UserData (what we do below)
+    //
+    // If availabilityZone is specified, pin the instance to that AZ (for working around
+    // per-AZ GPU capacity constraints). Otherwise, CDK places it deterministically.
     const instance = new ec2.Instance(this, 'Workstation', {
       instanceType: new ec2.InstanceType(instanceType),
-      machineImage: ec2.MachineImage.fromSsmParameter(
-        '/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id',
-      ),
+      machineImage: ec2.MachineImage.genericLinux(props.amiMapping),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
       securityGroup: sg,
@@ -250,12 +254,13 @@ export class WorkstationStack extends cdk.Stack {
       userData,
       blockDevices: [{
         deviceName: '/dev/sda1',
-        volume: ec2.BlockDeviceVolume.ebs(512, {
+        volume: ec2.BlockDeviceVolume.ebs(volumeSizeGb, {
           volumeType: ec2.EbsDeviceVolumeType.GP3,
           encrypted: true,
         }),
       }],
       associatePublicIpAddress: true,
+      ...(availabilityZone && { availabilityZone }),
     });
 
     // Outputs
@@ -265,7 +270,7 @@ export class WorkstationStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'DCVWebURL', {
-      value: `Connect via: https://<PUBLIC_IP>:8443 (get IP from EC2 console or: aws ec2 describe-instances --instance-ids ${instance.instanceId} --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)`,
+      value: `Connect via: https://<PUBLIC_IP>:${dcvPort} (get IP from EC2 console or: aws ec2 describe-instances --instance-ids ${instance.instanceId} --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)`,
       description: 'Connect via web browser (accept cert warning)',
     });
 
@@ -280,7 +285,7 @@ export class WorkstationStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'Cost', {
-      value: `~$4.53/hr (${instanceType} on-demand). STOP instance when not in use! Start/stop via console or: aws ec2 stop-instances / start-instances`,
+      value: `~$2.24/hr (${instanceType}, 1x L40S GPU, on-demand us-east-1) + ~$${Math.round(volumeSizeGb * 0.08)}/mo for ${volumeSizeGb}GB gp3 EBS. Actual cost varies by region. STOP instance when not in use! Start/stop via console or: aws ec2 stop-instances / start-instances`,
       description: 'Estimated hourly cost — only runs when you need it',
     });
   }

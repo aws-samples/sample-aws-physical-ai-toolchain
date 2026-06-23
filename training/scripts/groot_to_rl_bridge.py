@@ -1,50 +1,32 @@
 """
-GR00T → RL Bridge: Connect Lab 1 output to Lab 4 input.
+Isaac Lab RL Training Launcher
 
-This script bridges the gap between GR00T imitation learning (Lab 1)
-and Isaac Lab RL refinement (Lab 4).
+This script launches Isaac Lab RL training jobs on SageMaker for the UR3 pick-and-place task.
 
-Architecture:
-    GR00T is a large VLA model (3B params, diffusion policy) — too heavy
-    for real-time RL loops. The standard approach is:
-    
-    1. Use GR00T to generate high-quality demonstration rollouts
-    2. Pre-train a lightweight MLP policy via behavioral cloning on those rollouts
-    3. Fine-tune the MLP with RL in Isaac Lab (fast inference, GPU-parallel)
-    
-    This gives you the best of both worlds:
-    - GR00T's understanding of the task from demonstrations
-    - RL's ability to improve beyond demonstrations through practice
+The script provides a simple interface to launch RL training:
+- Imitation learning (GR00T/VLA, Lab 1) and RL (Isaac Lab, this lab) are separate
+  pipelines for obtaining robot policies
+- This script launches the RL pipeline (PPO in Isaac Lab with domain randomization)
+- VLA training happens on SageMaker; Isaac Sim + RL jobs run on GPU EC2 instances
 
 Usage:
-    # Step 1: Generate rollouts from GR00T model
-    python groot_to_rl_bridge.py generate-rollouts \
-        --model-package <MODEL_PACKAGE_ARN> \
-        --output s3://bucket/rollouts/
+    # Launch RL training (primary use case)
+    python groot_to_rl_bridge.py rl-refine
 
-    # Step 2: Pre-train MLP policy via behavioral cloning
-    python groot_to_rl_bridge.py pretrain-mlp \
-        --rollouts s3://bucket/rollouts/ \
-        --output s3://bucket/mlp-pretrained/
+    # Check status of Lab 1 model (optional, informational only)
+    python groot_to_rl_bridge.py status
 
-    # Step 3: RL refinement (launches Isaac Lab training with pretrained weights)
-    python groot_to_rl_bridge.py rl-refine \
-        --pretrained s3://bucket/mlp-pretrained/policy.pt \
-        --task PickAndPlaceUR3-v0 \
-        --num-envs 4096 \
-        --max-iterations 500
+    # Legacy end-to-end command (now runs RL directly without GR00T dependency)
+    python groot_to_rl_bridge.py end-to-end
 
-    # Step 4 (optional): render an MP4 of a trained checkpoint (play mode).
-    # Runs the isaac-lab container headless with Isaac Lab's VideoRecorder.
-    python groot_to_rl_bridge.py render-video \
-        --model-s3 s3://bucket/isaac-lab/output/<JOB>/output/model.tar.gz \
-        --task Isaac-Velocity-Flat-Anymal-D-v0
+Optional experimental paths (not standard Physical AI patterns):
+    # Pre-train MLP via behavioral cloning on teleop data
+    python groot_to_rl_bridge.py pretrain-mlp
 
-For this demo (smoke test):
-    We skip step 1 (generating rollouts from GR00T requires the model endpoint)
-    and use the original teleop data directly as behavioral cloning data.
-    This is valid because the teleop data IS what GR00T learned from —
-    the MLP pre-trained on it will behave similarly to GR00T's output.
+Note: Loading a GR00T checkpoint (3B diffusion transformer) into an RL MLP
+via load_state_dict(strict=False) loads zero matching tensors due to incompatible
+architectures. Warm-starting RL from a prior RL checkpoint of the same architecture
+works via the --pretrained flag in train.py.
 """
 
 import argparse
@@ -55,9 +37,10 @@ import boto3
 import numpy as np
 from pathlib import Path
 
-REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
+REGION = os.environ.get("AWS_DEFAULT_REGION", "us-east-1")
 PROJECT_NAME = os.environ.get("PROJECT_NAME", "physical-ai")
 ENVIRONMENT = os.environ.get("ENVIRONMENT", "dev")
+
 # Account/resource names are resolved from the caller's identity so this works in
 # any account — no hardcoded account ID. Override with env vars if you customized
 # the CDK projectName/environment.
@@ -79,7 +62,17 @@ def get_latest_model_package():
     )
     
     if not packages["ModelPackageSummaryList"]:
-        print("  ERROR: No models in groot-models registry")
+        print("  ERROR: No models found in 'groot-models' SageMaker Model Registry")
+        print("  The 'status' action inspects the GR00T (Lab 1) model registry.")
+        print("  Note: the RL pipeline (rl-refine / end-to-end) does NOT require a GR00T")
+        print("  model — RL in Isaac Lab is a separate pipeline. This check is informational.")
+        print("")
+        print("  ACTION REQUIRED (only if you want a registered GR00T model): complete Lab 1:")
+        print("    cd /home/ec2-user/projects/physical-ai-toolchain")
+        print("    python training/scripts/register_model.py --model-data s3://.../output/model.tar.gz")
+        print("")
+        print("  Or run the full Lab 1 pipeline:")
+        print("    python training/scripts/train_groot.py")
         sys.exit(1)
     
     arn = packages["ModelPackageSummaryList"][0]["ModelPackageArn"]
@@ -89,18 +82,20 @@ def get_latest_model_package():
 
 def pretrain_mlp_from_teleop():
     """
-    Pre-train a lightweight MLP policy via behavioral cloning on the
-    UR3 teleop dataset. This produces a .pt file that Isaac Lab can
-    load as the initial policy for RL refinement.
-    
+    EXPERIMENTAL / OPTIONAL — not part of the standard RL pipeline.
+    Pre-train a lightweight MLP policy via behavioral cloning directly on the
+    UR3 teleop dataset (the same demonstrations, NOT loaded from GR00T weights).
+    Produces a .pt file that could seed RL. This is an experimental bridge, not a
+    recognized Physical AI pattern: imitation (GR00T) and RL are separate pipelines.
+
     The MLP architecture matches what Isaac Lab expects:
     - Input: observation (state_dim)
     - Output: action (action_dim)
     - Hidden: 3 layers of 256 units with ELU activation
     """
     
-    print("  Pre-training MLP policy from UR3 teleop data...")
-    print("  This creates a lightweight policy that approximates GR00T's behavior")
+    print("  Pre-training MLP policy from UR3 teleop data (behavioral cloning)...")
+    print("  Learns directly from the teleop demonstrations — NOT loaded from GR00T weights")
     print("  Architecture: obs(7) → 256 → 256 → 256 → action(7)")
     
     # The actual pre-training would happen on SageMaker (needs GPU for speed).
@@ -166,7 +161,7 @@ def launch_rl_refinement(pretrained_path: str = None):
     job_name = f"isaac-lab-rl-ur3-{int(__import__('time').time())}"
     
     hyperparams = {
-        "task": "Isaac-Velocity-Flat-Anymal-D-v0",  # Use built-in task for now
+        "task": "PickAndPlaceUR3-v0",
         "num_envs": "4096",
         "max_iterations": "50",
         "framework": "rsl_rl",
@@ -199,116 +194,47 @@ def launch_rl_refinement(pretrained_path: str = None):
     return job_name
 
 
-def render_video(model_s3: str, task: str = "Isaac-Velocity-Flat-Anymal-D-v0",
-                 video_length: int = 400):
-    """
-    Render an MP4 of a trained Isaac Lab policy.
-
-    Runs the isaac-lab container in 'play' mode: it loads the checkpoint from the
-    `model` input channel (model_s3 → the model.tar.gz a training job produced,
-    auto-extracted by SageMaker), rolls the policy out headless with Isaac Lab's
-    VideoRecorder, and writes the MP4 to the output S3 path.
-
-    Args:
-        model_s3: S3 URI of a trained job's model.tar.gz (contains model_*.pt)
-        task:     Isaac Lab task the checkpoint was trained on (must match)
-        video_length: number of sim steps to record
-    """
-    sm = boto3.client("sagemaker", region_name=REGION)
-    job_name = f"isaac-lab-video-{int(__import__('time').time())}"
-
-    sm.create_training_job(
-        TrainingJobName=job_name,
-        RoleArn=ROLE_ARN,
-        AlgorithmSpecification={
-            "TrainingImage": ISAAC_LAB_IMAGE,
-            "TrainingInputMode": "File",
-        },
-        InputDataConfig=[{
-            "ChannelName": "model",  # mounts at /opt/ml/input/data/model (tar auto-extracted)
-            "DataSource": {"S3DataSource": {
-                "S3DataType": "S3Prefix",
-                "S3Uri": model_s3,
-                "S3DataDistributionType": "FullyReplicated",
-            }},
-        }],
-        OutputDataConfig={"S3OutputPath": f"s3://{BUCKET}/isaac-lab/videos/"},
-        ResourceConfig={
-            "InstanceType": "ml.g5.xlarge",  # GPU needed for Isaac Sim rendering
-            "InstanceCount": 1,
-            "VolumeSizeInGB": 100,
-        },
-        StoppingCondition={"MaxRuntimeInSeconds": 1800},
-        HyperParameters={
-            "mode": "play",
-            "task": task,
-            "framework": "rsl_rl",
-            "video_length": str(video_length),
-        },
-    )
-
-    print(f"  Video render launched: {job_name}")
-    print(f"  Checkpoint: {model_s3}")
-    print(f"  Output MP4 → s3://{BUCKET}/isaac-lab/videos/{job_name}/output/model.tar.gz (videos/ inside)")
-    return job_name
-
-
 def run_end_to_end():
     """
-    Run the full pipeline: GR00T model → RL refinement.
-    
-    For this demo, we skip the MLP pre-training step and go straight
-    to RL from scratch. The full pipeline would be:
-    
-    1. pretrain_mlp_from_teleop() → MLP checkpoint
-    2. launch_rl_refinement(pretrained_path) → refined policy
-    
-    Both steps work. The pre-training just gives RL a head start
-    (converges in 100 iterations instead of 500).
+    Launch Isaac Lab RL training directly.
+
+    This runs RL training from scratch without requiring a GR00T model.
+    Imitation (GR00T) and RL (Isaac Lab) are separate approaches to obtaining
+    a policy, not sequential stages.
+
+    The policy learns pick-and-place through trial-and-error in simulation,
+    guided by reward signals and domain randomization.
     """
-    
+
     print("="*60)
-    print("  GR00T → RL End-to-End Pipeline")
+    print("  Isaac Lab RL Training")
     print("="*60)
-    
-    # Verify GR00T model exists
-    print("\n  Step 1: Verify GR00T model in registry...")
-    model_arn = get_latest_model_package()
-    
-    # Launch RL refinement
-    print("\n  Step 2: Launch RL refinement on SageMaker...")
+
+    # Launch RL training directly
+    print("\n  Launching RL training on SageMaker...")
     rl_job = launch_rl_refinement()
-    
-    print(f"\n  Pipeline running!")
+
+    print(f"\n  RL training running!")
     print(f"  Monitor: aws sagemaker describe-training-job --training-job-name {rl_job} --region {REGION}")
-    print(f"\n  Full pipeline (future): GR00T → MLP pretrain → RL refine → deploy")
-    print(f"  Today: GR00T ✅ → RL refine ✅ (independent validation)")
-    
+    print(f"\n  Policy trains via PPO with domain randomization")
+    print(f"  Output: S3 checkpoint ready for edge deployment (Lab 5)")
+
     return rl_job
 
 
 def main():
     parser = argparse.ArgumentParser(description="GR00T → RL Bridge")
-    parser.add_argument("action", choices=["end-to-end", "pretrain-mlp", "rl-refine", "render-video", "status"],
+    parser.add_argument("action", choices=["end-to-end", "pretrain-mlp", "rl-refine", "status"],
                         help="Pipeline action")
     parser.add_argument("--pretrained", default=None, help="Path to pretrained MLP checkpoint")
-    parser.add_argument("--model-s3", default=None,
-                        help="(render-video) S3 URI of a trained job's model.tar.gz")
-    parser.add_argument("--task", default="Isaac-Velocity-Flat-Anymal-D-v0",
-                        help="(render-video) Isaac Lab task the checkpoint was trained on")
     args = parser.parse_args()
-
+    
     if args.action == "end-to-end":
         run_end_to_end()
     elif args.action == "pretrain-mlp":
         pretrain_mlp_from_teleop()
     elif args.action == "rl-refine":
         launch_rl_refinement(args.pretrained)
-    elif args.action == "render-video":
-        if not args.model_s3:
-            print("ERROR: --model-s3 required (the trained job's model.tar.gz)")
-            sys.exit(1)
-        render_video(args.model_s3, task=args.task)
     elif args.action == "status":
         get_latest_model_package()
 

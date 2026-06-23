@@ -16,11 +16,14 @@ cdk/cdk.context.json
 data/**
 !data/*.zip
 
-# training/data: keep ONLY the LFS-tracked source zip; ignore generated
-# artifacts (unzipped episodes, converted LeRobot datasets, render videos).
-training/data/**
-!training/data/
-!training/data/*.zip
+# Extracted / generated training data under training/data/. The source-of-truth
+# zip (ur3_episodes_001_027.zip) is tracked via Git LFS; these are unzipped or
+# derived from it and must not be committed (episodes/ is ~1.8 GB).
+training/data/episodes/
+training/data/ur3_lerobot_dataset/
+
+# Binary design docs / working artifacts (not source)
+*.docx
 
 # Python
 __pycache__/

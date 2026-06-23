@@ -30,18 +30,19 @@ This gives you a working policy in hours from as few as 50 demonstrations. But i
 
 The robot practices in simulation — millions of attempts with a reward signal ("+1 when the object is picked up, -0.1 for dropping it"). Through trial and error across thousands of randomized scenes, it discovers strategies that handle variations the demos never showed.
 
-Starting from the imitation-learned policy (instead of random), RL converges in hours rather than weeks.
+Through trial and error across thousands of randomized scenes, RL discovers robust strategies — given a good simulator and a clear reward function.
 
-### Combined: The Industry Standard
+### Two approaches, two pipelines — choose per task
 
-The standard approach for production robot policies:
+Imitation learning (GR00T) and reinforcement learning (Isaac Lab PPO) are **separate pipelines you choose between**, not stages you chain. You pick based on what you have: high-quality demonstrations, or a strong simulator with a definable reward.
 
 ```
-Demos → Imitation Learning → RL Refinement → Edge Deployment
-(50 demos)  (2 hours)         (4 hours)       (OTA push)
+Path A — Imitation:   Demos ──▶ GR00T fine-tune (SageMaker) ──┐
+                                                              ├──▶ Edge Deployment
+Path B — RL:          Sim + reward ──▶ Isaac Lab PPO (GPU EC2)─┘     (TensorRT → Jetson)
 ```
 
-This toolchain implements this full pipeline on AWS.
+**Compute placement:** VLA/imitation training (GR00T) runs on **SageMaker**; Isaac Sim + RL jobs run on **GPU EC2** (and AWS Batch for scale, a future enhancement). This toolchain provides both paths as independent, deployable building blocks.
 
 ---
 
@@ -50,7 +51,7 @@ This toolchain implements this full pipeline on AWS.
 | Technology | What It Is | Role |
 |-----------|-----------|------|
 | **GR00T** | NVIDIA's Vision-Language-Action (VLA) foundation model. A 3B-parameter neural network pre-trained on diverse robot data. You fine-tune it on your specific robot and task. | Lab 1: imitation learning from demonstrations |
-| **Isaac Lab** | NVIDIA's RL training framework running on the Isaac Sim physics engine. Simulates thousands of parallel robot environments on a single GPU. | Lab 4: RL refinement at scale |
+| **Isaac Lab** | NVIDIA's RL training framework running on the Isaac Sim physics engine. Simulates thousands of parallel robot environments on a single GPU. | Lab 4: RL policy training at scale |
 | **Cosmos** | NVIDIA's World Foundation Model. Generates photorealistic synthetic environments to close the visual gap between simulation and reality. | Lab 3: diverse training scene generation |
 | **TensorRT** | NVIDIA's model compiler. Optimizes trained models for real-time inference on edge hardware (Jetson). | Lab 5: edge deployment |
 | **OSMO** | NVIDIA's workflow orchestrator for multi-stage Physical AI pipelines. Manages GPU scheduling, stage sequencing, and quality gates. | Lab 6: production orchestration |
@@ -64,6 +65,8 @@ This toolchain implements this full pipeline on AWS.
 A complete, deployable Physical AI pipeline:
 
 ```
+├── config.json                    # Single source of truth: region + workstation settings
+│                                  #   (instance type, Isaac Sim AMI map, EBS, DCV port)
 ├── cdk/                           # Infrastructure as Code (AWS CDK)
 │   ├── lib/foundation-stack.ts    # S3, ECR, IAM, CodeBuild image builds
 │   ├── lib/constructs/container-build.ts  # S3-asset → CodeBuild → ECR (auto-trigger)
@@ -95,24 +98,33 @@ A complete, deployable Physical AI pipeline:
 # Install git-lfs if needed: https://git-lfs.com  (brew install git-lfs on Mac)
 # After installing: git lfs install
 
-# 1. Clone and deploy infrastructure (~5 min). Deploy also kicks off CodeBuild
-#    jobs that build every container image in the cloud and push them to ECR.
+# 1. Clone the repo
 git clone [REPO_URL]
-cd aws-physical-ai-toolchain/cdk && npm install
+cd aws-physical-ai-toolchain
+
+# 2. Set your region (and other settings) in config.json — the single source of truth.
+#    cdk reads aws.region from here, so it can't drift from your shell's AWS_REGION.
+#    config.json also holds the workstation settings used by Lab 2 (instance type,
+#    Isaac Sim Marketplace AMI map, EBS size, DCV port).
+$EDITOR config.json     # set "aws": { "region": "us-east-1" } to your target region
+
+# 3. Deploy infrastructure (~5 min). Deploy also kicks off CodeBuild jobs that build
+#    every container image in the cloud and push them to ECR.
+cd cdk && npm install
 npx cdk deploy --context mode=simple
 
-# 2. Pull the teleop dataset from LFS and extract it
+# 4. Pull the teleop dataset from LFS and extract it
 git lfs pull
 unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
 
-# 3. Wait for the groot-training image (~10 min) — watch in the CodeBuild console
+# 5. Wait for the groot-training image (~10 min) — watch in the CodeBuild console
 aws ecr describe-images --repository-name physical-ai/groot-training \
   --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
 
-# 4. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
+# 6. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
 ./run-path-a.sh --max-steps=100
 
-# 5. Check results
+# 7. Check results
 aws sagemaker list-model-packages --model-package-group-name groot-models
 ```
 
@@ -134,9 +146,9 @@ Seven hands-on labs taking you from zero to a deployed robot policy:
 |-----|---------------|------|------|
 | [Lab 0: Prerequisites](workshop/lab-0-prerequisites.md) | Deploy AWS infrastructure | 30 min | — |
 | [Lab 1: Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$15-30 |
-| [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$4.50/hr |
+| [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$2.24/hr |
 | [Lab 3: Cosmos World Gen](workshop/lab-3-cosmos-world-generation.md) | Photorealistic training scenes | 1-2 hrs | ~$15-30 |
-| [Lab 4: RL Refinement](workshop/lab-4-rl-refinement.md) | Policy improvement in simulation | 3 hrs | ~$10-30 |
+| [Lab 4: RL Policy Training](workshop/lab-4-rl-refinement.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
 | [Lab 5: Edge Deployment](workshop/lab-5-edge-deployment.md) | Deploy to Jetson via Greengrass | 2 hrs | ~$5 |
 | [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$50-100 |
 
@@ -164,8 +176,8 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 - ✅ GR00T fine-tuning on SageMaker (full pipeline: train → eval → register)
 - ✅ GR00T fine-tuning with real UR3 data (100-step smoke test succeeded with 27 real teleop episodes)
 - ✅ Isaac Lab RL training on SageMaker (100 iterations, 60K steps/s, reward -0.36→+8.58)
-- ✅ Isaac Sim workstation deployed (g5.4xlarge, DCV, Isaac Sim 6.0 GUI confirmed)
-- ✅ GR00T → Isaac Lab RL bridge script (end-to-end validated)
+- ✅ Isaac Sim workstation on the NVIDIA Isaac Sim Marketplace AMI (g6e.4xlarge / L40S, DCV + Isaac Sim pre-baked)
+- ✅ Imitation (GR00T/SageMaker) and RL (Isaac Lab/EC2) as separate, independently runnable pipelines
 - ✅ Real UR3 teleop data (27 episodes, 3,467 frames, converted to LeRobot v2)
 - ✅ Lab docs (0-6) written with full intro + terminology glossary
 - ✅ Cosmos Transfer container in ECR (deploying on Spot p5 H100 instance)
@@ -183,7 +195,7 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 | GR00T training (full) | ~$79 | 11 hours |
 | Isaac Lab RL (100 iterations) | ~$3 | 15 min on ml.g5.xlarge |
 | Isaac Lab RL (full, 2000 iterations) | ~$28 | 4 hrs on ml.g5.12xlarge |
-| Workstation (per hour) | ~$4.50 | Stop when not using |
+| Workstation (per hour) | ~$2.24 | g6e.4xlarge (L40S). Stop when not using |
 | **Total workshop (Labs 0-4)** | **~$50-100** | |
 
 All resources tear down cleanly with `cdk destroy`.

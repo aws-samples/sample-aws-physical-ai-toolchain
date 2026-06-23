@@ -25,6 +25,12 @@ from omni.isaac.lab.app import AppLauncher
 import omni.isaac.lab_tasks  # noqa: F401 — registers environments
 from omni.isaac.lab_tasks.utils import parse_env_cfg
 
+# Register our custom UR3 env with gymnasium (training/envs/__init__.py).
+# Ensure the repo root is on sys.path so this works when run as a script.
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import training.envs  # noqa: F401 — registers PickAndPlaceUR3-v0
+
 # RL algorithm (rl_games PPO)
 from rl_games.common import env_configurations, vecenv
 from rl_games.torch_runner import Runner
@@ -53,7 +59,9 @@ def main():
     parser.add_argument('--scene-dir', type=str, default=None,
                         help='Directory with Cosmos-generated USD scenes')
     parser.add_argument('--resume', type=str, default=None,
-                        help='Path to checkpoint to resume from')
+                        help='Path to checkpoint to resume from (full state: policy + optimizer + iteration)')
+    parser.add_argument('--pretrained-model', type=str, default=None,
+                        help='Path to pretrained RL checkpoint (same architecture only, NOT for GR00T/VLA models — incompatible shapes)')
     parser.add_argument('--seed', type=int, default=42,
                         help='Random seed')
     args = parser.parse_args()
@@ -137,6 +145,39 @@ def main():
     runner = Runner()
     runner.load(runner_config)
     runner.reset()
+
+    # Load pretrained RL policy weights if provided (warm-start from prior RL checkpoint)
+    # This is distinct from --resume: pretrained loads only policy weights for
+    # warm-start initialization, while resume loads full checkpoint (optimizer, iteration state).
+    #
+    # IMPORTANT: Only use this with RL checkpoints of the SAME architecture (same obs/action dims).
+    # Loading a GR00T/VLA checkpoint (3B diffusion transformer) into an RL MLP will silently
+    # load ZERO matching tensors due to incompatible shapes — strict=False ignores mismatches,
+    # so the policy trains from scratch anyway. This is NOT a valid transfer approach.
+    if args.pretrained_model:
+        print(f"  Loading pretrained RL policy from: {args.pretrained_model}")
+        # Download from S3 if it's an s3:// path
+        pretrained_path = args.pretrained_model
+        if pretrained_path.startswith('s3://'):
+            import boto3
+            s3_path = pretrained_path[5:]  # Remove s3://
+            bucket, key = s3_path.split('/', 1)
+            local_path = Path('/tmp/pretrained_policy.pt')
+            print(f"  Downloading from s3://{bucket}/{key}...")
+            boto3.client('s3').download_file(bucket, key, str(local_path))
+            pretrained_path = str(local_path)
+
+        # Load pretrained weights into the policy network
+        # rl_games stores the policy in runner.algo_observer's model
+        import torch
+        pretrained_state = torch.load(pretrained_path, map_location='cpu')
+        # Extract just the policy weights (rl_games checkpoint structure varies)
+        if 'model' in pretrained_state:
+            policy_weights = pretrained_state['model']
+        else:
+            policy_weights = pretrained_state
+        runner.algo_observer.model.load_state_dict(policy_weights, strict=False)
+        print("  Pretrained RL policy loaded (policy weights only, same-architecture transfer)")
 
     print("\n  Starting training...\n")
     runner.run({

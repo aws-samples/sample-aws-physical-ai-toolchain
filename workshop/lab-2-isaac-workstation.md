@@ -2,7 +2,31 @@
 
 **Goal:** Deploy a GPU-powered remote desktop for visual Isaac Lab environment development and debugging
 **Time:** 30 min setup + ongoing development sessions
-**Cost:** ~$4.50/hr when running (stop when not in use)
+**Cost:** ~$2.24/hr + $40/month EBS when running (stop when not in use)
+
+---
+
+## 🏃 Quick Runbook (do this in order)
+
+> Follow these steps top-to-bottom. Each step says **what to run** and **how you know it worked**. Full detail for each is in the numbered sections below.
+
+| # | Action | Command (summary) | ✅ Success check |
+|---|--------|-------------------|-----------------|
+| 0 | Subscribe to the Isaac Sim AMI (once per account) | Marketplace console — see *Prerequisite* | Subscription shows **Active** |
+| 1 | Set your region in `config.json` | edit `aws.region` at repo root | matches the region you'll deploy in |
+| 2 | Deploy the workstation | `cd cdk && ./deploy-workstation.sh` | `✅ CREATE_COMPLETE`, prints instance ID + IP |
+| 3 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
+| 4 | Launch Isaac Sim (visual) | `isaac-sim.sh` on the DCV desktop | 3D viewport opens |
+| 5 | Test the training container (headless) | `docker run --gpus all …isaac-lab:latest train` | training loop logs steps/s |
+| 6 | **Stop the instance** | `aws ec2 stop-instances --instance-ids <id>` | state → `stopped` (billing halts) |
+
+**Before you start, confirm:**
+- [ ] AWS credentials active for the **test account** (`aws sts get-caller-identity`)
+- [ ] `config.json` `aws.region` is the region you intend (deploy reads it — Step 1)
+- [ ] You completed the Marketplace **subscription** (Step 0 / *Prerequisite* below)
+- [ ] Foundation stack already deployed (so the `isaac-lab` image is in your ECR) — needed only for Step 5
+
+> 💸 **Cost reminder:** this instance bills ~$2.24/hr while running. Do Step 6 the moment you walk away.
 
 ---
 
@@ -31,13 +55,15 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 | Resource | Cost | When |
 |----------|------|------|
-| g5.4xlarge (A10G GPU) | ~$1.62/hr | Only while instance is running |
+| g6e.4xlarge (L40S GPU, 48 GB VRAM) | ~$2.24/hr | Only while instance is running |
 | 512 GB gp3 EBS | ~$40/month | Always (stores Isaac Sim + your work) |
 
 **Typical monthly cost:**
-- Heavy development (8 hrs/day, 5 days/week): ~$260/month
-- Moderate development (4 hrs/day, 3 days/week): ~$78/month
-- Occasional debugging (2 hrs/week): ~$13/month
+- Heavy development (8 hrs/day, 5 days/week): ~$398/month (160 hrs × $2.24 + $40 EBS)
+- Moderate development (4 hrs/day, 3 days/week): ~$148/month (48 hrs × $2.24 + $40 EBS)
+- Occasional debugging (2 hrs/week): ~$58/month (8 hrs × $2.24 + $40 EBS)
+
+> **Why g6e.4xlarge?** This is the instance NVIDIA recommends for the Isaac Sim Marketplace AMI (1× L40S, 48 GB VRAM). You can override it in `config.json` (`workstation.instanceType`) or with `INSTANCE_TYPE=… ./deploy-workstation.sh`.
 
 **Compared to alternatives:**
 - Local GPU workstation (RTX 4090): $2,500+ upfront, limited to one developer
@@ -48,14 +74,15 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 ## Architecture
 
-> TODO: Insert workstation architecture diagram here (showing EC2 g5.4xlarge with DCV, Isaac Sim, Docker connecting to laptop browser)
+> TODO: Insert workstation architecture diagram here (showing EC2 g6e.4xlarge with DCV, Isaac Sim, Docker connecting to laptop browser)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  EC2 g5.4xlarge (NVIDIA A10G GPU, 24GB VRAM)                │
+│  EC2 g6e.4xlarge (NVIDIA L40S GPU, 48GB VRAM)              │
+│  NVIDIA Isaac Sim Marketplace AMI (driver + DCV pre-baked) │
 │                                                             │
 │  ┌─────────────────┐  ┌──────────────────────────────────┐ │
-│  │  NICE DCV       │  │  Isaac Sim 6.0 + Isaac Lab        │ │
+│  │  NICE DCV       │  │  Isaac Sim + Isaac Lab            │ │
 │  │  Remote Desktop │  │  - Visual scene editor            │ │
 │  │  (port 8443)    │  │  - RL environment preview         │ │
 │  │                 │  │  - Physics debugger               │ │
@@ -79,25 +106,58 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 ---
 
+## Prerequisite: Subscribe to the Isaac Sim Marketplace AMI (one time)
+
+This workstation boots the **NVIDIA Isaac Sim AMI** from AWS Marketplace, which ships with the NVIDIA driver, NICE DCV, Docker, and Isaac Sim **pre-installed** (no fragile from-scratch bootstrap). You must subscribe to it **once per account** before deploying, or the EC2 launch fails with a subscription/opt-in error:
+
+1. Open the listing: **https://aws.amazon.com/marketplace/pp/prodview-bl35herdyozhw**
+2. Click **Continue to Subscribe** → **Accept Terms** (the AMI itself is free; you pay only for the EC2 instance + EBS).
+3. Wait for the subscription to show **Active** (usually < 1 min).
+
+> **Region note:** The region→AMI map lives in **`config.json`** (`workstation.amiMapping`). Marketplace AMI IDs change with each Isaac Sim release — if your region is missing or the deploy reports an invalid AMI, look up the current AMI ID for your region from the listing's **Launch** tab and update `config.json`.
+
+---
+
 ## Step 1: Deploy the Workstation
+
+All workstation settings (instance type, region→AMI map, EBS size, DCV port) now live in **`config.json`** at the repo root. The deploy reads them automatically; you only need to provide your IP.
+
+**Recommended: Use the wrapper script (auto-detects IP, handles retries):**
 
 ```bash
 cd aws-physical-ai-toolchain/cdk
 
-# Get your public IP
-MY_IP=$(curl -s ifconfig.me)
-echo "Your IP: $MY_IP"
+# Deploy with auto IP detection and AZ retry on GPU capacity errors
+./deploy-workstation.sh
+```
 
-# Deploy (takes ~5 minutes)
+The script auto-detects your public IP (via `ifconfig.me`) and sets all required context flags. It will retry across Availability Zones if GPU capacity is exhausted in one AZ.
+
+**To override auto-detection:**
+```bash
+# Use a specific IP (e.g., if behind NAT or VPN)
+ALLOWED_CIDR="203.0.113.5/32" ./deploy-workstation.sh
+
+# Use a different instance type
+INSTANCE_TYPE="g5.2xlarge" ./deploy-workstation.sh
+```
+
+**Alternative: Manual CDK command (if you prefer full control):**
+```bash
+MY_IP=$(curl -s ifconfig.me)
 npx cdk deploy PhysicalAi-dev-Workstation \
   --context mode=simple \
+  --context workstation=true \
   --context allowedCidr="$MY_IP/32"
 ```
+
+> **Note:** `allowedCidr` is required (no default). If you omit it, synth will fail with an error message. The value you provide restricts DCV (port 8443) access to your IP. If DCV won't connect after deployment, your browser may be behind a different IP than your shell — re-deploy with that IP in `allowedCidr`.
 
 The stack outputs will show:
 - **WorkstationIP** — the Elastic IP address
 - **DCVWebURL** — `https://<IP>:8443` to connect via browser
 - **SSMConnect** — connect via Session Manager (no SSH key needed)
+- **EstimatedCost** — ~$2.24/hr (on-demand g6e.4xlarge in us-east-1)
 
 ---
 
@@ -114,51 +174,26 @@ The workstation auto-configures everything on first boot (~15 min). Once ready:
 
 ---
 
-## Step 3: Launch Isaac Sim
+## Step 3: Launch Isaac Sim (Visual Path)
 
-Everything is pre-installed. Open a terminal on the workstation and run:
+Because the workstation now boots the **NVIDIA Isaac Sim Marketplace AMI**, Isaac Sim is **pre-installed by NVIDIA** — you no longer rely on a fragile from-scratch install. Launch the GUI from the DCV desktop:
 
 ```bash
-# Opens Isaac Sim with a demo scene (NVIDIA sample warehouse) instead of an
-# empty stage, so you immediately have something to look at.
-~/run-isaac-sim-gui.sh
+# Isaac Sim ships with the AMI. Launch the app launcher / GUI:
+isaac-sim.sh        # or use the "Isaac Sim" desktop/app shortcut provided by the AMI
 ```
 
-This wraps the demo launcher (`scripts/open_demo_scene.py`), which loads an NVIDIA
-sample environment from the Isaac Sim cloud asset server (no local Nucleus needed),
-and falls back to an empty Isaac Sim if the assets can't be reached.
-
-Prefer the raw, empty editor? Just run it directly:
-```bash
-source ~/isaac-env/bin/activate
-isaacsim
-```
+> **Note:** The exact launch command and install path are defined by the AMI (NVIDIA updates these per Isaac Sim release). If `isaac-sim.sh` isn't on your `PATH`, check the AMI's documentation / desktop shortcuts, or look under `/opt` or the home directory for the Isaac Sim install. The **Docker container path** (see "Testing Training Containers Locally" below) remains the verified, reliable route for *headless training* and achieves ~56k steps/s (measured on A10G; the L40S on g6e is faster).
 
 You'll see the full Isaac Sim visual editor — 3D viewport, content browser with robots and environments, scene tree.
-
-> **Unverified note:** the exact `isaacsim` package version is whatever pip installs
-> at boot. The demo launcher uses NVIDIA's documented standalone-app API
-> (`SimulationApp` + `get_assets_root_path` + `open_stage`), but has not been run on
-> a live workstation in this repo yet — if the API differs on your installed version,
-> the wrapper falls back to a plain `isaacsim`. Isaac Sim needs a **G-family** GPU
-> (G5/G6/G6e); P-family (P4/P5) lacks RT Cores and will crash.
-
-**Or run Isaac Lab training with visual rendering:**
-```bash
-source ~/isaac-env/bin/activate
-isaacsim omni.isaac.lab -p scripts/reinforcement_learning/rsl_rl/train.py \
-  --task=Isaac-Velocity-Flat-Anymal-D-v0 \
-  --num_envs=16 \
-  --max_iterations=10
-```
-
-You'll see 16 simulated robots training in real-time with full rendering.
 
 ---
 
 ## Step 4: Develop Your RL Environment
 
-This is where you iterate:
+This is where you iterate. Isaac Sim is pre-installed via the AMI (Step 3); for *headless training* the **verified, working route** is the Docker container (see "Testing Training Containers Locally" below).
+
+**If the host GUI install worked:**
 
 ```bash
 # Clone your repo on the workstation (the bootstrap already cloned it to
@@ -171,10 +206,14 @@ cd aws-physical-ai-toolchain
 
 # Watch the robot attempt the task
 # Tweak rewards, observation space, action space
-# When it looks right → launch headless on SageMaker (Lab 3)
+# When it looks right → launch headless on SageMaker (Lab 4)
 ```
 
-**What to look for:**
+**If the host GUI install didn't complete (or you want the reliable path):**
+
+Use the local Docker container (cross-reference "Testing Training Containers Locally" below). The UR3 environment is now wired into the container's `train` entrypoint, so running the container locally gives you headless UR3 training at ~56k steps/s on A10G — same code that will run on SageMaker in Lab 4.
+
+**What to look for (if visual rendering works):**
 - Robot reaching toward the object (approach reward working)
 - Gripper closing at the right time (grasp reward working)
 - Object being lifted cleanly (success reward working)
@@ -248,7 +287,7 @@ You've completed Lab 2 if:
 
 1. **Always stop when you walk away.** Set a calendar reminder or use AWS Instance Scheduler.
 2. **Use Spot instances for non-critical work.** Modify the CDK stack to use Spot — saves ~70% but can be interrupted.
-3. **Right-size the instance.** g5.4xlarge (1× A10G, 24GB VRAM) is sufficient for environment development. Only upgrade to g5.12xlarge if you need to run 4096+ envs visually.
+3. **Right-size the instance.** g6e.4xlarge (1× L40S, 48GB VRAM) is the recommended default for the Isaac Sim AMI and is sufficient for environment development. Change `workstation.instanceType` in `config.json` (or `INSTANCE_TYPE=…`) if you need more — only scale up if you run 4096+ envs visually.
 4. **Delete when the project is done.** `cdk destroy PhysicalAi-dev-Workstation` removes everything.
 
 ---
