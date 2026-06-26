@@ -7,6 +7,7 @@ import { EksClusterStack } from '../lib/eks-cluster-stack';
 import { OsmoStack } from '../lib/osmo-stack';
 import { EdgeStack } from '../lib/edge-stack';
 import { WorkstationStack } from '../lib/workstation-stack';
+import { BatchStack } from '../lib/batch-stack';
 import { devConfig } from '../config/dev';
 import { prodConfig } from '../config/prod';
 import * as fs from 'fs';
@@ -43,6 +44,7 @@ const envName = app.node.tryGetContext('env') || 'dev';
 const mode = app.node.tryGetContext('mode') || 'simple'; // 'simple' | 'full'
 const includeEdge = app.node.tryGetContext('edge') === 'true'; // opt-in
 const includeWorkstation = app.node.tryGetContext('workstation') === 'true'; // opt-in
+const includeBatch = app.node.tryGetContext('batch') === 'true'; // opt-in
 
 const config = envName === 'prod' ? prodConfig : devConfig;
 const projectName = 'physical-ai';
@@ -64,7 +66,7 @@ const env: cdk.Environment = {
 const prefix = `PhysicalAi-${config.environment}`;
 
 console.log(`\n  Physical AI Toolchain`);
-console.log(`  Mode: ${mode}  |  Env: ${envName}  |  Edge: ${includeEdge}`);
+console.log(`  Mode: ${mode}  |  Env: ${envName}  |  Edge: ${includeEdge}  |  Batch: ${includeBatch}`);
 console.log(`  Region: ${env.region}\n`);
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -143,6 +145,7 @@ if (includeEdge) {
     thingGroupName: config.edge.thingGroupName,
     modelsBucket: foundationStack.modelsBucket,
     telemetryBucket: foundationStack.datasetsBucket, // Reuse datasets bucket for telemetry in simple mode
+    inferenceRepo: foundationStack.inferenceRepo, // edge component recipe pulls the inference image from here
   });
 
   edgeStack.addDependency(foundationStack);
@@ -171,6 +174,25 @@ if (includeWorkstation) {
     repoUrl,
     availabilityZone,
   });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// BATCH (optional — AWS Batch Multi-Node Parallel RL)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+if (includeBatch) {
+  // Context overrides for instanceType, numNodes, maxvCpus (from config.json or --context)
+  const batchConfig = rootConfig.batch || {};
+  const batchStack = new BatchStack(app, `${prefix}-Batch`, {
+    env,
+    environment: config.environment,
+    projectName,
+    instanceType: batchConfig.instanceType,
+    numNodes: batchConfig.numNodes,
+    maxvCpus: batchConfig.maxvCpus,
+  });
+
+  batchStack.addDependency(foundationStack); // pulls isaac-lab image from Foundation ECR
 }
 
 app.synth();

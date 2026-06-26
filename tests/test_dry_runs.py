@@ -23,19 +23,35 @@ def _run(path, argv, capsys):
 
 
 def test_launch_rl_dry_run(fake_boto3, capsys):
+    account, _ = fake_boto3
     out = _run("training/scripts/launch_rl.py", ["--dry-run"], capsys)
     assert "create_training_job" in out
-    assert fake_boto3 in out  # resolved account appears in the image URI
+    assert account in out  # resolved account appears in the image URI
     assert "physical-ai/isaac-lab:latest" in out
     assert "[dry-run] No AWS calls made." in out
 
 
 def test_launch_rl_warns_on_unregistered_ur3(fake_boto3, capsys):
+    _, _ = fake_boto3
     out = _run("training/scripts/launch_rl.py", ["--task", "PickAndPlaceUR3-v0", "--dry-run"], capsys)
     assert "not yet gym-registered" in out
 
 
+def test_launch_rl_multinode(fake_boto3, capsys):
+    """Multi-node training sets InstanceCount and prints a disclaimer."""
+    _, _ = fake_boto3
+    out = _run("training/scripts/launch_rl.py", ["--instance-count", "2", "--dry-run"], capsys)
+    assert "[dry-run] No AWS calls made." in out
+    # Verify the request contains InstanceCount: 2
+    assert '"InstanceCount": 2' in out
+    # Verify the multi-node disclaimer appears
+    assert "Multi-node training" in out
+    assert "UNVALIDATED on hardware" in out
+    assert "sm-train-entrypoint.sh" in out
+
+
 def test_cosmos_launch_dry_run(fake_boto3, capsys):
+    _, _ = fake_boto3
     out = _run("training/scripts/cosmos_setup.py", ["launch", "--dry-run"], capsys)
     assert "run_instances" in out
     assert "p5.48xlarge" in out
@@ -43,6 +59,7 @@ def test_cosmos_launch_dry_run(fake_boto3, capsys):
 
 
 def test_cosmos_generate_dry_run(fake_boto3, capsys):
+    _, _ = fake_boto3
     out = _run("training/scripts/cosmos_setup.py",
                ["generate", "--instance-id", "i-test", "--input", "/tmp", "--output", "/tmp/o", "--dry-run"],
                capsys)
@@ -51,6 +68,7 @@ def test_cosmos_generate_dry_run(fake_boto3, capsys):
 
 
 def test_cosmos3_generate_dry_run(fake_boto3, capsys):
+    _, _ = fake_boto3
     out = _run("training/scripts/cosmos3_generate.py",
                ["--mode", "text2video", "--prompt", "a robot arm", "--dry-run"], capsys)
     assert "cosmos_framework.scripts.inference" in out
@@ -59,9 +77,10 @@ def test_cosmos3_generate_dry_run(fake_boto3, capsys):
 
 
 def test_edge_scripts_dry_run(fake_boto3, capsys):
+    account, _ = fake_boto3
     out = _run("edge/create_component.py", ["--model", "/tmp/x.trt", "--dry-run"], capsys)
     assert "com.physicalai.dev.inference" in out
-    assert fake_boto3 in out  # ECR image URI uses resolved account
+    assert account in out  # ECR image URI uses resolved account
     out2 = _run("edge/deploy_to_fleet.py", ["--dry-run"], capsys)
     assert "physical-ai-dev-robots" in out2
     assert "No AWS writes" in out2

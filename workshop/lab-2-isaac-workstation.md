@@ -2,7 +2,7 @@
 
 **Goal:** Deploy a GPU-powered remote desktop for visual Isaac Lab environment development and debugging
 **Time:** 30 min setup + ongoing development sessions
-**Cost:** ~$2.24/hr + $40/month EBS when running (stop when not in use)
+**Cost:** ~$3.00/hr + $40/month EBS when running (stop when not in use)
 
 ---
 
@@ -13,12 +13,14 @@
 | # | Action | Command (summary) | ✅ Success check |
 |---|--------|-------------------|-----------------|
 | 0 | Subscribe to the Isaac Sim AMI (once per account) | Marketplace console — see *Prerequisite* | Subscription shows **Active** |
-| 1 | Set your region in `config.json` | edit `aws.region` at repo root | matches the region you'll deploy in |
-| 2 | Deploy the workstation | `cd cdk && ./deploy-workstation.sh` | `✅ CREATE_COMPLETE`, prints instance ID + IP |
-| 3 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
-| 4 | Launch Isaac Sim (visual) | `isaac-sim.sh` on the DCV desktop | 3D viewport opens |
-| 5 | Test the training container (headless) | `docker run --gpus all …isaac-lab:latest train` | training loop logs steps/s |
-| 6 | **Stop the instance** | `aws ec2 stop-instances --instance-ids <id>` | state → `stopped` (billing halts) |
+| 1 | Set your region in `config.json` | `pai config set aws.region us-west-2` | matches the region you'll deploy in |
+| 2 | Deploy the workstation | `pai deploy workstation` | `✅ CREATE_COMPLETE`, prints instance ID + IP |
+| 3 | Get IP and password | `pai workstation ip` / `pai workstation password` | prints IP and sets password |
+| 4 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
+| 5 | Launch Isaac Sim (visual) | `isaac-sim.sh` on the DCV desktop | 3D viewport opens |
+| 6 | Test the training container (headless) | `docker run --gpus all …isaac-lab:latest train` | training loop logs steps/s |
+| 7 | (Optional) Closed-loop policy eval | `pai eval serve` + `pai eval --closed-loop` (two terminals) — see *Closed-Loop Policy Evaluation* | prints `success_rate` JSON (**unvalidated on GPU**) |
+| 8 | **Stop the instance** | `pai workstation stop` | state → `stopped` (billing halts) |
 
 **Before you start, confirm:**
 - [ ] AWS credentials active for the **test account** (`aws sts get-caller-identity`)
@@ -26,7 +28,7 @@
 - [ ] You completed the Marketplace **subscription** (Step 0 / *Prerequisite* below)
 - [ ] Foundation stack already deployed (so the `isaac-lab` image is in your ECR) — needed only for Step 5
 
-> 💸 **Cost reminder:** this instance bills ~$2.24/hr while running. Do Step 6 the moment you walk away.
+> 💸 **Cost reminder:** this instance bills ~$3.00/hr while running. Do Step 6 the moment you walk away.
 
 ---
 
@@ -55,13 +57,13 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 | Resource | Cost | When |
 |----------|------|------|
-| g6e.4xlarge (L40S GPU, 48 GB VRAM) | ~$2.24/hr | Only while instance is running |
+| g6e.4xlarge (L40S GPU, 48 GB VRAM) | ~$3.00/hr | Only while instance is running |
 | 512 GB gp3 EBS | ~$40/month | Always (stores Isaac Sim + your work) |
 
 **Typical monthly cost:**
-- Heavy development (8 hrs/day, 5 days/week): ~$398/month (160 hrs × $2.24 + $40 EBS)
-- Moderate development (4 hrs/day, 3 days/week): ~$148/month (48 hrs × $2.24 + $40 EBS)
-- Occasional debugging (2 hrs/week): ~$58/month (8 hrs × $2.24 + $40 EBS)
+- Heavy development (8 hrs/day, 5 days/week): ~$520/month (160 hrs × $3.00 + $40 EBS)
+- Moderate development (4 hrs/day, 3 days/week): ~$184/month (48 hrs × $3.00 + $40 EBS)
+- Occasional debugging (2 hrs/week): ~$64/month (8 hrs × $3.00 + $40 EBS)
 
 > **Why g6e.4xlarge?** This is the instance NVIDIA recommends for the Isaac Sim Marketplace AMI (1× L40S, 48 GB VRAM). You can override it in `config.json` (`workstation.instanceType`) or with `INSTANCE_TYPE=… ./deploy-workstation.sh`.
 
@@ -120,30 +122,40 @@ This workstation boots the **NVIDIA Isaac Sim AMI** from AWS Marketplace, which 
 
 ## Step 1: Deploy the Workstation
 
-All workstation settings (instance type, region→AMI map, EBS size, DCV port) now live in **`config.json`** at the repo root. The deploy reads them automatically; you only need to provide your IP.
+All workstation settings (instance type, region→AMI map, EBS size, DCV port) now live in **`config.json`** at the repo root. The deploy reads them automatically and auto-detects your public IP for the security group.
 
-**Recommended: Use the wrapper script (auto-detects IP, handles retries):**
+```bash
+# Deploy with auto IP detection and AZ retry on GPU capacity errors
+pai deploy workstation
+
+# To override the instance type
+pai deploy workstation --instance-type g5.2xlarge
+
+# To use a specific IP (e.g., if behind NAT or VPN)
+pai deploy workstation --allowed-cidr "203.0.113.5/32"
+```
+
+The CLI auto-detects your public IP (via `ifconfig.me`) and will retry across Availability Zones if GPU capacity is exhausted in one AZ. If DCV won't connect after deployment, your browser may be behind a different IP — re-deploy with that IP in `--allowed-cidr`.
+
+The command outputs:
+- **WorkstationInstanceId** — the EC2 instance ID (use it for start/stop)
+- **DCVWebURL** — how to connect via browser. The instance uses an **auto-assigned public IP** (not an Elastic IP), so this output gives you the command to fetch the current IP: `pai workstation ip`. ⚠️ The public IP **changes every time you stop/start** — re-fetch it after each start.
+- **Cost** — ~$3.00/hr (on-demand g6e.4xlarge in us-west-2) + EBS
+
+> ⚠️ **Note on the public IP:** because it's not an Elastic IP, your `allowedCidr` security-group rule is unaffected by stop/start (that's keyed to *your* IP), but the DCV URL you bookmark will change. Always run `pai workstation ip` after starting the instance.
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+The `pai deploy workstation` command wraps:
 
 ```bash
 cd aws-physical-ai-toolchain/cdk
 
-# Deploy with auto IP detection and AZ retry on GPU capacity errors
+# Deploy with the wrapper script
 ./deploy-workstation.sh
-```
 
-The script auto-detects your public IP (via `ifconfig.me`) and sets all required context flags. It will retry across Availability Zones if GPU capacity is exhausted in one AZ.
-
-**To override auto-detection:**
-```bash
-# Use a specific IP (e.g., if behind NAT or VPN)
-ALLOWED_CIDR="203.0.113.5/32" ./deploy-workstation.sh
-
-# Use a different instance type
-INSTANCE_TYPE="g5.2xlarge" ./deploy-workstation.sh
-```
-
-**Alternative: Manual CDK command (if you prefer full control):**
-```bash
+# Or use CDK directly
 MY_IP=$(curl -s ifconfig.me)
 npx cdk deploy PhysicalAi-dev-Workstation \
   --context mode=simple \
@@ -151,13 +163,7 @@ npx cdk deploy PhysicalAi-dev-Workstation \
   --context allowedCidr="$MY_IP/32"
 ```
 
-> **Note:** `allowedCidr` is required (no default). If you omit it, synth will fail with an error message. The value you provide restricts DCV (port 8443) access to your IP. If DCV won't connect after deployment, your browser may be behind a different IP than your shell — re-deploy with that IP in `allowedCidr`.
-
-The stack outputs will show:
-- **WorkstationIP** — the Elastic IP address
-- **DCVWebURL** — `https://<IP>:8443` to connect via browser
-- **SSMConnect** — connect via Session Manager (no SSH key needed)
-- **EstimatedCost** — ~$2.24/hr (on-demand g6e.4xlarge in us-east-1)
+</details>
 
 ---
 
@@ -165,25 +171,62 @@ The stack outputs will show:
 
 The workstation auto-configures everything on first boot (~15 min). Once ready:
 
-1. Open `https://<WorkstationIP>:8443` in your browser (get IP from CDK output)
+```bash
+# Get the current public IP
+pai workstation ip
+
+# Set the DCV password (if not already set)
+pai workstation password
+
+# Or print connection details
+pai workstation connect
+```
+
+Then:
+
+1. Open `https://<IP>:8443` in your browser (use IP from `pai workstation ip`)
 2. Accept the self-signed certificate warning
-3. Login: username `ubuntu`, password `pai-lab1`
+3. Login: username `ubuntu`, password from `pai workstation password` (default: `pai-lab1`)
 4. You'll see an Ubuntu desktop with GPU acceleration
 
 > **Note:** DCV requires direct internet access (port 8443). If you're on a corporate VPN that blocks non-standard ports, disconnect VPN to access DCV.
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+```bash
+# Get IP
+INSTANCE_ID=<your-instance-id>
+aws ec2 describe-instances --instance-ids $INSTANCE_ID \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text
+
+# Set password via SSM
+aws ssm send-command \
+  --instance-ids $INSTANCE_ID \
+  --document-name "AWS-RunShellScript" \
+  --parameters 'commands=["echo ubuntu:YOUR_PASSWORD | sudo chpasswd"]'
+
+# Connect via SSM (alternative)
+aws ssm start-session --target $INSTANCE_ID
+```
+
+</details>
 
 ---
 
 ## Step 3: Launch Isaac Sim (Visual Path)
 
-Because the workstation now boots the **NVIDIA Isaac Sim Marketplace AMI**, Isaac Sim is **pre-installed by NVIDIA** — you no longer rely on a fragile from-scratch install. Launch the GUI from the DCV desktop:
+Because the workstation now boots the **NVIDIA Isaac Sim Marketplace AMI**, Isaac Sim is **pre-installed by NVIDIA** — you no longer rely on a fragile from-scratch install. The AMI installs it to **`/opt/IsaacSim`** (also mirrored under `~/IsaacSim`), and the launcher is **not on your `PATH`**, so call it by absolute path from the DCV desktop terminal:
 
 ```bash
-# Isaac Sim ships with the AMI. Launch the app launcher / GUI:
-isaac-sim.sh        # or use the "Isaac Sim" desktop/app shortcut provided by the AMI
+# Isaac Sim ships with the AMI at /opt/IsaacSim. Launch the GUI:
+/opt/IsaacSim/isaac-sim.sh
+
+# Convenience: the bootstrap also dropped ~/run-isaac-sim-gui.sh which calls the above.
+~/run-isaac-sim-gui.sh
 ```
 
-> **Note:** The exact launch command and install path are defined by the AMI (NVIDIA updates these per Isaac Sim release). If `isaac-sim.sh` isn't on your `PATH`, check the AMI's documentation / desktop shortcuts, or look under `/opt` or the home directory for the Isaac Sim install. The **Docker container path** (see "Testing Training Containers Locally" below) remains the verified, reliable route for *headless training* and achieves ~56k steps/s (measured on A10G; the L40S on g6e is faster).
+> **Note:** The install path (`/opt/IsaacSim`) is defined by the AMI and verified on the current Isaac Sim Marketplace release. If a future AMI moves it, find the launcher with `ls /opt/IsaacSim/isaac-sim.sh ~/IsaacSim/isaac-sim.sh`. The **Docker container path** (see "Testing Training Containers Locally" below) remains the verified, reliable route for *headless training* and achieves ~56k steps/s (measured on A10G; the L40S on g6e is faster).
 
 You'll see the full Isaac Sim visual editor — 3D viewport, content browser with robots and environments, scene tree.
 
@@ -196,10 +239,12 @@ This is where you iterate. Isaac Sim is pre-installed via the AMI (Step 3); for 
 **If the host GUI install worked:**
 
 ```bash
-# Clone your repo on the workstation (the bootstrap already cloned it to
-# /home/ubuntu/aws-physical-ai-toolchain — or clone your own fork)
-git clone https://github.com/aws-samples/aws-physical-ai-toolchain.git
-cd aws-physical-ai-toolchain
+# The toolchain code is ALREADY on the workstation. The deploy bundles your local
+# working tree as an S3 asset and the bootstrap unzips it to:
+#   /home/ubuntu/aws-physical-ai-toolchain
+# (The public GitHub repo isn't released yet, so there's no git clone — once it's
+# public you can pass --context repoUrl=<url> to clone instead.)
+cd ~/aws-physical-ai-toolchain
 
 # Run the UR3 pick-and-place environment visually
 ./isaaclab.sh -p training/envs/pick_and_place_ur3.py --num_envs=8
@@ -226,21 +271,54 @@ Use the local Docker container (cross-reference "Testing Training Containers Loc
 
 **Stop when done (saves money):**
 ```bash
-INSTANCE_ID=<your-instance-id>
-aws ec2 stop-instances --instance-ids $INSTANCE_ID
+pai workstation stop
 ```
 
 **Start when you need it again:**
 ```bash
-aws ec2 start-instances --instance-ids $INSTANCE_ID
-# Wait ~60s for boot, then reconnect via DCV
+pai workstation start
+
+# Wait ~60s for boot, then get the new public IP and reconnect via DCV:
+pai workstation ip
 ```
 
+**Check current status:**
+```bash
+pai workstation status
+```
+
+> ⚠️ The instance has an **auto-assigned public IP, not an Elastic IP** — it changes on every stop/start. Re-run `pai workstation ip` after each start to get the current `https://<IP>:8443` URL.
+
 Your work is preserved on the EBS volume — stopping only halts the compute charges.
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+```bash
+INSTANCE_ID=<your-instance-id>
+
+# Stop
+aws ec2 stop-instances --instance-ids $INSTANCE_ID
+
+# Start
+aws ec2 start-instances --instance-ids $INSTANCE_ID
+
+# Get IP
+aws ec2 describe-instances --instance-ids $INSTANCE_ID \
+  --query 'Reservations[0].Instances[0].PublicIpAddress' --output text
+```
+
+</details>
 
 ---
 
 ## Testing Training Containers Locally
+
+> **Isaac Sim vs. `isaac-lab` image — don't confuse them.** Two different things:
+> - **Isaac Sim** (the GUI simulator, Step 3) is **pre-installed in the Marketplace AMI** at `/opt/IsaacSim`. Nothing to pull.
+> - **`physical-ai/isaac-lab:latest`** (below) is *this project's own* headless training container — the one SageMaker runs in Lab 4. It's built by **CodeBuild into your ECR when you deploy the Foundation stack**, and is unrelated to the AMI's Isaac Sim.
+>
+> So this step only works **after** the Foundation stack has been deployed in *this* account/region and CodeBuild has finished building the image. If you haven't deployed Foundation yet, the `docker pull` below returns `not found` — that's expected; finish Lab 1 (or deploy Foundation) first. (The workstation bootstrap pre-pulls this image best-effort and logs a non-fatal "image not in ECR yet" if it's missing.)
 
 The workstation has Docker + NVIDIA Container Toolkit, so you can pull the
 CodeBuild-built image from *your* ECR and run it exactly as SageMaker would —
@@ -272,6 +350,73 @@ locally and push to ECR yourself.
 
 ---
 
+## Closed-Loop Policy Evaluation (Lab 4 Step 4 — runs here)
+
+This is the home of **Lab 4's closed-loop evaluator**. Open-loop eval (policy runs
+in-process with the env) is fine for a quick number, but it doesn't exercise the
+*serving* path. The closed-loop evaluator splits the policy and the simulator into
+two processes that talk over ZMQ — a **policy server** answers observation→action
+requests, and a **sim client** drives Isaac Lab step-by-step — which mirrors how the
+policy is actually served on the robot (Lab 5). It needs the L40S GPU on this
+workstation, so it lives here rather than on your laptop.
+
+> ⚠️ **UNVALIDATED on hardware.** The whole Isaac Lab GPU path (env instantiation +
+> rendering) has not been run end-to-end on this workstation yet. The code is wired
+> and CI-tested with mocks; treat the numbers below as the *expected* shape, not a
+> measured result.
+
+**Prerequisites on the workstation:**
+- The toolchain code is already at `/home/ubuntu/aws-physical-ai-toolchain` (the
+  deploy bundles it). `pip install -r training/requirements.txt` adds `pyzmq`.
+- A **TorchScript** checkpoint. Raw RL checkpoints (rsl_rl state dicts) will NOT
+  load — scriptify first with `export.py` (see Lab 4 Step 4a). The server fails
+  loudly if you hand it a raw `.pt`.
+
+**Terminal 1 — policy server** (loads the model, answers action requests):
+
+```bash
+cd /home/ubuntu/aws-physical-ai-toolchain
+pai eval serve --checkpoint ./model_scripted/model_scripted.pt --device cuda
+# Binds tcp://127.0.0.1:5555 (localhost only — ZMQ has no auth; don't bind 0.0.0.0)
+```
+
+**Terminal 2 — sim client** (drives Isaac Lab, records success/failure):
+
+```bash
+cd /home/ubuntu/aws-physical-ai-toolchain
+pai eval --closed-loop \
+  --env PickAndPlaceUR3-v0 \
+  --endpoint tcp://127.0.0.1:5555 \
+  --eval-rounds 100 \
+  --output-dir ./eval_results
+```
+
+The client writes the same JSON metrics schema as the open-loop evaluator
+(`success_rate_pct`, `num_episodes`, `avg_reward`, `avg_cycle_time_sec`,
+`failure_modes{timeout,drop,collision}`). Full walkthrough, including scriptifying
+the checkpoint, is in **[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**.
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+```bash
+# Terminal 1
+python training/scripts/eval_policy_server.py \
+  --checkpoint ./model_scripted/model_scripted.pt \
+  --device cuda
+
+# Terminal 2
+python training/scripts/eval_sim_client.py \
+  --task PickAndPlaceUR3-v0 \
+  --endpoint tcp://127.0.0.1:5555 \
+  --eval-rounds 100 \
+  --output-dir ./eval_results
+```
+
+</details>
+
+---
+
 ## ✅ Lab 2 Checkpoint
 
 You've completed Lab 2 if:
@@ -280,6 +425,7 @@ You've completed Lab 2 if:
 - [ ] You can run the training environment visually with a small number of envs
 - [ ] You understand the start/stop workflow to manage costs
 - [ ] You can pull and test training containers locally on the workstation
+- [ ] (Optional) You ran the closed-loop policy evaluator (Lab 4 Step 4) here
 
 ---
 

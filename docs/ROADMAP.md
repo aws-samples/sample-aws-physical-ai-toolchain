@@ -11,7 +11,7 @@ correctly and labelled "unvalidated", not done.
 |---|---|---|---|
 | Tier 0 bugfixes | ✅ | ✅ cdk synth (3 modes) | — |
 | 1 — Robot deploy | ✅ ROS2 pkg, edge scripts, **TorchScript export helper** | ✅ dry-runs + scriptify round-trip | Jetson + UR3 run; object-pose perception |
-| 2 — Standalone RL | ✅ launch_rl.py, Lab 4b, **UR3 env registered** | ✅ dry-run + bare-import | UR3 env instantiation on a GPU (Anymal path already proven) |
+| 2 — Standalone RL | ✅ launch_rl.py, standalone Lab 4, **UR3 env registered** | ✅ dry-run + bare-import | UR3 env instantiation on a GPU (Anymal path already proven) |
 | 3 — Cosmos | ✅ v2 EC2/NIM runtime, **v3 generation runner** | ✅ dry-runs | p5 capacity + HF license; a real restyle/generate |
 | 4 — Isaac Sim demo | ✅ open_demo_scene.py + wiring | ✅ synth + parse | one G-family workstation run |
 
@@ -85,11 +85,13 @@ instance. The "isaac-lab:2.1.0 bundles Isaac Sim 6.0" claim is unsourced/likely 
 
 ## Feature 2 — Standalone Isaac RL demo (decouple from GR00T)
 
-- **Today:** RL is packaged inside `training/scripts/groot_to_rl_bridge.py`, framed as
-  GR00T-dependent. **In practice it already runs standalone** — this session an RL job
-  ran on SageMaker with zero GR00T involvement and produced a real policy + rendered
-  video (the built-in `Isaac-Velocity-Flat-Anymal-D-v0` task).
-- **Goal:** a clean standalone `training/scripts/launch_rl.py` + a lab that needs no Lab 1.
+- **Today:** RL is launched from `training/scripts/launch_rl.py`, which runs fully
+  standalone — this session an RL job ran on SageMaker with zero GR00T involvement and
+  produced a real policy + rendered video (the built-in `Isaac-Velocity-Flat-Anymal-D-v0`
+  task). The old `training/scripts/groot_to_rl_bridge.py` wrapper (which framed RL as
+  GR00T-dependent and duplicated this launcher) has been **removed as redundant**.
+- **Goal:** ✅ done for the launcher — `launch_rl.py` + a standalone Lab 4 that needs no
+  Lab 1. Remaining work is the UR3 container wiring below.
 - **Effort:** L (because of the UR3 gap below) · **Files:** `training/scripts/launch_rl.py` (new), `workshop/` (new/updated lab), `training/envs/__init__.py`
 
 **No-hardware slice (mergeable):** extract `launch_rl.py --dry-run` (precedent:

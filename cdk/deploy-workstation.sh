@@ -45,7 +45,14 @@ set -uo pipefail  # Exit on unset variables and pipe failures (NOT -e, we need t
 # Configuration
 # ═══════════════════════════════════════════════════════════════════════════════
 
-REGION="${AWS_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}"
+# Region MUST match how cdk/bin/app.ts resolves it, or the AZ query + stack
+# status/delete here target a different region than the actual deploy. app.ts
+# treats config.json aws.region as the source of truth (it wins over the shell's
+# AWS_REGION/CDK_DEFAULT_REGION). We mirror that exact precedence here:
+#   config.json aws.region > AWS_REGION env > aws configure > us-east-1
+# so a stale shell region can't silently desync the script from the CDK deploy.
+CONFIG_REGION=$(grep -o '"region"[[:space:]]*:[[:space:]]*"[^"]*"' "$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config.json" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+REGION="${CONFIG_REGION:-${AWS_REGION:-$(aws configure get region 2>/dev/null || echo us-east-1)}}"
 INSTANCE_TYPE="${INSTANCE_TYPE:-g6e.4xlarge}"
 STACK_NAME="${STACK_NAME:-PhysicalAi-dev-Workstation}"
 
@@ -172,12 +179,54 @@ for AZ in "${AZS[@]}"; do
 
   # Check if deploy succeeded
   if [[ -z "${DEPLOY_EXIT_CODE:-}" ]]; then
+    # Pull the instance ID from the stack outputs, then resolve the live public IP.
+    # (The IP is auto-assigned, not an Elastic IP — it changes on every stop/start,
+    # so we fetch it fresh here rather than relying on a stack output.)
+    INSTANCE_ID=$(aws cloudformation describe-stacks \
+      --stack-name "$STACK_NAME" --region "$REGION" \
+      --query "Stacks[0].Outputs[?OutputKey=='WorkstationInstanceId'].OutputValue" \
+      --output text 2>/dev/null)
+    PUBLIC_IP=""
+    if [[ -n "$INSTANCE_ID" ]]; then
+      PUBLIC_IP=$(aws ec2 describe-instances \
+        --instance-ids "$INSTANCE_ID" --region "$REGION" \
+        --query 'Reservations[0].Instances[0].PublicIpAddress' \
+        --output text 2>/dev/null)
+    fi
+    [[ -z "$PUBLIC_IP" || "$PUBLIC_IP" == "None" ]] && PUBLIC_IP="<fetch-below>"
+
     echo ""
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo " SUCCESS: Workstation deployed in AZ $AZ"
+    echo " ✅  WORKSTATION READY  (AZ $AZ)"
     echo "════════════════════════════════════════════════════════════════════════════════"
-    echo "$DEPLOY_OUTPUT"
     echo ""
+    echo "  🖥️   Connect (NICE DCV remote desktop):"
+    echo ""
+    echo "         https://${PUBLIC_IP}:${DCV_PORT:-8443}"
+    echo ""
+    echo "         • Accept the self-signed certificate warning in your browser"
+    echo "         • Login:  username  ubuntu"
+    echo "                   password  pai-lab1   (change it — see below)"
+    echo ""
+    echo "  ⏳  First boot runs a bootstrap (~3-5 min). If the page won't load yet, wait and retry."
+    echo ""
+    echo "  ────────────────────────────────────────────────────────────────────────────"
+    echo "  Instance ID:   ${INSTANCE_ID:-<see CDK output above>}"
+    echo "  Region / AZ:   ${REGION} / ${AZ}"
+    echo "  Est. cost:     ~\$3.00/hr (${INSTANCE_TYPE}) while running — STOP when idle!"
+    echo "  ────────────────────────────────────────────────────────────────────────────"
+    echo ""
+    echo "  Useful commands:"
+    echo "    Re-fetch IP after stop/start (it changes!):"
+    echo "      aws ec2 describe-instances --instance-ids ${INSTANCE_ID} --region ${REGION} \\"
+    echo "        --query 'Reservations[0].Instances[0].PublicIpAddress' --output text"
+    echo "    Stop  (halts billing):  aws ec2 stop-instances  --instance-ids ${INSTANCE_ID} --region ${REGION}"
+    echo "    Start (new IP assigned): aws ec2 start-instances --instance-ids ${INSTANCE_ID} --region ${REGION}"
+    echo "    Shell via SSM (no key):  aws ssm start-session   --target ${INSTANCE_ID} --region ${REGION}"
+    echo "    Change DCV password:     aws ssm send-command --instance-ids ${INSTANCE_ID} --region ${REGION} \\"
+    echo "      --document-name AWS-RunShellScript --parameters 'commands=[\"echo ubuntu:NEWPASS | chpasswd\"]'"
+    echo ""
+    echo "════════════════════════════════════════════════════════════════════════════════"
     exit 0
   fi
 

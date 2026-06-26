@@ -31,6 +31,10 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+*.egg-info/
+build/
+dist/
+.eggs/
 
 # OS files
 .DS_Store

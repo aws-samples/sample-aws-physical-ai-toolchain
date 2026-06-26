@@ -44,10 +44,23 @@ locally** (NVIDIA bases are huge + often x86-only; can't build on Apple Silicon)
   Python 3.13 (cp313 wheels). Runner: `training/scripts/cosmos3_generate.py`.
 - Weights are gated HuggingFace downloads (HF_TOKEN), not NGC.
 
+## The `pai` CLI (primary entry point)
+The in-repo `pai` CLI (`pai/`, click + boto3, `pip install -e .`) is the documented
+way to drive the whole workshop — it WRAPS the `training/scripts/*.py` launchers and
+the cdk/aws lifecycle, it does not duplicate logic. Surface: `pai doctor | config |
+deploy <foundation|workstation|batch> | destroy | workstation <start|stop|ip|...> |
+groot launch | rl launch [--engine batch] | rl status | eval [--closed-loop] | eval
+serve | export`. Lab 2/4 + README Quickstart are CLI-first (raw aws/cdk/python kept
+in collapsed "Under the hood" blocks). Design: lazy-import heavy deps inside command
+bodies (`pai --help` works off-GPU); `--dry-run` makes zero AWS calls; deploys only
+shell out on real (non-dry-run) user invocation — the assistant still never runs
+them. Plan: `plans/pai-cli/`.
+
 ## Tests
 `tests/` (pytest, no AWS/GPU needed; AWS clients stubbed). `pytest tests/ -q`.
 Covers the TorchScript scriptify round-trip, env registration, all launcher
-`--dry-run`s (assert zero real AWS calls), and repo hygiene. 12 pass / 1 skip.
+`--dry-run`s (assert zero real AWS calls), the `pai` CLI (incl. dry-run zero-call +
+secret redaction guardrails), and repo hygiene. 45 pass / 2 skip.
 
 ## Current in-flight work
 Branch **`fix/tier0-bugfix-sweep`** — 8 commits ahead of `main`, NOT pushed yet

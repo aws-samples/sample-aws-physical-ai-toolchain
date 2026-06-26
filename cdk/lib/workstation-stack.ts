@@ -1,7 +1,9 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
+import { Asset } from 'aws-cdk-lib/aws-s3-assets';
 import { Construct } from 'constructs';
+import * as path from 'path';
 
 export interface WorkstationStackProps extends cdk.StackProps {
   environment: string;
@@ -105,6 +107,27 @@ export class WorkstationStack extends cdk.Stack {
     const ecrRegistry = `${cdk.Aws.ACCOUNT_ID}.dkr.ecr.${cdk.Aws.REGION}.amazonaws.com`;
     const isaacLabImage = `${ecrRegistry}/${projectName}/isaac-lab:latest`;
 
+    // Toolchain code delivery — bundle the local working tree as an S3 asset.
+    // The public GitHub repo isn't released yet, so we can't `git clone` it on the box.
+    // Instead CDK zips THIS repo at synth time, uploads it to the bootstrap assets bucket,
+    // and the instance downloads + unzips it in UserData (see Step 6). Bonus: the code on
+    // the workstation is exactly your local working copy. Swap to a `git clone` once the
+    // repo is public (pass --context repoUrl=<public-url>).
+    // Excludes keep the zip small and avoid shipping build artifacts / local CDK state.
+    const toolchainAsset = new Asset(this, 'ToolchainCode', {
+      path: path.join(__dirname, '../..'),
+      exclude: [
+        'node_modules',
+        'cdk.out',
+        '.git',
+        '**/__pycache__',
+        '*.pyc',
+        'cdk.context.json',
+        '.venv',
+        'dist',
+      ],
+    });
+
     // Use default VPC for simplicity
     const vpc = ec2.Vpc.fromLookup(this, 'DefaultVpc', { isDefault: true });
 
@@ -152,6 +175,9 @@ export class WorkstationStack extends cdk.Stack {
       ],
       resources: ['*'],
     }));
+
+    // Allow the instance to download the bundled toolchain code asset from the assets bucket.
+    toolchainAsset.grantRead(role);
 
     // UserData: Minimal bootstrap for the Marketplace AMI (driver + DCV + Isaac Sim already installed)
     const userData = ec2.UserData.forLinux();
@@ -203,8 +229,17 @@ export class WorkstationStack extends cdk.Stack {
       `aws ecr get-login-password --region ${cdk.Aws.REGION} | docker login --username AWS --password-stdin ${ecrRegistry} || echo "ECR login failed (non-fatal)"`,
       `docker pull ${isaacLabImage} || echo "isaac-lab image not in ECR yet (CodeBuild may still be running)"`,
       '',
-      'echo "=== Step 6: Clone toolchain repo (best-effort) ==="',
-      `su - $DEFAULT_USER -c "git clone ${repoUrl} /home/$DEFAULT_USER/aws-physical-ai-toolchain" || echo "Repo clone failed (non-fatal)"`,
+      'echo "=== Step 6: Fetch toolchain code (S3 asset bundled at synth) ==="',
+      '# The repo isn\'t public yet, so instead of git clone we download the code bundle',
+      '# that CDK uploaded to the assets bucket and unzip it into the user home dir.',
+      'TOOLCHAIN_DIR=/home/$DEFAULT_USER/aws-physical-ai-toolchain',
+      `aws s3 cp ${toolchainAsset.s3ObjectUrl} /tmp/toolchain.zip --region ${cdk.Aws.REGION} && \\`,
+      '  mkdir -p "$TOOLCHAIN_DIR" && \\',
+      '  unzip -q -o /tmp/toolchain.zip -d "$TOOLCHAIN_DIR" && \\',
+      '  chown -R $DEFAULT_USER:$DEFAULT_USER "$TOOLCHAIN_DIR" && \\',
+      '  rm -f /tmp/toolchain.zip && \\',
+      '  echo "Toolchain code unpacked to $TOOLCHAIN_DIR" || \\',
+      '  echo "Toolchain code download failed (non-fatal)"',
       '',
       'echo "=== Step 7: Create convenience scripts ==="',
       'cat > /home/$DEFAULT_USER/run-isaac-lab.sh << \'RUNSCRIPT\'',
@@ -217,8 +252,17 @@ export class WorkstationStack extends cdk.Stack {
       '',
       'cat > /home/$DEFAULT_USER/run-isaac-sim-gui.sh << \'GUISCRIPT\'',
       '#!/bin/bash',
-      '# Launch Isaac Sim visual UI (the Marketplace AMI includes Isaac Sim)',
-      'isaacsim',
+      '# Launch Isaac Sim visual UI. The Marketplace AMI installs Isaac Sim to',
+      '# /opt/IsaacSim (also mirrored under ~/IsaacSim); the launcher is NOT on PATH,',
+      '# so we call it by absolute path.',
+      'if [ -x /opt/IsaacSim/isaac-sim.sh ]; then',
+      '  exec /opt/IsaacSim/isaac-sim.sh',
+      'elif [ -x "$HOME/IsaacSim/isaac-sim.sh" ]; then',
+      '  exec "$HOME/IsaacSim/isaac-sim.sh"',
+      'else',
+      '  echo "Isaac Sim launcher not found in /opt/IsaacSim or ~/IsaacSim" >&2',
+      '  exit 1',
+      'fi',
       'GUISCRIPT',
       '',
       'chmod +x /home/$DEFAULT_USER/run-isaac-lab.sh /home/$DEFAULT_USER/run-isaac-sim-gui.sh',
@@ -285,7 +329,7 @@ export class WorkstationStack extends cdk.Stack {
     });
 
     new cdk.CfnOutput(this, 'Cost', {
-      value: `~$2.24/hr (${instanceType}, 1x L40S GPU, on-demand us-east-1) + ~$${Math.round(volumeSizeGb * 0.08)}/mo for ${volumeSizeGb}GB gp3 EBS. Actual cost varies by region. STOP instance when not in use! Start/stop via console or: aws ec2 stop-instances / start-instances`,
+      value: `~$3.00/hr (${instanceType}, 1x L40S GPU, on-demand us-west-2) + ~$${Math.round(volumeSizeGb * 0.08)}/mo for ${volumeSizeGb}GB gp3 EBS. Actual cost varies by region. STOP instance when not in use! Start/stop via console or: aws ec2 stop-instances / start-instances`,
       description: 'Estimated hourly cost — only runs when you need it',
     });
   }

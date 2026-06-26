@@ -31,9 +31,12 @@ RUN /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \
     tensorrt>=10.0
 
 # Copy training entrypoints
+# NOTE: adding batch-train-entrypoint.sh changes the CodeBuild source-asset
+# hash (ContainerBuild construct) so deploying Foundation retriggers the build.
 COPY containers/isaac-lab/sm-train-entrypoint.sh /opt/ml/code/sm-train-entrypoint.sh
+COPY containers/isaac-lab/batch-train-entrypoint.sh /opt/ml/code/batch-train
 COPY containers/isaac-lab/train_entrypoint.py /opt/ml/code/train_entrypoint.py
-RUN chmod +x /opt/ml/code/sm-train-entrypoint.sh
+RUN chmod +x /opt/ml/code/sm-train-entrypoint.sh /opt/ml/code/batch-train
 
 # Copy training code
 COPY training/ /workspace/training/

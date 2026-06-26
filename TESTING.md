@@ -43,11 +43,11 @@ This document captures known issues and areas that need verification when testin
 | EC2 Spot setup | High | Multiple manual SSM commands were needed (driver, fabricmanager, Docker config, container pull). Not automated in one script. | Consolidate into `scripts/cosmos-userdata.sh` and make it robust (it currently has issues with heredocs via SSM) |
 | Inference test | Not tested | We confirmed health endpoint but never sent an actual video through. | Need to complete task 11c |
 
-### Lab 4: RL Refinement
+### Lab 4: RL Policy Training
 
 | Step | Risk | Issue | Potential Fix |
 |------|------|-------|--------------|
-| Step 1 (bridge script) | Low | Proven to work. | — |
+| Step 1 (`launch_rl.py`) | Low | Proven on the built-in Anymal task. | — |
 | Step 2 (understand env) | Medium | References `training/configs/ppo_pick_place.yaml` which may not exist in the repo. | Create the config file or remove the reference |
 | UR3 env in Isaac Lab | Not tested | `pick_and_place_ur3.py` was written but never validated in Isaac Lab. The RL job runs the built-in Anymal-D task, not our UR3 env. | Validate on workstation (needs g5 capacity) |
 
@@ -99,7 +99,7 @@ aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/data
 python training/groot/pipeline.py --execute --max-steps 100 --dataset-prefix groot-data/ur3
 
 # Isaac Lab RL (proven — multiple times)
-python training/scripts/groot_to_rl_bridge.py end-to-end
+python training/scripts/launch_rl.py --max-iterations 50 --instance-type ml.g5.xlarge   # validated built-in Anymal-D task
 
 # Isaac Lab direct (proven)
 aws sagemaker create-training-job with isaac-lab container + Anymal-D task

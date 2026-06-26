@@ -12,5 +12,8 @@ pyarrow>=14.0
 boto3>=1.34
 pyyaml>=6.0
 
+# Closed-loop evaluation (ZMQ transport)
+pyzmq>=25
+
 # Dataset download (optional — only if using HuggingFace datasets)
 huggingface-hub>=0.20

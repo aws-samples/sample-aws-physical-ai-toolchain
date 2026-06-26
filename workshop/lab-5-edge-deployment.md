@@ -180,5 +180,5 @@ The gap between sim and real (sim-to-real transfer) should be small if Lab 4's d
 
 ---
 
-**Previous:** [← Lab 4: RL Refinement](lab-4-rl-refinement.md)
+**Previous:** [← Lab 4: RL Policy Training](lab-4-rl-refinement.md)
 **Next:** [Lab 6: OSMO Orchestration →](lab-6-osmo-orchestration.md)

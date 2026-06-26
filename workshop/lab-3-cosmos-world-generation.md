@@ -8,7 +8,7 @@
 > - **Instructor-led demonstration** — instructor runs the endpoint from a pre-approved account while attendees observe
 > - **Self-paced only** — for customers running in their own AWS account with p4d quota approved
 >
-> Labs 0-2 and 4 work on standard workshop instances (g5.xlarge / g5.12xlarge). This lab is optional — Lab 4 (RL Refinement) works without Cosmos using built-in domain randomization.
+> Labs 0-2 and 4 work on standard workshop instances (g5.xlarge / g5.12xlarge). This lab is optional — Lab 4 (RL Policy Training) works without Cosmos using built-in domain randomization.
 
 ---
 
@@ -257,7 +257,7 @@ BUCKET=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundati
 # Upload generated scenes to S3 for RL training
 aws s3 sync ./cosmos_out/ "s3://$BUCKET/cosmos-scenes/"
 
-echo "Ready for Lab 4: RL Refinement with Cosmos-enhanced environments"
+echo "Ready for Lab 4: RL Policy Training with Cosmos-enhanced environments"
 ```
 
 ---
@@ -303,4 +303,4 @@ python training/scripts/train.py --no-cosmos --domain-rand-only
 ---
 
 **Previous:** [← Lab 2: Isaac Sim Workstation](lab-2-isaac-workstation.md)
-**Next:** [Lab 4: RL Refinement in Simulation →](lab-4-rl-refinement.md)
+**Next:** [Lab 4: RL Policy Training →](lab-4-rl-refinement.md)

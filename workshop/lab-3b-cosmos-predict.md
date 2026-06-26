@@ -98,4 +98,4 @@ Policy trained on diverse environments → better generalization
 ---
 
 **Previous:** [← Lab 3: Cosmos Transfer](lab-3-cosmos-world-generation.md)
-**Next:** [Lab 4: RL Refinement →](lab-4-rl-refinement.md)
+**Next:** [Lab 4: RL Policy Training →](lab-4-rl-refinement.md)

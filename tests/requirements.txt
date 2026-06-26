@@ -2,5 +2,6 @@
 pytest>=8.0
 pyyaml>=6.0
 boto3>=1.34
+click>=8.0
 # torch is used by the scriptify round-trip test; if absent that test skips.
 torch>=2.0

@@ -2,9 +2,9 @@
 Standalone Isaac Lab RL launcher (no GR00T required).
 
 Launches an Isaac Lab reinforcement-learning training job on SageMaker using the
-`physical-ai/isaac-lab` container. This is the decoupled counterpart to
-`groot_to_rl_bridge.py` — use it when you just want to train (or smoke-test) an
-RL policy in simulation without the GR00T imitation-learning stage.
+`physical-ai/isaac-lab` container. RL is a standalone pipeline — use this to train
+(or smoke-test) an RL policy in simulation with no GR00T / imitation-learning stage
+and no Lab 1 dependency.
 
 The validated path uses Isaac Lab's built-in tasks (e.g.
 `Isaac-Velocity-Flat-Anymal-D-v0`), which run end-to-end today. The custom UR3
@@ -61,7 +61,7 @@ def _bucket() -> str:
 
 
 def launch(task: str, num_envs: int, max_iterations: int, framework: str,
-           instance_type: str, runtime_min: int, dry_run: bool):
+           instance_type: str, runtime_min: int, instance_count: int, dry_run: bool):
     job_name = f"isaac-lab-rl-{int(__import__('time').time())}"
     bucket = _bucket()
     role = _role_arn()
@@ -76,6 +76,9 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
         # mode defaults to "train" in the container entrypoint
     }
 
+    # Multi-node NCCL communication is handled by the container entrypoint
+    # (containers/isaac-lab/sm-train-entrypoint.sh), which parses SageMaker's
+    # resourceconfig.json and launches torchrun with --nnodes/--node_rank/--rdzv_endpoint.
     job_request = {
         "TrainingJobName": job_name,
         "RoleArn": role,
@@ -83,7 +86,7 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
         "OutputDataConfig": {"S3OutputPath": output},
         "ResourceConfig": {
             "InstanceType": instance_type,
-            "InstanceCount": 1,
+            "InstanceCount": instance_count,
             "VolumeSizeInGB": 100,
         },
         "StoppingCondition": {"MaxRuntimeInSeconds": runtime_min * 60},
@@ -95,7 +98,7 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
     print(f"  Job:        {job_name}")
     print(f"  Task:       {task}")
     print(f"  Envs/iters: {num_envs} envs, {max_iterations} iterations ({framework})")
-    print(f"  Instance:   {instance_type}")
+    print(f"  Instance:   {instance_type} x {instance_count}")
     print(f"  Image:      {image}")
     print(f"  Output:     {output}")
     print(f"{'='*60}")
@@ -105,6 +108,11 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
               "isaac-lab container; this job will fail to resolve the env. "
               "Use a built-in task (e.g. Isaac-Velocity-Flat-Anymal-D-v0) until "
               "UR3 registration lands. See docs/ROADMAP.md (Feature 2).\n")
+
+    if instance_count > 1:
+        print(f"  NOTE: Multi-node training ({instance_count} instances) uses NCCL via "
+              "torchrun. This is UNVALIDATED on hardware. See "
+              "containers/isaac-lab/sm-train-entrypoint.sh for the distributed launch logic.\n")
 
     if dry_run:
         print("[dry-run] Would call sagemaker.create_training_job with:\n")
@@ -116,9 +124,9 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
     sm.create_training_job(**job_request)
     print(f"  Launched. Monitor:")
     print(f"    aws sagemaker describe-training-job --training-job-name {job_name} --region {REGION}")
-    print(f"  Render a video of the result:")
-    print(f"    python training/scripts/groot_to_rl_bridge.py render-video \\")
-    print(f"      --model-s3 {output}{job_name}/output/model.tar.gz --task {task}")
+    print(f"\n  Note: Video rendering runs as a separate SageMaker job (MODE=play in the")
+    print(f"  container entrypoint). A dedicated laptop launcher is not yet provided.")
+    print(f"  See docs/ROADMAP.md for status.")
     return job_name
 
 
@@ -131,12 +139,14 @@ def main():
     p.add_argument("--framework", default="rsl_rl", choices=["rsl_rl", "skrl", "rl_games"])
     p.add_argument("--instance-type", default="ml.g5.xlarge",
                    help="Use a G-family GPU (G5/G6/G6e). P-family lacks RT Cores → Isaac Sim crashes.")
+    p.add_argument("--instance-count", type=int, default=1,
+                   help="Number of instances for multi-node training (default: 1)")
     p.add_argument("--runtime-min", type=int, default=60, help="Max runtime in minutes")
     p.add_argument("--dry-run", action="store_true", help="Preview the job; make no AWS calls")
     args = p.parse_args()
 
     launch(args.task, args.num_envs, args.max_iterations, args.framework,
-           args.instance_type, args.runtime_min, args.dry_run)
+           args.instance_type, args.runtime_min, args.instance_count, args.dry_run)
 
 
 if __name__ == "__main__":

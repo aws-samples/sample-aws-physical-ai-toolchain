@@ -11,7 +11,7 @@ You'll build a complete **pick-and-place** pipeline: the most common industrial 
 ## What You'll Build
 
 ```
-Teleop Data  →  Imitation Learning  →  World Generation  →  RL Refinement  →  Edge Deployment
+Teleop Data  →  Imitation Learning  →  World Generation  →  RL Training      →  Edge Deployment
 (Lab 1)          (GR00T on              (Cosmos NIM)         (Isaac Lab on       (Greengrass +
                   SageMaker)                                  SageMaker)          Jetson)
 ```
@@ -33,8 +33,7 @@ A production-grade Physical AI pipeline with:
 | Lab 1 | Train a robot policy from demonstration data | GR00T fine-tuning, SageMaker Pipelines |
 | Lab 2 | Visual development and debugging in simulation | Isaac Sim, GPU remote desktop |
 | Lab 3 | Generate photorealistic training environments | Cosmos NIM API, domain gap |
-| Lab 4 | Improve policy robustness via reinforcement learning | Isaac Lab, PPO, domain randomization |
-| Lab 4b | Train RL in simulation standalone (no GR00T) | Isaac Lab, PPO, SageMaker (built-in task) |
+| Lab 4 | Train an RL policy in simulation (standalone, no GR00T) | Isaac Lab, PPO, domain randomization, SageMaker |
 | Lab 5 | Deploy to physical hardware at the edge | TensorRT, Greengrass, Jetson |
 | Lab 6 | Orchestrate the full pipeline for production | NVIDIA OSMO, EKS, Kueue |
 
@@ -124,7 +123,7 @@ Running the full workshop in your own AWS account:
 | Component | Cost | Notes |
 |-----------|------|-------|
 | Lab 1 (GR00T training) | ~$15-30 | ml.g5.12xlarge for 1-2 hours |
-| Lab 2 (Workstation) | ~$4.50/hr | Stop when not in use |
+| Lab 2 (Workstation) | ~$3.00/hr | Stop when not in use |
 | Lab 3 (Cosmos) | ~$15-30 | NIM API calls |
 | Lab 4 (RL training) | ~$10-30 | ml.g5.xlarge for 2-4 hours |
 | Lab 5 (Edge) | ~$5 | Greengrass deployment |
@@ -164,12 +163,11 @@ npx cdk deploy --all --context mode=simple
 | 1 | [Train from Demonstrations](lab-1-train-groot.md) | 2 hrs | Lab 0 |
 | 2 | [Isaac Sim Workstation](lab-2-isaac-workstation.md) | 30 min | Lab 0 |
 | 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 2 |
-| 4 | [RL Refinement](lab-4-rl-refinement.md) | 3 hrs | Labs 1, 3 |
-| 4b | [Standalone RL (no GR00T)](lab-4b-standalone-rl.md) | 30 min | Lab 0 |
+| 4 | [RL Policy Training](lab-4-rl-refinement.md) | 3 hrs | Lab 0 |
 | 5 | [Edge Deployment](lab-5-edge-deployment.md) | 2 hrs | Lab 4 |
 | 6 | [OSMO Orchestration](lab-6-osmo-orchestration.md) | 2-3 hrs | Labs 1-5 |
 
-Labs 2 and 3 can run in parallel with Lab 1. Lab 4 requires both Lab 1 (trained model) and Lab 3 (generated scenes) to be complete. **Lab 4b** is a standalone alternative to Lab 4 — RL in simulation with no GR00T/Lab 1 dependency (built-in task).
+Labs 2 and 3 can run in parallel with Lab 1. **Lab 4 is standalone RL** — it trains a policy in simulation from scratch and needs only the Foundation stack (the `isaac-lab` image in ECR); it does **not** require Lab 1 (GR00T) or Lab 3 (Cosmos scenes). RL and imitation learning (Lab 1) are two independent ways to obtain a policy.
 
 ---
 
