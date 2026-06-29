@@ -15,7 +15,7 @@
 | 0 | Confirm prerequisites | `pai doctor` | all checks pass |
 | 1 | Launch the RL smoke test | `pai rl launch --max-iterations 50 --instance-type ml.g5.xlarge` | prints `Launched. Monitor: …` with a job name |
 | 2 | Watch the SageMaker job | `pai rl status <name>` | status `InProgress` → `Completed` |
-| 3 | (Optional) full training | `pai rl launch --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
+| 3 | (Optional) full training | `pai rl launch --task Isaac-Velocity-Flat-Anymal-D-v0 --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
 | 3b | (Optional) scale out across nodes | SageMaker: add `--instance-count 2`. Batch: `pai rl launch --engine batch --num-nodes 2` | job launches across N nodes (multi-node NCCL **unvalidated**) |
 | 4 | Evaluate the policy (closed-loop) | runs on the **Lab 2 workstation** — `python training/scripts/eval_policy_server.py` + `eval_sim_client.py` | prints `success_rate` JSON |
 | 5 | Export to TensorRT | `pai export --checkpoint … --output-onnx … --output-trt … --target-device jetson-orin` | writes `model.trt` |
@@ -46,8 +46,8 @@ collision.
 
 **RL vs. imitation learning (Lab 1):** two independent ways to get a policy — IL copies human
 demos (best with good demos, weak sim); RL learns from reward (best with a strong sim + clear
-success signal). Both feed Lab 5 edge deployment. **Lab 4 needs neither Lab 1 nor a GR00T
-model** — it stands alone.
+success signal). Both feed Lab 5 edge deployment. You can run Lab 4 on its own — it doesn't read
+a GR00T model or any Lab 1 output.
 
 > **Prerequisites** are the runbook's "Before you start" checklist above (Foundation
 > deployed → `isaac-lab` image in ECR, GPU quota). See [Lab 0](lab-0-prerequisites.md) to set them up.
@@ -58,8 +58,7 @@ model** — it stands alone.
 
 All RL training is launched from your laptop with **`pai rl launch`** — it builds the
 SageMaker job (resolving your account's ECR image, role, and output bucket) and
-submits it. RL stands on its own: **no GR00T model, no Lab 1, and no Hugging Face
-token are required.**
+submits it.
 
 **First, preview the job (free — makes no AWS calls):**
 
@@ -106,10 +105,16 @@ python training/scripts/launch_rl.py \
 resulting policy will stumble, not perform well; a usable policy needs ~1000+
 iterations (see Step 3).
 
-> **Why the Anymal task?** It's Isaac Lab's built-in locomotion task and the validated,
-> load-tested path through this container. The custom UR3 env (`PickAndPlaceUR3-v0`) isn't
-> wired into the container yet, so `--task PickAndPlaceUR3-v0` won't resolve there —
-> `pai rl launch` prints a warning if you try. It's the target end-state once that lands.
+> **Why Anymal and not the UR3 arm this project is about?** The UR3 pick-and-place env is the
+> reference design's end goal, but it can't train today. Three concrete blockers: (1) the
+> container's training entrypoint runs only Isaac Lab's built-in `train.py` and never imports
+> `training.envs`, so the `PickAndPlaceUR3-v0` registration never fires *inside the job* — the
+> task id won't resolve (`pai rl launch` warns if you try); (2) the env points its USD assets at
+> a local `omniverse://localhost` Nucleus server that doesn't exist on a headless box — it needs
+> a cloud/S3 asset root; (3) it's never run on a GPU, so more issues likely lurk. It's a moderate
+> effort (wire the import, repoint assets, then iterate on a GPU), tracked as ROADMAP Feature 2 —
+> not a code rewrite, but it needs the GPU iteration loop the Lab 2 workstation exists for. Until
+> a real run confirms it, Anymal is the validated, load-tested path.
 
 > Need to rebuild the Isaac Lab container after changing its Dockerfile? Trigger
 > the cloud build with `pai deploy foundation` (redeploys and rebuilds all images)
@@ -117,7 +122,16 @@ iterations (see Step 3).
 
 ## Step 2: Understand the RL Environment
 
-`training/envs/pick_and_place_ur3.py` defines the UR3 task:
+**Where do tasks like `Isaac-Velocity-Flat-Anymal-D-v0` come from?** Two places:
+- **Built-in tasks** ship *inside* the `isaac-lab` container as part of Isaac Lab itself
+  (`/workspace/isaaclab/source/...`, registered via `omni.isaac.lab_tasks`). Anymal is one of
+  these — upstream NVIDIA code you can read but don't edit here.
+- **Custom tasks** live in this repo under `training/envs/`, registered in
+  `training/envs/__init__.py`. That's the file you copy to add your own task. See the NVIDIA
+  Isaac Lab docs linked in [Lab 2](lab-2-isaac-workstation.md#step-4-verify-the-workstation-renders-visual-smoke-test)
+  for writing a custom env.
+
+This repo's reference task is the UR3 arm. `training/envs/pick_and_place_ur3.py` defines it:
 
 - **Observation (14-dim):** 6 joint positions + gripper state + object position (3) + object orientation (quaternion, 4).
 - **Action (7-dim):** 6 joint-velocity targets + gripper open/close.
@@ -158,11 +172,13 @@ bigger models, more parallel envs, faster wall-clock — RL training scales acro
 **multiple nodes** two ways. Both reuse the **same `physical-ai/isaac-lab` container**;
 the only difference is who provisions the fleet and wires the NCCL topology.
 
-> ⚠️ **Honest status:** both paths are **wired correctly but UNVALIDATED on hardware.**
-> The single-node path (Steps 1–3) is the proven one. Multi-node NCCL convergence
-> across nodes has not been verified on G-family GPUs — the launchers/stacks set up
-> the topology (env vars → `torchrun --nnodes/--node_rank/--rdzv_endpoint`), but
-> don't treat a green launch as a validated distributed run.
+> ⚠️ **Honest status:** both paths are **fully implemented but UNVALIDATED on hardware** — not
+> placeholders. The launchers and stacks really do set up the topology (parse the cluster config,
+> launch `torchrun --nnodes/--node_rank/--rdzv_endpoint`), so a job *will* launch across N nodes.
+> What's unverified is **NCCL convergence across nodes on G-family GPUs.** The single-node path
+> (Steps 1–3) is the proven one; don't treat a green multi-node launch as a validated distributed
+> run until you've watched reward actually climb. If you try it and it converges, this label can
+> flip — that's exactly the missing confirmation.
 
 ### Option A — SageMaker multi-instance (quickest)
 
@@ -226,22 +242,39 @@ onto a compute node) to inspect them.
 
 **Where this runs:** inside the **`isaac-lab` container** on the Lab 2 workstation — the same single environment used for visual training (Lab 2 Step 4). The sim client imports `omni.isaac.lab.*` (in the container), and the `pai` CLI is not installed on the workstation (it's the laptop-side control plane). Launch the container with `~/run-isaac-lab.sh`; your repo working tree is mounted at `/workspace/toolchain`. Open a second shell into the same container with `sudo docker exec -it isaac-lab bash`.
 
-### Step 4a: Scriptify the checkpoint
+### Step 4a: Fetch the checkpoint, then scriptify it
 
-The evaluator (and `export.py`) need a **TorchScript** model. Raw rsl_rl checkpoints
-from `train.py` are state dicts, not scripted modules — `torch.jit.load` rejects them.
-`scriptify_policy.py` rebuilds the policy MLP, loads the weights, and `jit.script`s it
+**First, get the checkpoint onto the workstation.** The Lab 4 SageMaker job wrote its output
+to `s3://<bucket>/isaac-lab/output/` as a `model.tar.gz` (containing `logs/.../model_*.pt`).
+Nothing pulls it down automatically — copy and extract it into the mounted repo on the
+workstation:
+
+```bash
+# In the container shell, in /workspace/toolchain:
+BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
+aws s3 cp "s3://$BUCKET/isaac-lab/output/<job-name>/output/model.tar.gz" .
+tar -xzf model.tar.gz          # extracts logs/.../model_<N>.pt
+```
+
+**Then scriptify it.** The evaluator (and `export.py`) need a **TorchScript** model. Raw rsl_rl
+checkpoints from `train.py` are state dicts, not scripted modules — `torch.jit.load` rejects
+them. `scriptify_policy.py` rebuilds the policy MLP, loads the weights, and `jit.script`s it
 (this round-trip is the one piece covered by an automated test):
 
 ```bash
-# Inside the container, in /workspace/toolchain. Arch must match training/configs/ppo_pick_place.yaml.
+# Arch must match training/configs/ppo_pick_place.yaml.
 python training/scripts/scriptify_policy.py \
-  --checkpoint s3://$BUCKET/isaac-lab/output/checkpoint_500.pt \
+  --checkpoint ./logs/rsl_rl/<run>/model_500.pt \
   --output ./model_scripted/model_scripted.pt \
   --obs-dim 12308 --action-dim 7
 ```
 
 This writes `model_scripted.pt` — feed it to the policy server below (and to Step 5's export).
+
+> **Why scriptify now, when Lab 2 didn't need it?** Lab 2 only *trains and renders* — it produces
+> a checkpoint but never loads one back. Eval (and export) *consume* the policy, and both
+> `eval_policy_server.py` and `export.py` call `torch.jit.load`, which requires TorchScript and
+> rejects the raw rsl_rl checkpoint. Scriptify bridges that one-time gap.
 
 ### Step 4b: Run closed-loop eval (two shells in the container)
 
@@ -289,6 +322,22 @@ pai export \
 
 `--target-device` ∈ `{jetson-orin, jetson-nano, gpu-pc}`; `--fp16` on by default;
 `--benchmark` times inference after compile. Produces `model.trt` — ready for Lab 5.
+
+**Where this runs:** export is lightweight — it compiles a single batch-1 MLP, taking seconds,
+not a GPU training job — so running it on the Lab 2 workstation (where you already have the
+scriptified checkpoint) is fine. It needs the `tensorrt` Python package; the ONNX intermediate
+is portable if you'd rather compile the final engine on the Jetson itself for an exact match.
+
+**Push the engine to S3** so Lab 5 (Greengrass → Jetson) can pull it — the local
+`./model_exported/` path lives only on this instance:
+
+```bash
+aws s3 cp ./model_exported/model.trt "s3://$BUCKET/isaac-lab/exported/model.trt"
+```
+
+> The local output is fine for the box that builds it, but the pipeline expects the engine in
+> S3 (or an artifact store). A production setup would version it there rather than leave it on a
+> single instance's disk.
 
 ---
 
