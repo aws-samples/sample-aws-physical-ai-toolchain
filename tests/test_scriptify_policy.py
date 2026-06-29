@@ -52,6 +52,51 @@ def test_scriptify_roundtrip(tmp_path):
     assert tuple(y.shape) == (1, act)
 
 
+def test_scriptify_infers_dims_without_flags(tmp_path):
+    """No --obs-dim/--action-dim/--hidden-dims: arch is read from the checkpoint."""
+    import sys
+
+    import torch.nn as nn
+    mod = _load_module()
+
+    # An Anymal-shaped actor (48 -> [128,128,128] -> 12), saved rsl_rl-style.
+    obs, act, hid = 48, 12, [128, 128, 128]
+    layers, prev = [], obs
+    for h in hid:
+        layers += [nn.Linear(prev, h), nn.ELU()]; prev = h
+    layers += [nn.Linear(prev, act)]
+    sd = {f"actor.{k}": v for k, v in nn.Sequential(*layers).state_dict().items()}
+    ckpt = tmp_path / "model_50.pt"
+    out = tmp_path / "scripted.pt"
+    torch.save({"model_state_dict": sd}, ckpt)
+
+    argv = ["scriptify_policy.py", "--checkpoint", str(ckpt), "--output", str(out)]
+    old = sys.argv
+    sys.argv = argv
+    try:
+        mod.main()
+    finally:
+        sys.argv = old
+
+    assert out.exists()
+    m = torch.jit.load(str(out), map_location="cpu")
+    m.eval()
+    y = m(torch.randn(1, obs))
+    assert tuple(y.shape) == (1, act)
+
+
+def test_infer_arch_reads_weight_shapes():
+    import torch.nn as nn
+    mod = _load_module()
+    obs, act, hid = 48, 12, [128, 128, 128]
+    layers, prev = [], obs
+    for h in hid:
+        layers += [nn.Linear(prev, h), nn.ELU()]; prev = h
+    layers += [nn.Linear(prev, act)]
+    actor = {k: v for k, v in nn.Sequential(*layers).state_dict().items()}
+    assert mod._infer_arch(actor) == (obs, act, hid)
+
+
 def test_extract_state_dict_variants():
     mod = _load_module()
     sd = {"actor.net.0.weight": torch.zeros(1)}

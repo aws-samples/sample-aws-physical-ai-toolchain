@@ -148,7 +148,7 @@ def test_rl_launch_dry_run_batch(runner, cli_group, fake_boto3, monkeypatch):
     assert result.exit_code == 0
     assert "physical-ai-dev-rl-queue" in result.output
     assert "physical-ai-dev-rl-mnp" in result.output
-    assert '"numNodes": 2' in result.output
+    assert '"targetNodes": "0:1"' in result.output
     assert "[dry-run] No AWS calls made." in result.output
 
     # Verify zero submit_job calls

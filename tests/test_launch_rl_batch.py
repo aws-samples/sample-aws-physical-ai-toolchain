@@ -32,9 +32,10 @@ def test_launch_rl_batch_dry_run(fake_boto3, capsys):
     assert "physical-ai-dev-rl-queue" in out
     assert "physical-ai-dev-rl-mnp" in out
     assert "[dry-run] No AWS calls made." in out
-    # Verify nodeOverrides structure
+    # Verify nodeOverrides structure. No top-level numNodes override — the job
+    # definition's closed range fixes the node count; we only target the range.
     assert "nodePropertyOverrides" in out
-    assert "numNodes" in out
+    assert '"targetNodes": "0:1"' in out
 
 
 def test_launch_rl_batch_multinode_disclaimer(fake_boto3, capsys):
@@ -47,7 +48,7 @@ def test_launch_rl_batch_multinode_disclaimer(fake_boto3, capsys):
         fake_boto3,
     )
     assert "[dry-run] No AWS calls made." in out
-    assert '"numNodes": 4' in out
+    assert '"targetNodes": "0:3"' in out
     assert "Multi-node training" in out
     assert "not yet" in out and "validated on hardware" in out
 
@@ -89,4 +90,36 @@ def test_launch_rl_batch_node_overrides(fake_boto3, capsys):
     assert '"value": "2048"' in out
     assert '"value": "200"' in out
     assert '"value": "skrl"' in out
-    assert '"numNodes": 3' in out
+    assert '"targetNodes": "0:2"' in out
+
+
+def test_launch_rl_batch_rejects_mismatched_num_nodes(fake_boto3, capsys):
+    """A real submit with --num-nodes != job-def node count errors, no submit_job."""
+    _, clients = fake_boto3
+    # Fake job def is 2 nodes; ask for 4 (no --dry-run → guard runs).
+    with pytest.raises(SystemExit) as exc:
+        _run(
+            "training/scripts/launch_rl_batch.py",
+            ["--num-nodes", "4"],
+            capsys,
+            fake_boto3,
+        )
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "does not match job definition" in err
+    # Guard must fire before submit_job is ever called.
+    submits = [c for c in clients["batch"].calls if c[0] == "submit_job"]
+    assert len(submits) == 0
+
+
+def test_launch_rl_batch_matching_num_nodes_submits(fake_boto3, capsys):
+    """A real submit with --num-nodes matching the job def calls submit_job."""
+    _, clients = fake_boto3
+    _run(
+        "training/scripts/launch_rl_batch.py",
+        ["--num-nodes", "2"],
+        capsys,
+        fake_boto3,
+    )
+    submits = [c for c in clients["batch"].calls if c[0] == "submit_job"]
+    assert len(submits) == 1

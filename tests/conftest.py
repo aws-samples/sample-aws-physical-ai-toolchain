@@ -76,6 +76,19 @@ class _FakeBatch:
         self.calls.append(("submit_job", kwargs))
         return {"jobId": "test-job-id"}
 
+    def describe_job_definitions(self, **kwargs):
+        self.calls.append(("describe_job_definitions", kwargs))
+        # Deployed job def is fixed at 2 nodes (matches the CDK construct default).
+        return {
+            "jobDefinitions": [
+                {
+                    "jobDefinitionName": kwargs.get("jobDefinitionName"),
+                    "status": "ACTIVE",
+                    "nodeProperties": {"numNodes": 2},
+                }
+            ]
+        }
+
     def describe_jobs(self, jobs):
         self.calls.append(("describe_jobs", {"jobs": jobs}))
         return {

@@ -1,6 +1,6 @@
 # Lab 4: RL Policy Training in Simulation
 
-**Goal:** Train a robust pick-and-place policy via reinforcement learning in Isaac Lab simulation with domain randomization
+**Goal:** Train a robust robot policy via reinforcement learning in Isaac Lab simulation with domain randomization (validated on the built-in Anymal locomotion task)
 **Time:** 3 hours (30 min hands-on + training runs in background)
 **Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations). Full cost breakdown is in the [main README](../README.md#cost-summary).
 
@@ -111,9 +111,10 @@ pai rl status <name>     # InProgress → Completed
 resulting policy will stumble, not perform well; a usable policy needs ~1000+
 iterations (see Step 3).
 
-> Use the built-in **Anymal** task here — it's the validated path. The UR3 pick-and-place env
-> (`PickAndPlaceUR3-v0`) is the project's target task but isn't GPU-validated yet, so
-> `pai rl launch` warns if you point at it. (Details in [ROADMAP](../docs/ROADMAP.md), Feature 2.)
+> Use the built-in **Anymal** task here — it's the validated path for these labs. A UR3
+> pick-and-place env (`PickAndPlaceUR3-v0`) ships as an **optional, not-yet-container-wired**
+> task for future work, so `pai rl launch` warns if you point at it. (Details in
+> [ROADMAP](../docs/ROADMAP.md), Feature 2.)
 
 > Need to rebuild the Isaac Lab container after changing its Dockerfile? Trigger
 > the cloud build with `pai deploy foundation` (redeploys and rebuilds all images)
@@ -121,17 +122,16 @@ iterations (see Step 3).
 
 ## Step 2: Understand the RL Environment
 
-Tasks come from two places: **built-in** tasks like Anymal ship inside the `isaac-lab` container
-(Isaac Lab's own library), and **custom** tasks live in this repo under `training/envs/`. This
-repo's reference task is the UR3 arm — `training/envs/pick_and_place_ur3.py` defines it:
+Tasks come from two places: **built-in** tasks ship inside the `isaac-lab` container (Isaac
+Lab's own library), and **custom** tasks live in this repo under `training/envs/`. These labs
+use the built-in **Anymal** locomotion task (`Isaac-Velocity-Flat-Anymal-D-v0`) — the validated
+path. It defines the observation/action spaces, the reward (velocity-tracking with stability
+penalties), and the domain randomization; you don't author any of that, you just train it.
 
-- **Observation (14-dim):** 6 joint positions + gripper state + object position (3) + object orientation (quaternion, 4).
-- **Action (7-dim):** 6 joint-velocity targets + gripper open/close.
-- **Reward:** `-distance` (reach) + 0.3 grasp + 1.0 place, with -0.1/step and -0.5 collision penalties.
-- **Domain randomization** (per reset): object position/type, lighting, camera noise.
-
-Hyperparameters live in `training/configs/ppo_pick_place.yaml` (`num_envs: 4096`,
-`max_epochs: 2000`, `lr: 3e-4`, `gamma: 0.99`, `curriculum.enabled: true`).
+> **Custom env (optional, future work):** `training/envs/pick_and_place_ur3.py` is a UR3
+> arm pick-and-place env included as a starting point for your own task. It's registered but
+> not yet wired into the container's training entrypoint, so it's not part of the validated
+> flow today — see [ROADMAP](../docs/ROADMAP.md), Feature 2.
 
 ---
 
@@ -206,6 +206,12 @@ pai rl launch --engine batch \
 pai rl status --engine batch <job-id>
 ```
 
+> **`--num-nodes` must match the deployed job definition.** The Batch stack bakes a fixed
+> node count into its job definition (default **2**), so `--num-nodes 2` is the only value
+> that submits as-is — `pai rl launch` checks this and errors clearly if they differ. To run
+> a different node count, redeploy the Batch stack with the new `batch.numNodes` in
+> `config.json`, then pass the matching `--num-nodes`.
+
 > ⚠️ **GPU quota:** g6.12xlarge needs *G-family On-Demand* vCPU quota you may not have by
 > default — request it in Service Quotas first, or the compute env sits at 0 vCPUs and jobs
 > stay `RUNNABLE` forever. Also needs a **default VPC** (same as the Lab 2 workstation).
@@ -225,10 +231,20 @@ onto a compute node) to inspect them.
 
 ## Step 4: Evaluate the Trained Policy (Closed-Loop)
 
-> **⚠️ UNVALIDATED until run on the Lab 2 GPU workstation (g6e.4xlarge L40S).**
-> This step drives Isaac Lab simulation with actions from a TorchScript policy server over ZMQ. You must first scriptify the checkpoint (Step 4a), then run the policy server + sim client in two terminals (Step 4b).
+> **Status:** Step 4a (scriptify) is **validated** — it ran on the Lab 2 workstation
+> against a real Anymal checkpoint, auto-inferred the architecture, and the TorchScript
+> model loads + forward-passes (`1×48 → 1×12`). Step 4b (closed-loop server + sim client
+> over ZMQ) is **still unvalidated on GPU** — treat its success criteria as untested.
+> Do 4a first, then run the policy server + sim client in two terminals (4b).
 
-**Where this runs:** inside the **`isaac-lab` container** on the Lab 2 workstation — the same single environment used for visual training (Lab 2 Step 4). The sim client imports `omni.isaac.lab.*` (in the container), and the `pai` CLI is not installed on the workstation (it's the laptop-side control plane). Launch the container with `~/run-isaac-lab.sh`; your repo working tree is mounted at `/workspace/toolchain`. Open a second shell into the same container with `sudo docker exec -it isaac-lab bash`.
+**Where this runs:** inside the **`isaac-lab` container** on the Lab 2 workstation — the
+same environment you used for visual training. Launching the container, opening a second
+shell, and the `/workspace/toolchain` mount are all covered in
+[Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container);
+this step assumes you have it running. You need **two shells in that container** (a second
+one via `sudo docker exec -it isaac-lab bash`) — one for the policy server, one for the sim
+client. The `pai` CLI is not installed on the workstation (it's the laptop-side control plane),
+so the commands below call the scripts directly.
 
 ### Step 4a: Fetch the checkpoint, then scriptify it
 
@@ -239,19 +255,30 @@ onto a compute node) to inspect them.
 # In the container shell, in /workspace/toolchain:
 BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
 aws s3 cp "s3://$BUCKET/isaac-lab/output/<job-name>/output/model.tar.gz" .
-tar -xzf model.tar.gz          # extracts logs/.../model_<N>.pt
+tar -xzf model.tar.gz          # extracts logs/rsl_rl/<task>/<timestamp>/model_<N>.pt
+```
+
+**Find the checkpoint** — rsl_rl nests it under the task name and a run timestamp, and
+**numbers iterations from 0**, so a 50-iteration run saves `model_49.pt` (not `model_50.pt`):
+
+```bash
+ls logs/rsl_rl/*/*/model_*.pt    # e.g. logs/rsl_rl/anymal_d_flat/2026-06-29_11-12-30/model_49.pt
 ```
 
 **Then scriptify it** into the TorchScript model the evaluator and `export.py` expect.
-`scriptify_policy.py` rebuilds the policy MLP, loads the weights, and `jit.script`s it:
+`scriptify_policy.py` reads the network shape straight from the checkpoint, rebuilds the
+policy MLP, loads the weights, and `jit.script`s it — no architecture flags needed:
 
 ```bash
-# Arch must match training/configs/ppo_pick_place.yaml.
+# Use the real path from the ls above (note the 0-indexed filename):
 python training/scripts/scriptify_policy.py \
-  --checkpoint ./logs/rsl_rl/<run>/model_500.pt \
-  --output ./model_scripted/model_scripted.pt \
-  --obs-dim 12308 --action-dim 7
+  --checkpoint logs/rsl_rl/anymal_d_flat/<timestamp>/model_49.pt \
+  --output ./model_scripted/model_scripted.pt
 ```
+
+> It prints the architecture it inferred — for Anymal: `obs=48 action=12 hidden=[128, 128, 128]
+> (inferred)`. To peek without converting, add `--inspect`. Override with
+> `--obs-dim/--action-dim/--hidden-dims` only if you need to.
 
 This writes `model_scripted.pt` — feed it to the policy server below (and to Step 5's export).
 (Eval and export both load the policy with `torch.jit.load`, which needs TorchScript — hence
@@ -259,9 +286,7 @@ this one-time conversion.)
 
 ### Step 4b: Run closed-loop eval (two shells in the container)
 
-From your laptop, `pai workstation start` then `pai workstation ip`; connect via DCV,
-launch the container (`~/run-isaac-lab.sh`), and open a second shell with
-`sudo docker exec -it isaac-lab bash`. Both shells `cd /workspace/toolchain`.
+With both container shells at `/workspace/toolchain`:
 
 **Shell 1 — policy server** (binds `tcp://127.0.0.1:5555`, localhost only — ZMQ has no auth):
 ```bash
@@ -269,10 +294,11 @@ python training/scripts/eval_policy_server.py \
   --checkpoint ./model_scripted/model_scripted.pt --device cuda
 ```
 
-**Shell 2 — sim client** (boots Isaac Sim, so run via `isaaclab.sh`, not bare python):
+**Shell 2 — sim client** (boots Isaac Sim, so run via `isaaclab.sh`, not bare python). Use
+the **same task you trained** — Anymal here:
 ```bash
 /workspace/isaaclab/isaaclab.sh -p training/scripts/eval_sim_client.py \
-  --task PickAndPlaceUR3-v0 --endpoint tcp://127.0.0.1:5555 \
+  --task Isaac-Velocity-Flat-Anymal-D-v0 --endpoint tcp://127.0.0.1:5555 \
   --eval-rounds 100 --output-dir ./eval_results
 ```
 

@@ -367,12 +367,13 @@ locally and push to ECR yourself.
 The evaluator splits the policy and simulator into two processes — a **policy server** and a
 **sim client** that drives Isaac Lab — mirroring how the policy is served on the robot
 (Lab 5). You watch the trained policy actually attempt the task in the DCV viewport. Both run
-**inside the `isaac-lab` container** (launch with `~/run-isaac-lab.sh`, open a second shell
-with `sudo docker exec -it isaac-lab bash`); the repo is mounted at `/workspace/toolchain`.
+in the **same `isaac-lab` container** you launched above, in two shells.
 
-The full walkthrough — scriptifying the checkpoint and the two-shell commands — lives in
-**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**.
-(Closed-loop eval is **unvalidated on GPU** — see that step's note.)
+The full walkthrough — fetching the checkpoint from S3, scriptifying it, and the two-shell
+commands — lives in
+**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**,
+so it sits next to the training that produced the checkpoint. (Closed-loop eval is
+**unvalidated on GPU** — see that step's note.)
 
 ---
 

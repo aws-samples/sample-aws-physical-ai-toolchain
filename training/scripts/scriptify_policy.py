@@ -15,20 +15,20 @@ Usage:
     # Inspect a checkpoint's contents (no output written):
     python training/scripts/scriptify_policy.py --checkpoint model_49.pt --inspect
 
-    # Produce a TorchScript model for export.py:
+    # Produce a TorchScript model for export.py (dims inferred from the checkpoint):
     python training/scripts/scriptify_policy.py \
         --checkpoint model_49.pt \
-        --output policy_scripted.pt \
-        --obs-dim 12308 --action-dim 7
+        --output policy_scripted.pt
 
 Then:
     python training/scripts/export.py --checkpoint policy_scripted.pt \
         --output-onnx policy.onnx --output-trt policy.trt --target-device jetson-orin --fp16
 
-NOTE: the exact actor architecture (hidden sizes/activation) must match how the
-policy was trained. Defaults mirror training/configs/ppo_pick_place.yaml
-(3x256, ELU). Override with --hidden-dims / --activation. Validated only at the
-scripting level here; a real checkpoint round-trip needs a trained model.
+NOTE: obs/action/hidden dims are read straight from the checkpoint's weight
+shapes — no need to know the architecture. Override with --obs-dim /
+--action-dim / --hidden-dims if needed. The activation is NOT stored in the
+checkpoint and defaults to ELU (matches rsl_rl / Isaac Lab); override with
+--activation if you trained with something else.
 """
 
 import argparse
@@ -72,14 +72,41 @@ def _actor_weights(state_dict: dict) -> dict:
     return actor or state_dict
 
 
+def _infer_arch(actor: dict):
+    """Read (obs_dim, action_dim, hidden_dims) straight from the Linear weight
+    shapes so the user never has to hand-type them. rsl_rl stores the actor as a
+    Sequential, so weight keys look like '<idx>.weight' with shape (out, in).
+    Returns None if the layers can't be parsed (caller falls back to flags)."""
+    linears = []
+    for k, v in actor.items():
+        if k.endswith(".weight") and hasattr(v, "ndim") and v.ndim == 2:
+            try:
+                idx = int(k.split(".")[0])
+            except (ValueError, IndexError):
+                continue
+            linears.append((idx, tuple(v.shape)))
+    if not linears:
+        return None
+    linears.sort(key=lambda t: t[0])
+    shapes = [s for _, s in linears]
+    obs_dim = shapes[0][1]           # in_features of first layer
+    action_dim = shapes[-1][0]       # out_features of last layer
+    hidden_dims = [out for out, _ in shapes[:-1]]  # out_features of all but last
+    return obs_dim, action_dim, hidden_dims
+
+
 def main():
     p = argparse.ArgumentParser(description="Scriptify an RL checkpoint for export.py")
     p.add_argument("--checkpoint", required=True, help="rsl_rl model_*.pt checkpoint")
     p.add_argument("--output", help="Output TorchScript .pt path (required unless --inspect)")
-    p.add_argument("--obs-dim", type=int, default=12308)
-    p.add_argument("--action-dim", type=int, default=7)
-    p.add_argument("--hidden-dims", type=int, nargs="+", default=[256, 256, 256])
-    p.add_argument("--activation", default="elu", choices=list(ACTIVATIONS))
+    p.add_argument("--obs-dim", type=int, default=None,
+                   help="Override; inferred from the checkpoint if omitted")
+    p.add_argument("--action-dim", type=int, default=None,
+                   help="Override; inferred from the checkpoint if omitted")
+    p.add_argument("--hidden-dims", type=int, nargs="+", default=None,
+                   help="Override; inferred from the checkpoint if omitted")
+    p.add_argument("--activation", default="elu", choices=list(ACTIVATIONS),
+                   help="Activation (not stored in the checkpoint; default elu)")
     p.add_argument("--inspect", action="store_true", help="Print checkpoint keys and exit")
     args = p.parse_args()
 
@@ -100,8 +127,24 @@ def main():
         print("ERROR: --output is required (or use --inspect)")
         sys.exit(1)
 
-    model = PolicyMLP(args.obs_dim, args.action_dim, args.hidden_dims, args.activation)
     actor = _actor_weights(state_dict)
+
+    # Infer architecture from the checkpoint's weight shapes; CLI flags override.
+    inferred = _infer_arch(actor)
+    obs_dim, action_dim, hidden_dims = args.obs_dim, args.action_dim, args.hidden_dims
+    if inferred is not None:
+        i_obs, i_act, i_hidden = inferred
+        obs_dim = obs_dim if obs_dim is not None else i_obs
+        action_dim = action_dim if action_dim is not None else i_act
+        hidden_dims = hidden_dims if hidden_dims is not None else i_hidden
+    if obs_dim is None or action_dim is None or hidden_dims is None:
+        print("ERROR: could not infer architecture from checkpoint; pass "
+              "--obs-dim/--action-dim/--hidden-dims explicitly (or use --inspect to see shapes)")
+        sys.exit(1)
+    print(f"  Architecture: obs={obs_dim} action={action_dim} hidden={hidden_dims} "
+          f"({'inferred' if inferred else 'from flags'})")
+
+    model = PolicyMLP(obs_dim, action_dim, hidden_dims, args.activation)
     missing, unexpected = model.net.load_state_dict(actor, strict=False)
     if missing or unexpected:
         print(f"  WARN: state_dict mismatch — missing={len(missing)} unexpected={len(unexpected)}")

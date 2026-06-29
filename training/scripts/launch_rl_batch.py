@@ -59,6 +59,21 @@ def _default_job_def() -> str:
     return os.environ.get("BATCH_JOB_DEF", f"{PROJECT_NAME}-{ENVIRONMENT}-rl-mnp")
 
 
+def _job_def_num_nodes(batch_client, job_definition: str) -> Optional[int]:
+    """Return the node count baked into the active job definition, or None if it
+    can't be resolved (so the caller falls back to letting Batch validate)."""
+    try:
+        resp = batch_client.describe_job_definitions(
+            jobDefinitionName=job_definition, status="ACTIVE"
+        )
+        defs = resp.get("jobDefinitions", [])
+        if not defs:
+            return None
+        return defs[0].get("nodeProperties", {}).get("numNodes")
+    except Exception:
+        return None
+
+
 def launch(
     task: str,
     num_envs: int,
@@ -75,7 +90,9 @@ def launch(
     node_overrides = {
         "nodePropertyOverrides": [
             {
-                "targetNodes": "0:",  # all nodes
+                # Must match a node range declared in the job definition
+                # (Batch rejects open-ended "0:" against an explicit "0:N-1" range).
+                "targetNodes": f"0:{num_nodes - 1}",
                 "containerOverrides": {
                     "environment": [
                         {"name": "TASK", "value": task},
@@ -87,7 +104,10 @@ def launch(
                 },
             }
         ],
-        "numNodes": num_nodes,
+        # NOTE: no top-level "numNodes" override. The job definition declares a
+        # fixed, closed node range (0:N-1), and Batch only accepts a numNodes
+        # override when that range is open-ended (0: or :). Node count is therefore
+        # set by the job definition; --num-nodes must match it (default: 2).
     }
 
     job_request = {
@@ -126,6 +146,22 @@ def launch(
         return job_name
 
     batch_client = boto3.client("batch", region_name=REGION)
+
+    # Guard: --num-nodes must match the node count baked into the job definition.
+    # The job def declares a fixed, closed range (0:N-1), so Batch rejects a
+    # mismatching targetNodes/numNodes override with a cryptic API error. Catch it
+    # here with an actionable message before we ever call submit_job.
+    expected = _job_def_num_nodes(batch_client, job_definition)
+    if expected is not None and expected != num_nodes:
+        print(
+            f"\n  ERROR: --num-nodes {num_nodes} does not match job definition "
+            f"'{job_definition}' which is deployed for {expected} node(s).\n"
+            f"  Either rerun with --num-nodes {expected}, or redeploy the Batch stack "
+            f"with the desired node count (cdk: batch.numNodes).\n",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     response = batch_client.submit_job(**job_request)
     job_id = response["jobId"]
 
