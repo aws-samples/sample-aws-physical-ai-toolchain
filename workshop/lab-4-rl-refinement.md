@@ -101,6 +101,12 @@ python training/scripts/launch_rl.py \
 3. Policy learns through trial-and-error guided by reward signals
 4. Saves a checkpoint (`model_*.pt`) + training metadata to S3
 
+`pai rl launch` prints a job name (`isaac-lab-rl-<id>`). Monitor it with:
+
+```bash
+pai rl status <name>     # InProgress → Completed
+```
+
 50 iterations is a *smoke test* — it proves the pipeline runs end-to-end. The
 resulting policy will stumble, not perform well; a usable policy needs ~1000+
 iterations (see Step 3).

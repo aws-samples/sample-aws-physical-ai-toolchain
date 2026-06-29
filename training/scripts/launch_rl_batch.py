@@ -109,19 +109,14 @@ def launch(
 
     if task.startswith("PickAndPlaceUR3") or task.startswith("PickAndPlace-UR3"):
         print(
-            "\n  WARNING: the custom UR3 task is not yet wired into the isaac-lab "
-            "container's training entrypoint (and is GPU-unvalidated); this job will "
-            "fail to resolve the env. Use a built-in task (e.g. "
-            "Isaac-Velocity-Flat-Anymal-D-v0) until that work lands. See docs/ROADMAP.md.\n"
+            "\n  WARNING: the UR3 task is not yet GPU-validated and won't resolve in a "
+            "training job. Use a built-in task (e.g. Isaac-Velocity-Flat-Anymal-D-v0).\n"
         )
 
     if num_nodes > 1:
         print(
-            f"\n  NOTE: Multi-node training ({num_nodes} nodes) uses NCCL via "
-            "torchrun. This is UNVALIDATED on hardware — the topology is wired "
-            "correctly (Batch MNP env vars → containers/isaac-lab/batch-train-entrypoint.sh), "
-            "but end-to-end GPU p2p comms have not been verified on g6 instances. "
-            "See plans/distributed-rl-and-eval/02-batch-mnp.md for known risks.\n"
+            f"\n  NOTE: Multi-node training ({num_nodes} nodes) is wired but not yet "
+            "validated on hardware.\n"
         )
 
     if dry_run:

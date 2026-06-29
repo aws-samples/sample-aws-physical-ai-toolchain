@@ -119,7 +119,7 @@ def test_rl_launch_dry_run_sagemaker(runner, cli_group, fake_boto3, monkeypatch)
     assert result.exit_code == 0
     assert '"InstanceCount": 2' in result.output
     assert "Multi-node training" in result.output
-    assert "UNVALIDATED on hardware" in result.output
+    assert "not yet" in result.output and "validated on hardware" in result.output
     assert "[dry-run] No AWS calls made." in result.output
 
     # Verify zero create_training_job calls
@@ -173,7 +173,7 @@ def test_rl_launch_ur3_warning(runner, cli_group, fake_boto3, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "not yet wired into the isaac-lab" in result.output
+    assert "not yet GPU-validated" in result.output
 
 
 def test_doctor_runs(runner, cli_group, fake_boto3):

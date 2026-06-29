@@ -105,16 +105,12 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
     print(f"{'='*60}")
 
     if task.startswith("PickAndPlaceUR3") or task.startswith("PickAndPlace-UR3"):
-        print("\n  WARNING: the custom UR3 task is not yet wired into the isaac-lab "
-              "container's training entrypoint (and is GPU-unvalidated); this job will "
-              "fail to resolve the env. Use a built-in task (e.g. "
-              "Isaac-Velocity-Flat-Anymal-D-v0) until that work lands. "
-              "See docs/ROADMAP.md (Feature 2).\n")
+        print("\n  WARNING: the UR3 task is not yet GPU-validated and won't resolve in a "
+              "training job. Use a built-in task (e.g. Isaac-Velocity-Flat-Anymal-D-v0).\n")
 
     if instance_count > 1:
-        print(f"  NOTE: Multi-node training ({instance_count} instances) uses NCCL via "
-              "torchrun. This is UNVALIDATED on hardware. See "
-              "containers/isaac-lab/sm-train-entrypoint.sh for the distributed launch logic.\n")
+        print(f"  NOTE: Multi-node training ({instance_count} instances) is wired but "
+              "not yet validated on hardware.\n")
 
     if dry_run:
         print("[dry-run] Would call sagemaker.create_training_job with:\n")
@@ -126,9 +122,6 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
     sm.create_training_job(**job_request)
     print(f"  Launched. Monitor:")
     print(f"    aws sagemaker describe-training-job --training-job-name {job_name} --region {REGION}")
-    print(f"\n  Note: Video rendering runs as a separate SageMaker job (MODE=play in the")
-    print(f"  container entrypoint). A dedicated laptop launcher is not yet provided.")
-    print(f"  See docs/ROADMAP.md for status.")
     return job_name
 
 
