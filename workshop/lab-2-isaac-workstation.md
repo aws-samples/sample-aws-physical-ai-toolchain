@@ -51,7 +51,7 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 2. Start instance when you need to develop
 3. Connect via web browser (NICE DCV remote desktop)
 4. Iterate on your RL environment visually — see the robot, tweak rewards, fix bugs
-5. Once it works visually → launch headless training on SageMaker (Lab 3)
+5. Once it works visually → launch headless training at scale on SageMaker (Lab 4)
 6. Stop instance when done
 
 ---
@@ -184,11 +184,15 @@ You'll see the full Isaac Sim visual editor — 3D viewport, content browser wit
 
 ---
 
-## Step 4: Develop Your RL Environment
+## Step 4: Verify the Workstation Renders (visual smoke test)
 
-This is where you iterate on the UR3 pick-and-place environment. The toolchain code
-is already on the workstation — the deploy bundles your working tree as an S3 asset
-and the bootstrap unzips it to `/home/ubuntu/aws-physical-ai-toolchain`:
+The goal here is to confirm your GPU workstation actually renders and trains — *not* to
+produce a useful policy. You'll run Isaac Lab's built-in **Anymal** task and watch it in
+the DCV desktop; that proves the container + GPU + GUI passthrough all work. The real
+training workflow (at scale, headless, on SageMaker/Batch) is **[Lab 4](lab-4-rl-refinement.md)**.
+
+The toolchain code is already on the workstation — the deploy bundles your working tree as
+an S3 asset and the bootstrap unzips it to `/home/ubuntu/aws-physical-ai-toolchain`:
 
 ```bash
 cd ~/aws-physical-ai-toolchain
@@ -223,26 +227,33 @@ passthrough to your DCV desktop:
 > is slow (~5 min: extension sync + shader compile); the launcher mounts persistent cache
 > dirs so later boots are much faster.
 
-Inside the container, train and watch it render — or run headless for max throughput:
+Inside the container, run the built-in Anymal task and watch it render — a few hundred
+iterations is plenty to confirm the workstation is healthy:
 
 ```bash
-# Visual training (render window opens on the DCV desktop):
+# Visual (render window opens on the DCV desktop):
 ./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096
 
-# Headless (faster, no window):
+# Headless (faster, no window) — same task, just no render:
 ./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096 --headless
-
-# Play back / evaluate a checkpoint (visual):
-./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
-  --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 32 \
-  --checkpoint logs/skrl/<run-dir>/checkpoints/agent_<N>.pt
 ```
 
 Your repo working tree is mounted at `/workspace/toolchain` inside the container, so you
-can edit `training/envs/pick_and_place_ur3.py` on the host (or in the DCV desktop's
-editor) and re-run immediately — no rebuild.
+can edit files on the host (or in the DCV desktop's editor) and re-run immediately — no
+rebuild. This is also where you'd iterate visually on a custom env before training it at
+scale in Lab 4.
+
+> 🛠️ **Want to write your own task?** The `train.py`/`play.py` above are Isaac Lab's own
+> bundled example scripts. To build a *custom* environment or training script, see NVIDIA's
+> Isaac Lab docs:
+> - **Build your own project/task:** https://isaac-sim.github.io/IsaacLab/main/source/overview/own-project/index.html
+> - **Create a custom RL env (tutorial):** https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html
+> - **API reference:** https://isaac-sim.github.io/IsaacLab/main/source/api/index.html
+>
+> This repo's UR3 env (`training/envs/pick_and_place_ur3.py`) is one such custom task — see
+> [Lab 4](lab-4-rl-refinement.md) for how it's structured.
 
 > 💾 **Where does the trained policy go?** The container runs with `--rm`, so Isaac Lab's
 > default `logs/skrl/...` checkpoints are written *inside* it and **lost on exit.** To keep a
@@ -257,14 +268,13 @@ editor) and re-run immediately — no rebuild.
 **What to look for in the render window:**
 - Robots tracking the commanded velocity (locomotion reward working)
 - Stable gait, no flipping or limb clipping through the floor
-- For the UR3 pick-place env: arm reaching, gripper closing on contact, clean lift
+- `steps/s` climbing in the terminal — the workstation is training
 
-### The UR3 pick-and-place env (registered, GPU-untested)
+If you see the robots stepping and the logs ticking, your workstation is good to go.
 
-`training/envs/pick_and_place_ur3.py` imports `omni.isaac.lab.*` — the namespace the
-container provides — so it loads in this environment. **But env *instantiation* on the
-GPU has not been validated**; the verified RL path here is the built-in Anymal task.
-Treat UR3 as the thing you're bringing up, not a known-good baseline.
+> The toolchain's custom UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in
+> **[Lab 4](lab-4-rl-refinement.md)**, where the training workflow lives. It's registered but
+> not yet GPU-validated, so Lab 2 uses the proven Anymal task for this smoke test.
 
 ---
 
@@ -356,14 +366,18 @@ locally and push to ECR yourself.
 
 ---
 
-## Closed-Loop Policy Evaluation (Lab 4 Step 4 — runs here)
+## Closed-Loop Policy Evaluation (come back here after Lab 4)
 
-**Lab 4's closed-loop evaluator runs on this workstation** because it needs the L40S
-GPU. It splits the policy and simulator into two processes — a **policy server** and a
+> **This is a *post-Lab-4* step — it needs a policy you've already trained.** Come back to
+> this workstation *after* you have a checkpoint from [Lab 4](lab-4-rl-refinement.md). It's
+> here (not in Lab 4) because evaluating a policy means **visually driving the simulator on
+> the L40S GPU** — exactly what this workstation is for.
+
+The evaluator splits the policy and simulator into two processes — a **policy server** and a
 **sim client** that drives Isaac Lab — mirroring how the policy is served on the robot
-(Lab 5). Both run **inside the `isaac-lab` container** (launch with `~/run-isaac-lab.sh`,
-open a second shell with `sudo docker exec -it isaac-lab bash`); the repo is mounted at
-`/workspace/toolchain`.
+(Lab 5). You watch the trained policy actually attempt the task in the DCV viewport. Both run
+**inside the `isaac-lab` container** (launch with `~/run-isaac-lab.sh`, open a second shell
+with `sudo docker exec -it isaac-lab bash`); the repo is mounted at `/workspace/toolchain`.
 
 The full walkthrough — scriptifying the checkpoint and the two-shell commands — lives in
 **[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**.
