@@ -69,11 +69,10 @@ def main():
     except ImportError:
         pass
 
-    try:
-        from pai.commands import eval as eval_cmd
-        eval_cmd.register(cli)
-    except ImportError:
-        pass
+    # NOTE: there is intentionally no `pai eval` command. Policy evaluation
+    # (open-loop and closed-loop) runs IN-PROCESS with Isaac Lab on the GPU
+    # workstation, which does not have `pai` installed (the CLI is the laptop-side
+    # control plane). Eval runs via training/scripts/eval_*.py directly there.
 
     try:
         from pai.commands import export

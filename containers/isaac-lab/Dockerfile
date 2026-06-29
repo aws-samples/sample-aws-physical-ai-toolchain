@@ -24,7 +24,8 @@ RUN /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \
     boto3>=1.34 \
     pyyaml>=6.0 \
     onnx>=1.15 \
-    onnxruntime-gpu>=1.17
+    onnxruntime-gpu>=1.17 \
+    pyzmq>=25
 
 # Install TensorRT Python bindings (for export step)
 RUN /isaac-sim/kit/python/bin/python3 -m pip install --no-cache-dir \

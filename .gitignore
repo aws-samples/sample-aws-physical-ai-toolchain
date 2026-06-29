@@ -53,3 +53,13 @@ containers/**/build/
 
 # OSMO values with credentials
 osmo_values.yaml
+
+# Internal dev artifacts — AI-assistant context, build history, and implementation
+# plans. Not part of the public toolchain (they reference internal accounts/hosts
+# and ongoing-work state). Kept locally, never committed.
+CLAUDE.md
+.kiro/
+PLAN.md
+TODO.md
+plans/
+docs/ROADMAP.md

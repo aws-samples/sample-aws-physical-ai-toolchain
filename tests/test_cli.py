@@ -59,12 +59,6 @@ def cli_group():
         pass
 
     try:
-        from pai.commands import eval as eval_cmd
-        eval_cmd.register(group)
-    except ImportError:
-        pass
-
-    try:
         from pai.commands import export
         export.register(group)
     except ImportError:

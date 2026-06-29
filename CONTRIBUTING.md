@@ -1,28 +1,13 @@
 # Contributing
 
-## Git Setup (Amazon Internal)
-
-### Clone
-```bash
-git clone git@ssh.gitlab.aws.dev:devris/aws-physical-ai-toolchain.git
-```
-
-### Push Issues
-SSH to `gitlab.aws.dev` on port 22 times out on Amazon VPN (Route53 profile blocks it). Use `ssh.gitlab.aws.dev` instead:
+## Git Setup
 
 ```bash
-# Fix remote if git push times out
-git remote set-url origin git@ssh.gitlab.aws.dev:devris/aws-physical-ai-toolchain.git
-
-# Verify
-ssh -T git@ssh.gitlab.aws.dev
-# Should print: Welcome to GitLab, @devris!
+git clone <REPO_URL>
+cd aws-physical-ai-toolchain
 ```
 
-### Prerequisites
-- Connected to Amazon VPN
-- `mwinit` completed (signs SSH cert)
-- Note: DCV workstation access (port 8443) requires VPN **disconnected** — VPN blocks non-standard ports
+> Note: DCV workstation access (port 8443) requires any VPN **disconnected** — VPNs commonly block non-standard ports.
 
 ## Development Setup
 
@@ -35,7 +20,6 @@ pip install -r training/requirements.txt  # Python dependencies for training scr
 
 | Doc | What |
 |-----|------|
-| [PLAN.md](PLAN.md) | Task status, architecture decisions, what to work on next |
 | [TESTING.md](TESTING.md) | Known issues when testing from fresh clone |
 | [docs/cosmos-deployment-guide.md](docs/cosmos-deployment-guide.md) | Full Cosmos deployment instructions + troubleshooting |
 | [docs/glossary.md](docs/glossary.md) | Physical AI terminology reference |

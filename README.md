@@ -102,8 +102,13 @@ A complete, deployable Physical AI pipeline:
 git clone [REPO_URL]
 cd aws-physical-ai-toolchain
 
-# 2. Install the CLI (one-time)
+# 2. Create a virtual environment and install the CLI (one-time)
+#    A venv keeps the CLI's deps isolated and avoids the PEP 668
+#    "externally-managed-environment" error on system/Homebrew Python.
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e .
+# Re-run `source .venv/bin/activate` in any new shell before using `pai`.
 
 # 3. Set your region (and other settings) in config.json — the single source of truth.
 #    cdk reads aws.region from here, so it can't drift from your shell's AWS_REGION.
@@ -228,7 +233,7 @@ All resources tear down cleanly with `cdk destroy`.
 
 ## Contributing
 
-See [PLAN.md](PLAN.md) for build status, architecture decisions, and next tasks.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and development notes.
 
 ## License
 

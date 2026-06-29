@@ -17,9 +17,9 @@
 | 2 | Deploy the workstation | `pai deploy workstation` | `✅ CREATE_COMPLETE`, prints instance ID + IP |
 | 3 | Get IP and password | `pai workstation ip` / `pai workstation password` | prints IP and sets password |
 | 4 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
-| 5 | Launch Isaac Sim (visual) | `isaac-sim.sh` on the DCV desktop | 3D viewport opens |
-| 6 | Test the training container (headless) | `docker run --gpus all …isaac-lab:latest train` | training loop logs steps/s |
-| 7 | (Optional) Closed-loop policy eval | `pai eval serve` + `pai eval --closed-loop` (two terminals) — see *Closed-Loop Policy Evaluation* | prints `success_rate` JSON (**unvalidated on GPU**) |
+| 5 | Launch Isaac Sim (visual) | `~/run-isaac-sim-gui.sh` | 3D viewport opens |
+| 6 | Visual RL training in the container | `~/run-isaac-lab.sh` → `./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0` | render window + training logs steps/s |
+| 7 | (Optional) Closed-loop policy eval | inside the same container: `eval_policy_server.py` + `eval_sim_client.py` (two shells) | prints `success_rate` JSON (**unvalidated on GPU**) |
 | 8 | **Stop the instance** | `pai workstation stop` | state → `stopped` (billing halts) |
 
 **Before you start, confirm:**
@@ -226,7 +226,7 @@ Because the workstation now boots the **NVIDIA Isaac Sim Marketplace AMI**, Isaa
 ~/run-isaac-sim-gui.sh
 ```
 
-> **Note:** The install path (`/opt/IsaacSim`) is defined by the AMI and verified on the current Isaac Sim Marketplace release. If a future AMI moves it, find the launcher with `ls /opt/IsaacSim/isaac-sim.sh ~/IsaacSim/isaac-sim.sh`. The **Docker container path** (see "Testing Training Containers Locally" below) remains the verified, reliable route for *headless training* and achieves ~56k steps/s (measured on A10G; the L40S on g6e is faster).
+> **Note:** The install path (`/opt/IsaacSim`) is defined by the AMI and verified on the current Isaac Sim Marketplace release. If a future AMI moves it, find the launcher with `ls /opt/IsaacSim/isaac-sim.sh ~/IsaacSim/isaac-sim.sh`. For RL training, use the **`isaac-lab` container** (Step 4) — the same image SageMaker runs.
 
 You'll see the full Isaac Sim visual editor — 3D viewport, content browser with robots and environments, scene tree.
 
@@ -234,36 +234,75 @@ You'll see the full Isaac Sim visual editor — 3D viewport, content browser wit
 
 ## Step 4: Develop Your RL Environment
 
-This is where you iterate. Isaac Sim is pre-installed via the AMI (Step 3); for *headless training* the **verified, working route** is the Docker container (see "Testing Training Containers Locally" below).
-
-**If the host GUI install worked:**
+This is where you iterate on the UR3 pick-and-place environment. The toolchain code
+is already on the workstation — the deploy bundles your working tree as an S3 asset
+and the bootstrap unzips it to `/home/ubuntu/aws-physical-ai-toolchain`:
 
 ```bash
-# The toolchain code is ALREADY on the workstation. The deploy bundles your local
-# working tree as an S3 asset and the bootstrap unzips it to:
-#   /home/ubuntu/aws-physical-ai-toolchain
-# (The public GitHub repo isn't released yet, so there's no git clone — once it's
-# public you can pass --context repoUrl=<url> to clone instead.)
 cd ~/aws-physical-ai-toolchain
-
-# Run the UR3 pick-and-place environment visually
-./isaaclab.sh -p training/envs/pick_and_place_ur3.py --num_envs=8
-
-# Watch the robot attempt the task
-# Tweak rewards, observation space, action space
-# When it looks right → launch headless on SageMaker (Lab 4)
 ```
 
-**If the host GUI install didn't complete (or you want the reliable path):**
+> (The public GitHub repo isn't released yet, so there's no `git clone` — once it's
+> public you can pass `--context repoUrl=<url>` to clone instead.)
 
-Use the local Docker container (cross-reference "Testing Training Containers Locally" below). The UR3 environment is now wired into the container's `train` entrypoint, so running the container locally gives you headless UR3 training at ~56k steps/s on A10G — same code that will run on SageMaker in Lab 4.
+### One environment for everything: the `isaac-lab` container
 
-**What to look for (if visual rendering works):**
-- Robot reaching toward the object (approach reward working)
-- Gripper closing at the right time (grasp reward working)
-- Object being lifted cleanly (success reward working)
-- No physics glitches (objects clipping through surfaces)
-- Domain randomization looking reasonable (not too wild)
+All GPU work on this workstation — visual training, interactive iteration, and policy
+eval — runs **inside the `isaac-lab` Docker container**. This is the *same image*
+SageMaker and AWS Batch run in Lab 4 (Isaac Sim 4.5.0 + Isaac Lab v2.1.0), so there's
+**one consistent environment** end to end: what you see render here is exactly what
+trains at scale. The container also carries the `omni.isaac.lab.*` packages this repo's
+envs and eval scripts import. (The Marketplace AMI's *native* Isaac Sim is used only for
+the standalone GUI in Step 3; RL goes through the container.)
+
+The bootstrap pre-pulls the image and drops a launcher that wires up GPU + GUI
+passthrough to your DCV desktop:
+
+```bash
+# Launch the container with a render window on the DCV desktop, land in a shell:
+~/run-isaac-lab.sh
+# (prompt becomes /workspace/isaaclab# — you are now inside the container)
+```
+
+> ✅ **GUI passthrough validated on this AMI** (g6e.4xlarge / L40S, driver 580): the
+> container's RTX/Vulkan renderer initializes against the DCV display and an Anymal RL
+> task trains to completion. A non-fatal `Warp CUDA error: cuDeviceGetUuid` may print on
+> boot (container CUDA vs. host driver) — the sim runs through it. The **first** GUI boot
+> is slow (~5 min: extension sync + shader compile); the launcher mounts persistent cache
+> dirs so later boots are much faster.
+
+Inside the container, train and watch it render — or run headless for max throughput:
+
+```bash
+# Visual training (render window opens on the DCV desktop):
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+  --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096
+
+# Headless (faster, no window):
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+  --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096 --headless
+
+# Play back / evaluate a checkpoint (visual):
+./isaaclab.sh -p scripts/reinforcement_learning/skrl/play.py \
+  --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 32 \
+  --checkpoint logs/skrl/<run-dir>/checkpoints/agent_<N>.pt
+```
+
+Your repo working tree is mounted at `/workspace/toolchain` inside the container, so you
+can edit `training/envs/pick_and_place_ur3.py` on the host (or in the DCV desktop's
+editor) and re-run immediately — no rebuild.
+
+**What to look for in the render window:**
+- Robots tracking the commanded velocity (locomotion reward working)
+- Stable gait, no flipping or limb clipping through the floor
+- For the UR3 pick-place env: arm reaching, gripper closing on contact, clean lift
+
+### The UR3 pick-and-place env (registered, GPU-untested)
+
+`training/envs/pick_and_place_ur3.py` imports `omni.isaac.lab.*` — the namespace the
+container provides — so it loads in this environment. **But env *instantiation* on the
+GPU has not been validated**; the verified RL path here is the built-in Anymal task.
+Treat UR3 as the thing you're bringing up, not a known-good baseline.
 
 ---
 
@@ -312,17 +351,22 @@ aws ec2 describe-instances --instance-ids $INSTANCE_ID \
 
 ---
 
-## Testing Training Containers Locally
+## Running the Container Exactly as SageMaker Does (parity check)
 
-> **Isaac Sim vs. `isaac-lab` image — don't confuse them.** Two different things:
-> - **Isaac Sim** (the GUI simulator, Step 3) is **pre-installed in the Marketplace AMI** at `/opt/IsaacSim`. Nothing to pull.
-> - **`physical-ai/isaac-lab:latest`** (below) is *this project's own* headless training container — the one SageMaker runs in Lab 4. It's built by **CodeBuild into your ECR when you deploy the Foundation stack**, and is unrelated to the AMI's Isaac Sim.
->
-> So this step only works **after** the Foundation stack has been deployed in *this* account/region and CodeBuild has finished building the image. If you haven't deployed Foundation yet, the `docker pull` below returns `not found` — that's expected; finish Lab 1 (or deploy Foundation) first. (The workstation bootstrap pre-pulls this image best-effort and logs a non-fatal "image not in ECR yet" if it's missing.)
+Step 4 launches the `isaac-lab` container *interactively* with GUI passthrough so you
+can watch training render. This section runs the **same image** through its `train`
+entrypoint **non-interactively** — exactly how SageMaker/Batch invoke it in Lab 4 — so
+you can reproduce a job's behavior locally before launching at scale. Same container,
+different entrypoint; no GUI.
 
-The workstation has Docker + NVIDIA Container Toolkit, so you can pull the
-CodeBuild-built image from *your* ECR and run it exactly as SageMaker would —
-without waiting for SageMaker provisioning. The registry is derived from your own
+> The image is `physical-ai/isaac-lab:latest`, built by **CodeBuild into your ECR when
+> you deploy the Foundation stack**. This works only **after** Foundation is deployed in
+> *this* account/region and the build has finished. If not, the `docker pull` returns
+> `not found` — finish Lab 1 (or deploy Foundation) first. (The workstation bootstrap
+> pre-pulls it best-effort and logs a non-fatal "image not in ECR yet" if it's missing.)
+
+Pull the CodeBuild-built image from *your* ECR and run it as SageMaker would, without
+waiting for SageMaker provisioning. The registry is derived from your own
 account/region, so nothing is hardcoded:
 
 ```bash
@@ -352,68 +396,16 @@ locally and push to ECR yourself.
 
 ## Closed-Loop Policy Evaluation (Lab 4 Step 4 — runs here)
 
-This is the home of **Lab 4's closed-loop evaluator**. Open-loop eval (policy runs
-in-process with the env) is fine for a quick number, but it doesn't exercise the
-*serving* path. The closed-loop evaluator splits the policy and the simulator into
-two processes that talk over ZMQ — a **policy server** answers observation→action
-requests, and a **sim client** drives Isaac Lab step-by-step — which mirrors how the
-policy is actually served on the robot (Lab 5). It needs the L40S GPU on this
-workstation, so it lives here rather than on your laptop.
+**Lab 4's closed-loop evaluator runs on this workstation** because it needs the L40S
+GPU. It splits the policy and simulator into two processes — a **policy server** and a
+**sim client** that drives Isaac Lab — mirroring how the policy is served on the robot
+(Lab 5). Both run **inside the `isaac-lab` container** (launch with `~/run-isaac-lab.sh`,
+open a second shell with `sudo docker exec -it isaac-lab bash`); the repo is mounted at
+`/workspace/toolchain`.
 
-> ⚠️ **UNVALIDATED on hardware.** The whole Isaac Lab GPU path (env instantiation +
-> rendering) has not been run end-to-end on this workstation yet. The code is wired
-> and CI-tested with mocks; treat the numbers below as the *expected* shape, not a
-> measured result.
-
-**Prerequisites on the workstation:**
-- The toolchain code is already at `/home/ubuntu/aws-physical-ai-toolchain` (the
-  deploy bundles it). `pip install -r training/requirements.txt` adds `pyzmq`.
-- A **TorchScript** checkpoint. Raw RL checkpoints (rsl_rl state dicts) will NOT
-  load — scriptify first with `export.py` (see Lab 4 Step 4a). The server fails
-  loudly if you hand it a raw `.pt`.
-
-**Terminal 1 — policy server** (loads the model, answers action requests):
-
-```bash
-cd /home/ubuntu/aws-physical-ai-toolchain
-pai eval serve --checkpoint ./model_scripted/model_scripted.pt --device cuda
-# Binds tcp://127.0.0.1:5555 (localhost only — ZMQ has no auth; don't bind 0.0.0.0)
-```
-
-**Terminal 2 — sim client** (drives Isaac Lab, records success/failure):
-
-```bash
-cd /home/ubuntu/aws-physical-ai-toolchain
-pai eval --closed-loop \
-  --env PickAndPlaceUR3-v0 \
-  --endpoint tcp://127.0.0.1:5555 \
-  --eval-rounds 100 \
-  --output-dir ./eval_results
-```
-
-The client writes the same JSON metrics schema as the open-loop evaluator
-(`success_rate_pct`, `num_episodes`, `avg_reward`, `avg_cycle_time_sec`,
-`failure_modes{timeout,drop,collision}`). Full walkthrough, including scriptifying
-the checkpoint, is in **[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**.
-
-<details>
-<summary>Under the hood (raw commands)</summary>
-
-```bash
-# Terminal 1
-python training/scripts/eval_policy_server.py \
-  --checkpoint ./model_scripted/model_scripted.pt \
-  --device cuda
-
-# Terminal 2
-python training/scripts/eval_sim_client.py \
-  --task PickAndPlaceUR3-v0 \
-  --endpoint tcp://127.0.0.1:5555 \
-  --eval-rounds 100 \
-  --output-dir ./eval_results
-```
-
-</details>
+The full walkthrough — scriptifying the checkpoint and the two-shell commands — lives in
+**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**.
+(Closed-loop eval is **unvalidated on GPU** — see that step's note.)
 
 ---
 

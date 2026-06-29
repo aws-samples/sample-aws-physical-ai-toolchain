@@ -103,7 +103,7 @@ Mode A — Transfer (this lab, available):
 
 Mode B — Generate (future, Cosmos Predict / Cosmos 3):
   Text prompt → Cosmos generates a new scene → import to Isaac Lab
-  (separate model; not wired up yet — see docs/ROADMAP.md Feature 3)
+  (separate model; not wired up yet)
 ```
 
 ---
@@ -198,9 +198,8 @@ python training/scripts/cosmos_setup.py terminate --instance-id i-xxxx
 > generation runner is not wired up, and Cosmos 3 does **not** yet support the
 > controlled (edge/depth/seg) *transfer* this lab needs.
 >
-> See [`docs/ROADMAP.md`](../docs/ROADMAP.md) (Feature 3) for the plan. For now,
-> use Step 2 (Transfer) for sim→photorealistic, and Isaac Lab's built-in domain
-> randomization for environment diversity.
+> For now, use Step 2 (Transfer) for sim→photorealistic, and Isaac Lab's built-in
+> domain randomization for environment diversity.
 
 ---
 
