@@ -238,13 +238,27 @@ onto a compute node) to inspect them.
 > Do 4a first, then run the policy server + sim client in two terminals (4b).
 
 **Where this runs:** inside the **`isaac-lab` container** on the Lab 2 workstation — the
-same environment you used for visual training. Launching the container, opening a second
-shell, and the `/workspace/toolchain` mount are all covered in
-[Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container);
-this step assumes you have it running. You need **two shells in that container** (a second
-one via `sudo docker exec -it isaac-lab bash`) — one for the policy server, one for the sim
-client. The `pai` CLI is not installed on the workstation (it's the laptop-side control plane),
-so the commands below call the scripts directly.
+same environment you used for visual training. The `/workspace/toolchain` mount and the
+launcher are covered in
+[Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container).
+You need **two shells in that container**:
+
+```bash
+# Shell 1 — enter the container (host shell on the workstation):
+~/run-isaac-lab.sh                      # prompt becomes /workspace/isaaclab#
+
+# Shell 2 — attach a SECOND shell to the SAME running container (new host shell).
+# The launcher uses `docker run --rm` and does NOT name the container, so match it
+# by image rather than by name:
+sudo docker exec -it \
+  $(sudo docker ps -q --filter ancestor=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$(aws configure get region).amazonaws.com/physical-ai/isaac-lab:latest) \
+  bash
+```
+
+In **both** shells, `cd /workspace/toolchain` before running the commands below — the
+`--checkpoint ./model_scripted/...` paths are relative to the repo mount. The `pai` CLI is
+not installed on the workstation (it's the laptop-side control plane), so the commands call
+the scripts directly.
 
 ### Step 4a: Fetch the checkpoint, then scriptify it
 

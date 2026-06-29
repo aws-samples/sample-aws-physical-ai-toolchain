@@ -85,8 +85,9 @@ python training/scripts/export.py \
 > a **TorchScript** model. RL jobs save plain `model_*.pt` checkpoints, so convert first:
 > ```bash
 > python training/scripts/scriptify_policy.py \
->   --checkpoint model_49.pt --output policy.pt --obs-dim 12308 --action-dim 7
-> # (use --inspect first to see the checkpoint's actor layer shapes)
+>   --checkpoint model_49.pt --output policy.pt
+> # Dims are auto-inferred from the checkpoint (Anymal → obs=48 action=12).
+> # Use --inspect first to print the actor layer shapes without converting.
 > ```
 > Then pass `policy.pt` to `export.py --checkpoint`.
 
