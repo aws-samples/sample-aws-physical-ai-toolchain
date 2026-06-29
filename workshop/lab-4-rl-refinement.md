@@ -2,9 +2,7 @@
 
 **Goal:** Train a robust pick-and-place policy via reinforcement learning in Isaac Lab simulation with domain randomization
 **Time:** 3 hours (30 min hands-on + training runs in background)
-**Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations)
-
-> **Compute Placement:** VLA/imitation training (GR00T) runs on SageMaker. Isaac Sim + RL jobs run on GPU EC2 instances. Distributed RL has two paths: SageMaker multi-instance (`launch_rl.py --instance-count N`) and an opt-in AWS Batch multi-node stack (`--context batch=true`, submit with `launch_rl_batch.py`) — multi-node NCCL convergence is wired but **unvalidated on hardware**.
+**Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations). Full cost breakdown is in the [main README](../README.md#cost-summary).
 
 ---
 
@@ -30,7 +28,7 @@
 
 > 💸 **Cost reminder:** the smoke test (Step 1) is ~$3; full training (Step 3) is ~$28. SageMaker tears the instance down when the job ends — no manual stop needed (unlike Lab 2's EC2 box).
 
-> ⚠️ **Honest status:** the validated, load-tested path uses Isaac Lab's built-in `Isaac-Velocity-Flat-Anymal-D-v0` task (the container + SageMaker integration is proven on that task). The UR3 pick-and-place environment (`PickAndPlaceUR3-v0`) invoked in Step 1 is registered in the repo but **not yet wired into the isaac-lab container** — the job will fail to resolve the env until that registration is added to the container build. To see a green SageMaker RL run today, use the validated Anymal task: `pai rl launch --max-iterations 50 --instance-type ml.g5.xlarge` (optionally add `--dry-run` first to preview). Keep Step 1's UR3 command as the target end-state once container wiring lands.
+> ⚠️ **Honest status:** the validated path is Isaac Lab's built-in `Isaac-Velocity-Flat-Anymal-D-v0` task. The custom UR3 env (`PickAndPlaceUR3-v0`) is registered but **not yet wired into the container**, so use the Anymal task for a green run today. Details in Step 1.
 
 ---
 
@@ -51,14 +49,8 @@ demos (best with good demos, weak sim); RL learns from reward (best with a stron
 success signal). Both feed Lab 5 edge deployment. **Lab 4 needs neither Lab 1 nor a GR00T
 model** — it stands alone.
 
----
-
-## Prerequisites
-
-- Foundation stack deployed -> the `isaac-lab` image is in your ECR (CodeBuild builds it in
-  the cloud from the `nvcr.io/nvidia/isaac-lab:2.1.0` NGC base using your Lab 0 NGC key;
-  nothing large touches your laptop, works on Apple Silicon).
-- GPU quota for `ml.g5.xlarge` (smoke test) or `ml.g5.12xlarge` (full run).
+> **Prerequisites** are the runbook's "Before you start" checklist above (Foundation
+> deployed → `isaac-lab` image in ECR, GPU quota). See [Lab 0](lab-0-prerequisites.md) to set them up.
 
 ---
 
@@ -114,12 +106,10 @@ python training/scripts/launch_rl.py \
 resulting policy will stumble, not perform well; a usable policy needs ~1000+
 iterations (see Step 3).
 
-> **Why the Anymal task?** It's Isaac Lab's built-in locomotion task and is the
-> **validated, load-tested** path through this container. The toolkit's custom UR3
-> pick-and-place env (`PickAndPlaceUR3-v0`) is registered in the repo but **not yet
-> wired into the isaac-lab container**, so `--task PickAndPlaceUR3-v0` will not
-> resolve there yet — `pai rl launch` prints a warning if you try. The UR3 task is
-> the target end-state once container wiring lands.
+> **Why the Anymal task?** It's Isaac Lab's built-in locomotion task and the validated,
+> load-tested path through this container. The custom UR3 env (`PickAndPlaceUR3-v0`) isn't
+> wired into the container yet, so `--task PickAndPlaceUR3-v0` won't resolve there —
+> `pai rl launch` prints a warning if you try. It's the target end-state once that lands.
 
 > Need to rebuild the Isaac Lab container after changing its Dockerfile? Trigger
 > the cloud build with `pai deploy foundation` (redeploys and rebuilds all images)
@@ -176,83 +166,48 @@ the only difference is who provisions the fleet and wires the NCCL topology.
 
 ### Option A — SageMaker multi-instance (quickest)
 
-The isaac-lab container's SageMaker entrypoint
-(`containers/isaac-lab/sm-train-entrypoint.sh`) already parses
-`/opt/ml/input/config/resourceconfig.json` and launches `torchrun` across however
-many instances SageMaker provisions. The **only** thing you change is the instance
-count on the launcher:
+The container's SageMaker entrypoint already parses the cluster's `resourceconfig.json`
+and launches `torchrun` across however many instances SageMaker provisions — the **only**
+thing you change is `--instance-count`:
 
 ```bash
-# Preview first (no AWS calls) — note ResourceConfig.InstanceCount: 2 in the output
+# Add --dry-run to preview (no AWS calls); drop it to launch.
 pai rl launch \
   --task Isaac-Velocity-Flat-Anymal-D-v0 \
   --num-envs 4096 --max-iterations 100 \
-  --instance-type ml.g5.12xlarge \
-  --instance-count 2 \
-  --dry-run
-
-# Launch for real (drop --dry-run)
-pai rl launch \
-  --task Isaac-Velocity-Flat-Anymal-D-v0 \
-  --num-envs 4096 --max-iterations 100 \
-  --instance-type ml.g5.12xlarge \
-  --instance-count 2
+  --instance-type ml.g5.12xlarge --instance-count 2
 ```
 
-When `--instance-count > 1`, the launcher prints a one-line UNVALIDATED note.
-SageMaker handles inter-node networking automatically (no security-group work) and
-tears the whole fleet down when the job ends.
+SageMaker handles inter-node networking and tears the fleet down when the job ends.
 
 ### Option B — AWS Batch Multi-Node Parallel (the reference architecture)
 
-Batch gives you direct control over the EC2 fleet (g6.12xlarge, 4× L4 each), a
-shared **EFS** filesystem for checkpoints, and a self-managed NCCL security group.
-This is an **opt-in CDK stack** — it is not deployed by default.
-
-**1. Deploy the Batch stack:**
+Batch gives you direct control over the EC2 fleet (g6.12xlarge, 4× L4 each), a shared
+**EFS** filesystem for checkpoints, and a self-managed NCCL security group. It's an
+**opt-in CDK stack**, not deployed by default.
 
 ```bash
-# The isaac-lab image must already be in ECR (built by the Foundation stack).
-# If you modified the container, redeploy Foundation first to rebuild:
-pai deploy foundation
-
-# Then deploy the opt-in Batch stack:
+# 1. Deploy the opt-in Batch stack (isaac-lab image must already be in ECR).
 pai deploy batch
-```
+# Reads `batch` settings from config.json and prints a ready-to-run LaunchCommand
+# with the exact queue/job-definition names.
 
-The stack reads `batch` settings from `config.json`
-(`{ "instanceType": "g6.12xlarge", "numNodes": 2, "maxvCpus": 96 }`) and prints a
-ready-to-run **LaunchCommand** output with the exact queue/job-definition names.
-
-> ⚠️ **GPU quota:** g6.12xlarge needs vCPU quota for *G-family On-Demand* instances
-> that you may not have by default. Request it in Service Quotas before deploying, or
-> the compute environment will sit at 0 desired vCPUs and jobs stay `RUNNABLE` forever.
-> Needs a **default VPC** in the region (same tradeoff as the Lab 2 workstation stack).
-
-**2. Submit a job:**
-
-```bash
-# Preview the submit_job request (no AWS calls)
-pai rl launch --engine batch \
-  --task Isaac-Velocity-Flat-Anymal-D-v0 \
-  --num-envs 4096 --max-iterations 100 --num-nodes 2 \
-  --dry-run
-
-# Submit for real (queue/def default to physical-ai-dev-rl-queue / -rl-mnp;
-# override with --job-queue / --job-definition from the stack outputs)
+# 2. Submit (add --dry-run to preview). Queue/def default to
+#    physical-ai-dev-rl-queue / -rl-mnp; override with --job-queue / --job-definition.
 pai rl launch --engine batch \
   --task Isaac-Velocity-Flat-Anymal-D-v0 \
   --num-envs 4096 --max-iterations 100 --num-nodes 2
-```
 
-**3. Monitor** the job:
-
-```bash
+# 3. Monitor
 pai rl status --engine batch <job-id>
 ```
 
-Checkpoints persist to EFS at `/efs/models/<job-id>` — mount the EFS filesystem to a
-workstation (or use SSM onto a compute node) to inspect them.
+> ⚠️ **GPU quota:** g6.12xlarge needs *G-family On-Demand* vCPU quota you may not have by
+> default — request it in Service Quotas first, or the compute env sits at 0 vCPUs and jobs
+> stay `RUNNABLE` forever. Also needs a **default VPC** (same as the Lab 2 workstation).
+
+Checkpoints persist to EFS at `/efs/models/<job-id>` — mount it to a workstation (or SSM
+onto a compute node) to inspect them.
 
 | | SageMaker multi-instance | AWS Batch MNP |
 |---|---|---|

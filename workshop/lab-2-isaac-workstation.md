@@ -18,9 +18,12 @@
 | 3 | Get IP and password | `pai workstation ip` / `pai workstation password` | prints IP and sets password |
 | 4 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
 | 5 | Launch Isaac Sim (visual) | `~/run-isaac-sim-gui.sh` | 3D viewport opens |
-| 6 | Visual RL training in the container | `~/run-isaac-lab.sh` → `./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0` | render window + training logs steps/s |
+| 6a | Enter the training container | `~/run-isaac-lab.sh` | prompt changes to `/workspace/isaaclab#` (you're now inside the container) |
+| 6b | Start visual RL training (run *inside* the container) | `./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0` | render window + training logs steps/s |
 | 7 | (Optional) Closed-loop policy eval | inside the same container: `eval_policy_server.py` + `eval_sim_client.py` (two shells) | prints `success_rate` JSON (**unvalidated on GPU**) |
 | 8 | **Stop the instance** | `pai workstation stop` | state → `stopped` (billing halts) |
+
+> **What is `~/run-isaac-lab.sh`?** It's a helper script the workstation set up for you. It starts the `isaac-lab` Docker container (the same image SageMaker trains in) and drops you into a shell *inside* it — your prompt becomes `/workspace/isaaclab#`. Every `./isaaclab.sh …` command in this lab is typed **inside that container**, not on the host. Type `exit` to leave the container.
 
 **Before you start, confirm:**
 - [ ] AWS credentials active for the **test account** (`aws sts get-caller-identity`)
@@ -28,7 +31,7 @@
 - [ ] You completed the Marketplace **subscription** (Step 0 / *Prerequisite* below)
 - [ ] Foundation stack already deployed (so the `isaac-lab` image is in your ECR) — needed only for Step 5
 
-> 💸 **Cost reminder:** this instance bills ~$3.00/hr while running. Do Step 6 the moment you walk away.
+> 💸 **Cost reminder:** this instance bills ~$3.00/hr while running. Run Step 8 (`pai workstation stop`) the moment you walk away. Full cost breakdown is in the [main README](../README.md#cost-summary).
 
 ---
 
@@ -53,64 +56,11 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 
 ---
 
-## Cost Breakdown
-
-| Resource | Cost | When |
-|----------|------|------|
-| g6e.4xlarge (L40S GPU, 48 GB VRAM) | ~$3.00/hr | Only while instance is running |
-| 512 GB gp3 EBS | ~$40/month | Always (stores Isaac Sim + your work) |
-
-**Typical monthly cost:**
-- Heavy development (8 hrs/day, 5 days/week): ~$520/month (160 hrs × $3.00 + $40 EBS)
-- Moderate development (4 hrs/day, 3 days/week): ~$184/month (48 hrs × $3.00 + $40 EBS)
-- Occasional debugging (2 hrs/week): ~$64/month (8 hrs × $3.00 + $40 EBS)
-
-> **Why g6e.4xlarge?** This is the instance NVIDIA recommends for the Isaac Sim Marketplace AMI (1× L40S, 48 GB VRAM). You can override it in `config.json` (`workstation.instanceType`) or with `INSTANCE_TYPE=… ./deploy-workstation.sh`.
-
-**Compared to alternatives:**
-- Local GPU workstation (RTX 4090): $2,500+ upfront, limited to one developer
-- NVIDIA Omniverse Cloud: $1000+/month per seat
-- This workstation: pay only for hours used, accessible from any laptop via browser
-
----
-
-## Architecture
-
-> TODO: Insert workstation architecture diagram here (showing EC2 g6e.4xlarge with DCV, Isaac Sim, Docker connecting to laptop browser)
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  EC2 g6e.4xlarge (NVIDIA L40S GPU, 48GB VRAM)              │
-│  NVIDIA Isaac Sim Marketplace AMI (driver + DCV pre-baked) │
-│                                                             │
-│  ┌─────────────────┐  ┌──────────────────────────────────┐ │
-│  │  NICE DCV       │  │  Isaac Sim + Isaac Lab            │ │
-│  │  Remote Desktop │  │  - Visual scene editor            │ │
-│  │  (port 8443)    │  │  - RL environment preview         │ │
-│  │                 │  │  - Physics debugger               │ │
-│  └─────────────────┘  │  - Domain randomization viewer    │ │
-│                        └──────────────────────────────────┘ │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  Docker + NVIDIA Container Toolkit                       ││
-│  │  (test training containers locally — same as SageMaker)  ││
-│  └─────────────────────────────────────────────────────────┘│
-│                                                             │
-│  512 GB gp3 SSD | S3 access | ECR pull access               │
-└─────────────────────────────────────────────────────────────┘
-         │
-         │ NICE DCV (port 8443, encrypted)
-         ▼
-┌─────────────────┐
-│  Your Laptop    │
-│  (web browser)  │
-└─────────────────┘
-```
-
----
-
 ## Prerequisite: Subscribe to the Isaac Sim Marketplace AMI (one time)
 
-This workstation boots the **NVIDIA Isaac Sim AMI** from AWS Marketplace, which ships with the NVIDIA driver, NICE DCV, Docker, and Isaac Sim **pre-installed** (no fragile from-scratch bootstrap). You must subscribe to it **once per account** before deploying, or the EC2 launch fails with a subscription/opt-in error:
+> Instance sizing, monthly cost estimates, and the architecture diagram for this workstation live in the [main README](../README.md#cost-summary). This lab stays focused on the hands-on steps.
+
+This workstation boots the **NVIDIA Isaac Sim AMI** from AWS Marketplace, which ships with the NVIDIA driver, NICE DCV, Docker, and Isaac Sim **pre-installed**. You must subscribe to it **once per account** before deploying, or the EC2 launch fails with a subscription/opt-in error:
 
 1. Open the listing: **https://aws.amazon.com/marketplace/pp/prodview-bl35herdyozhw**
 2. Click **Continue to Subscribe** → **Accept Terms** (the AMI itself is free; you pay only for the EC2 instance + EBS).
@@ -191,6 +141,8 @@ Then:
 
 > **Note:** DCV requires direct internet access (port 8443). If you're on a corporate VPN that blocks non-standard ports, disconnect VPN to access DCV.
 
+> **Prefer a native client?** Instead of the browser you can use the **NICE DCV desktop client** ([download](https://www.amazondcv.com/)) — connect it to the same `<IP>:8443` with username `ubuntu` and your DCV password. The native client generally gives smoother rendering and better keyboard/mouse handling for 3D work than the browser.
+
 <details>
 <summary>Under the hood (raw commands)</summary>
 
@@ -216,7 +168,7 @@ aws ssm start-session --target $INSTANCE_ID
 
 ## Step 3: Launch Isaac Sim (Visual Path)
 
-Because the workstation now boots the **NVIDIA Isaac Sim Marketplace AMI**, Isaac Sim is **pre-installed by NVIDIA** — you no longer rely on a fragile from-scratch install. The AMI installs it to **`/opt/IsaacSim`** (also mirrored under `~/IsaacSim`), and the launcher is **not on your `PATH`**, so call it by absolute path from the DCV desktop terminal:
+The workstation boots the **NVIDIA Isaac Sim Marketplace AMI**, so Isaac Sim is **pre-installed**. The AMI installs it to **`/opt/IsaacSim`** (also mirrored under `~/IsaacSim`), and the launcher is **not on your `PATH`**, so call it by absolute path from the DCV desktop terminal:
 
 ```bash
 # Isaac Sim ships with the AMI at /opt/IsaacSim. Launch the GUI:
@@ -291,6 +243,16 @@ Inside the container, train and watch it render — or run headless for max thro
 Your repo working tree is mounted at `/workspace/toolchain` inside the container, so you
 can edit `training/envs/pick_and_place_ur3.py` on the host (or in the DCV desktop's
 editor) and re-run immediately — no rebuild.
+
+> 💾 **Where does the trained policy go?** The container runs with `--rm`, so Isaac Lab's
+> default `logs/skrl/...` checkpoints are written *inside* it and **lost on exit.** To keep a
+> policy, save it somewhere that survives:
+> - **Mounted repo** (`/workspace/toolchain/...`) — on the EBS volume, persists across stop/start.
+> - **S3** — `aws s3 cp logs/skrl/<run>/checkpoints/agent_<N>.pt s3://<your-bucket>/policies/`.
+>
+> There's **no automatic permanent storage** here — fine for learning. A production setup would
+> checkpoint to a versioned S3 bucket (or EFS, as the Lab 4 Batch path does) so runs aren't tied
+> to one instance's disk.
 
 **What to look for in the render window:**
 - Robots tracking the commanded velocity (locomotion reward working)
