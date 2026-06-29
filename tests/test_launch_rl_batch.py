@@ -54,7 +54,7 @@ def test_launch_rl_batch_multinode_disclaimer(fake_boto3, capsys):
 
 
 def test_launch_rl_batch_warns_on_ur3(fake_boto3, capsys):
-    """UR3 task triggers not-yet-registered warning."""
+    """UR3 task triggers not-yet-container-wired warning."""
     _, _ = fake_boto3
     out = _run(
         "training/scripts/launch_rl_batch.py",
@@ -62,7 +62,7 @@ def test_launch_rl_batch_warns_on_ur3(fake_boto3, capsys):
         capsys,
         fake_boto3,
     )
-    assert "not yet gym-registered" in out
+    assert "not yet wired into the isaac-lab" in out
 
 
 def test_launch_rl_batch_node_overrides(fake_boto3, capsys):

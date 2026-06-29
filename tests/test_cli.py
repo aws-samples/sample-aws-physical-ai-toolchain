@@ -173,7 +173,7 @@ def test_rl_launch_ur3_warning(runner, cli_group, fake_boto3, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert "not yet gym-registered" in result.output
+    assert "not yet wired into the isaac-lab" in result.output
 
 
 def test_doctor_runs(runner, cli_group, fake_boto3):

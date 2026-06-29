@@ -34,7 +34,7 @@ def test_launch_rl_dry_run(fake_boto3, capsys):
 def test_launch_rl_warns_on_unregistered_ur3(fake_boto3, capsys):
     _, _ = fake_boto3
     out = _run("training/scripts/launch_rl.py", ["--task", "PickAndPlaceUR3-v0", "--dry-run"], capsys)
-    assert "not yet gym-registered" in out
+    assert "not yet wired into the isaac-lab" in out
 
 
 def test_launch_rl_multinode(fake_boto3, capsys):

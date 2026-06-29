@@ -8,9 +8,10 @@ and no Lab 1 dependency.
 
 The validated path uses Isaac Lab's built-in tasks (e.g.
 `Isaac-Velocity-Flat-Anymal-D-v0`), which run end-to-end today. The custom UR3
-pick-and-place task (`PickAndPlaceUR3-v0`) is NOT yet gym-registered in the
-container — see docs/ROADMAP.md (Feature 2) — so it will not resolve until that
-work lands.
+pick-and-place task (`PickAndPlaceUR3-v0`) IS gym-registered (training/envs/__init__.py)
+but is NOT yet wired into the container's training entrypoint and is GPU-unvalidated
+— see docs/ROADMAP.md (Feature 2) — so it will not resolve in a training job until
+that work lands.
 
 Account/region/role/image are resolved from the caller — nothing hardcoded.
 
@@ -104,10 +105,11 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
     print(f"{'='*60}")
 
     if task.startswith("PickAndPlaceUR3") or task.startswith("PickAndPlace-UR3"):
-        print("\n  WARNING: the custom UR3 task is not yet gym-registered in the "
-              "isaac-lab container; this job will fail to resolve the env. "
-              "Use a built-in task (e.g. Isaac-Velocity-Flat-Anymal-D-v0) until "
-              "UR3 registration lands. See docs/ROADMAP.md (Feature 2).\n")
+        print("\n  WARNING: the custom UR3 task is not yet wired into the isaac-lab "
+              "container's training entrypoint (and is GPU-unvalidated); this job will "
+              "fail to resolve the env. Use a built-in task (e.g. "
+              "Isaac-Velocity-Flat-Anymal-D-v0) until that work lands. "
+              "See docs/ROADMAP.md (Feature 2).\n")
 
     if instance_count > 1:
         print(f"  NOTE: Multi-node training ({instance_count} instances) uses NCCL via "
@@ -133,7 +135,7 @@ def launch(task: str, num_envs: int, max_iterations: int, framework: str,
 def main():
     p = argparse.ArgumentParser(description="Standalone Isaac Lab RL launcher (no GR00T)")
     p.add_argument("--task", default="Isaac-Velocity-Flat-Anymal-D-v0",
-                   help="Isaac Lab task id (built-in tasks work today; UR3 not yet registered)")
+                   help="Isaac Lab task id (built-in tasks work today; UR3 registered but not container-wired)")
     p.add_argument("--num-envs", type=int, default=4096)
     p.add_argument("--max-iterations", type=int, default=50)
     p.add_argument("--framework", default="rsl_rl", choices=["rsl_rl", "skrl", "rl_games"])

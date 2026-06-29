@@ -245,25 +245,16 @@ can edit files on the host (or in the DCV desktop's editor) and re-run immediate
 rebuild. This is also where you'd iterate visually on a custom env before training it at
 scale in Lab 4.
 
-> 🛠️ **Want to write your own task?** The `train.py`/`play.py` above are Isaac Lab's own
-> bundled example scripts. To build a *custom* environment or training script, see NVIDIA's
-> Isaac Lab docs:
-> - **Build your own project/task:** https://isaac-sim.github.io/IsaacLab/main/source/overview/own-project/index.html
-> - **Create a custom RL env (tutorial):** https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html
-> - **API reference:** https://isaac-sim.github.io/IsaacLab/main/source/api/index.html
->
-> This repo's UR3 env (`training/envs/pick_and_place_ur3.py`) is one such custom task — see
-> [Lab 4](lab-4-rl-refinement.md) for how it's structured.
+> 🛠️ **Want to write your own task?** `train.py`/`play.py` are Isaac Lab's bundled example
+> scripts. To build a custom env, see NVIDIA's
+> [Isaac Lab docs](https://isaac-sim.github.io/IsaacLab/main/source/overview/own-project/index.html)
+> ([custom RL env tutorial](https://isaac-sim.github.io/IsaacLab/main/source/tutorials/03_envs/create_direct_rl_env.html)).
+> This repo's UR3 env (`training/envs/pick_and_place_ur3.py`) is one example.
 
-> 💾 **Where does the trained policy go?** The container runs with `--rm`, so Isaac Lab's
-> default `logs/skrl/...` checkpoints are written *inside* it and **lost on exit.** To keep a
-> policy, save it somewhere that survives:
-> - **Mounted repo** (`/workspace/toolchain/...`) — on the EBS volume, persists across stop/start.
-> - **S3** — `aws s3 cp logs/skrl/<run>/checkpoints/agent_<N>.pt s3://<your-bucket>/policies/`.
->
-> There's **no automatic permanent storage** here — fine for learning. A production setup would
-> checkpoint to a versioned S3 bucket (or EFS, as the Lab 4 Batch path does) so runs aren't tied
-> to one instance's disk.
+> 💾 **Where does the trained policy go?** The container runs with `--rm`, so checkpoints written
+> to its default `logs/...` are **lost on exit.** To keep one, save it under the mounted repo
+> (`/workspace/toolchain/...`, on the EBS volume) or copy it to S3. There's no automatic permanent
+> storage here — fine for learning; production would checkpoint to a versioned S3 bucket.
 
 **What to look for in the render window:**
 - Robots tracking the commanded velocity (locomotion reward working)
@@ -272,9 +263,9 @@ scale in Lab 4.
 
 If you see the robots stepping and the logs ticking, your workstation is good to go.
 
-> The toolchain's custom UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in
-> **[Lab 4](lab-4-rl-refinement.md)**, where the training workflow lives. It's registered but
-> not yet GPU-validated, so Lab 2 uses the proven Anymal task for this smoke test.
+> The toolchain's UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in
+> **[Lab 4](lab-4-rl-refinement.md)**. It's not yet GPU-validated, so Lab 2 uses the proven
+> Anymal task for this smoke test.
 
 ---
 

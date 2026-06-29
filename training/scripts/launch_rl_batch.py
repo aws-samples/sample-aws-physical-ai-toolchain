@@ -109,10 +109,10 @@ def launch(
 
     if task.startswith("PickAndPlaceUR3") or task.startswith("PickAndPlace-UR3"):
         print(
-            "\n  WARNING: the custom UR3 task is not yet gym-registered in the "
-            "isaac-lab container; this job will fail to resolve the env. "
-            "Use a built-in task (e.g. Isaac-Velocity-Flat-Anymal-D-v0) until "
-            "UR3 registration lands. See docs/ROADMAP.md.\n"
+            "\n  WARNING: the custom UR3 task is not yet wired into the isaac-lab "
+            "container's training entrypoint (and is GPU-unvalidated); this job will "
+            "fail to resolve the env. Use a built-in task (e.g. "
+            "Isaac-Velocity-Flat-Anymal-D-v0) until that work lands. See docs/ROADMAP.md.\n"
         )
 
     if num_nodes > 1:
@@ -151,7 +151,7 @@ def main():
     p.add_argument(
         "--task",
         default="Isaac-Velocity-Flat-Anymal-D-v0",
-        help="Isaac Lab task id (built-in tasks work today; UR3 not yet registered)",
+        help="Isaac Lab task id (built-in tasks work today; UR3 registered but not container-wired)",
     )
     p.add_argument("--num-envs", type=int, default=4096)
     p.add_argument("--max-iterations", type=int, default=50)
