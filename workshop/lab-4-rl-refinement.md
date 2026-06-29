@@ -248,11 +248,13 @@ You need **two shells in that container**:
 ~/run-isaac-lab.sh                      # prompt becomes /workspace/isaaclab#
 
 # Shell 2 — attach a SECOND shell to the SAME running container (new host shell).
-# The launcher uses `docker run --rm` and does NOT name the container, so match it
-# by image rather than by name:
-sudo docker exec -it \
-  $(sudo docker ps -q --filter ancestor=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.$(aws configure get region).amazonaws.com/physical-ai/isaac-lab:latest) \
-  bash
+# The launcher uses `docker run --rm` and does NOT name the container, so grab the
+# most-recently-started container (`-l`) — the isaac-lab one you just launched:
+sudo docker exec -it $(sudo docker ps -q -l) bash
+
+# (If you have other containers running, target it explicitly instead:
+#  sudo docker ps   # find the physical-ai/isaac-lab row, then:
+#  sudo docker exec -it <CONTAINER_ID> bash)
 ```
 
 In **both** shells, `cd /workspace/toolchain` before running the commands below — the
