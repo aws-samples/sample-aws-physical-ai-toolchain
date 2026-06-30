@@ -309,10 +309,11 @@ def list_runs(region: str = "us-west-2") -> dict:
 
     runs = []
     for ex in response.get("PipelineExecutionSummaries", []):
+        started = ex.get("StartTime")
         runs.append({
             "arn": ex["PipelineExecutionArn"],
             "status": ex["PipelineExecutionStatus"],
-            "created": ex["CreationTime"].isoformat(),
+            "created": started.isoformat() if started else None,
         })
 
     return {"pipeline": PIPELINE_NAME, "runs": runs}
