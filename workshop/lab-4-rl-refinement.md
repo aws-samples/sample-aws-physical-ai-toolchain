@@ -304,13 +304,16 @@ it loads the exported `policy.pt`, runs N episodes in-process, and writes `eval_
 (`success_rate_pct`, `avg_reward`, `avg_cycle_time_sec`, `failure_modes`):
 
 ```bash
-/workspace/isaaclab/isaaclab.sh -p training/scripts/evaluate.py \
+/workspace/isaaclab/isaaclab.sh -p /workspace/toolchain/training/scripts/evaluate.py \
   --env Isaac-Velocity-Flat-Anymal-D-v0 \
-  --checkpoint ./model_exported/policy.pt --num-episodes 5 --output-dir ./eval_results/
+  --checkpoint /workspace/toolchain/model_exported/policy.pt \
+  --num-episodes 5 --output-dir /workspace/toolchain/eval_results/
 ```
 
-> `--num-episodes 5` is a smoke run; use **100+** for a real policy. As with export, Isaac Sim may
-> hang ~1 min on exit *after* writing — `eval_metrics.json` is your confirmation.
+> ⚠️ Use **absolute `/workspace/toolchain/...` paths** — `isaaclab.sh` runs from `/workspace/isaaclab`,
+> so relative paths to repo scripts/files won't resolve. `--num-episodes 5` is a smoke run; use
+> **100+** for a real policy. Isaac Sim may hang ~1 min on exit *after* writing — `eval_metrics.json`
+> is your confirmation.
 
 <details>
 <summary>Advanced (optional): closed-loop eval over ZMQ</summary>
@@ -321,13 +324,13 @@ evaluation; it just shows the serving topology. Needs **two shells** in the cont
 
 ```bash
 # Shell 1 — policy server (binds tcp://127.0.0.1:5555, localhost only):
-python training/scripts/eval_policy_server.py \
-  --checkpoint ./model_exported/policy.pt --device cuda
+python /workspace/toolchain/training/scripts/eval_policy_server.py \
+  --checkpoint /workspace/toolchain/model_exported/policy.pt --device cuda
 
 # Shell 2 — sim client (boots Isaac Sim, so run via isaaclab.sh):
-/workspace/isaaclab/isaaclab.sh -p training/scripts/eval_sim_client.py \
+/workspace/isaaclab/isaaclab.sh -p /workspace/toolchain/training/scripts/eval_sim_client.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --endpoint tcp://127.0.0.1:5555 \
-  --eval-rounds 5 --output-dir ./eval_results
+  --eval-rounds 5 --output-dir /workspace/toolchain/eval_results
 ```
 
 Attach the second shell with `sudo docker exec -it $(sudo docker ps -q -l) bash`. Writes the same
