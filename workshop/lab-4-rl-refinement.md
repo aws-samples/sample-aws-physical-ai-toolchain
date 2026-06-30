@@ -17,7 +17,7 @@
 | 2 | Watch the SageMaker job | `pai rl status <name>` | status `InProgress` → `Completed` |
 | 3 | (Optional) full training | `pai rl launch --task Isaac-Velocity-Flat-Anymal-D-v0 --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
 | 3b | (Optional) scale out across nodes | SageMaker: add `--instance-count 2`. Batch: `pai rl launch --engine batch --num-nodes 2` | job launches across N nodes (multi-node NCCL **unvalidated**) |
-| 4 | Export + evaluate on the **Lab 2 workstation** | 4a: `play.py … --video --video_length 1` exports `policy.{pt,onnx}` + an MP4 and self-exits. 4b: `evaluate.py` scores it | `exported/policy.onnx` written; `eval_metrics.json` has `success_rate_pct` (validated on L40S) |
+| 4 | Export + evaluate + watch on the **Lab 2 workstation** | 4a: `play.py … --video --video_length 1` exports `policy.{pt,onnx}` + an MP4 and self-exits. 4b: `evaluate.py` scores it. 4c: `play.py` (no `--headless`) renders it live | `exported/policy.onnx` written; `eval_metrics.json` has `success_rate_pct` (validated on L40S) |
 | 5 | Ship the `.onnx` for edge | push `policy.onnx` to S3; the `.trt` engine is built **on the Jetson** in Lab 5 (not portable) | `policy.onnx` in S3 |
 
 **Before you start, confirm:**
@@ -239,8 +239,8 @@ onto a compute node) to inspect them.
 
 ## Step 4: Evaluate the Trained Policy
 
-Do **4a (export)** first, then **4b (eval)**. Both run inside the **`isaac-lab` container** on the
-Lab 2 workstation (see [Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container)).
+Do **4a (export)** first, then **4b (eval)**; **4c** lets you watch the policy run. All three run
+inside the **`isaac-lab` container** on the Lab 2 workstation (see [Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container)).
 The `pai` CLI isn't installed there, so the commands below call the scripts directly.
 
 > ✅ **Validated on L40S** — export + both eval paths ran 5 Anymal episodes end-to-end. On a
@@ -337,6 +337,28 @@ Attach the second shell with `sudo docker exec -it $(sudo docker ps -q -l) bash`
 `eval_metrics.json`. ([GR00T server/client reference](https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/policy/server_client.py).)
 
 </details>
+
+### Step 4c: Watch your policy run (visual)
+
+Metrics tell you *how well* the policy does; this lets you *watch* it. The same `play.py` from
+Step 4a, run **without** `--headless`/`--video`, opens a live render window and loops the policy
+forever so you can see the trained Anymal trot:
+
+```bash
+# Run from the DCV desktop (needs the X display — NOT via SSM):
+/workspace/isaaclab/isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/play.py \
+  --task Isaac-Velocity-Flat-Anymal-D-v0 \
+  --checkpoint /workspace/toolchain/logs/rsl_rl/anymal_d_flat/<timestamp>/model_49.pt \
+  --num_envs 50
+```
+
+> ⚠️ Pass the **raw `model_49.pt` checkpoint** (play.py rebuilds the runner from it), not the
+> exported `policy.pt`. First load takes ~2–3 min; `Ctrl+C` to quit. If the viewport looks empty,
+> scroll out — the robots spawn small relative to the default camera. `--num_envs 50` shows a grid
+> of robots; drop to `1` to watch a single one.
+
+Compare this to the untrained robots flailing at the start of training (Step 1) — the policy now
+holds a stable gait and tracks the commanded velocity. That contrast is the payoff of RL refinement.
 
 ---
 

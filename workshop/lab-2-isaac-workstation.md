@@ -338,11 +338,11 @@ docker run --gpus all \
 
 ## Policy Evaluation (come back here after Lab 4)
 
-Once you have a checkpoint from [Lab 4](lab-4-rl-refinement.md), you evaluate it **here** — export
-and eval both run in this workstation's `isaac-lab` container on the L40S GPU. The full walkthrough
-(fetch checkpoint → export → eval) lives in
+Once you have a checkpoint from [Lab 4](lab-4-rl-refinement.md), you evaluate it **here** — export,
+eval, and the live visual playback all run in this workstation's `isaac-lab` container on the L40S
+GPU. The full walkthrough (fetch checkpoint → export → eval → **watch it run**) lives in
 **[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy)**, next to the training
-that produced it.
+that produced it. Step 4c renders the trained policy live on this DCV desktop — the visual payoff of RL refinement.
 
 ---
 
