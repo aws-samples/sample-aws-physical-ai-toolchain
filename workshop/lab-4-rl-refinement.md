@@ -51,29 +51,13 @@ a GR00T model or any Lab 1 output.
 
 ---
 
-### Reuse Over Custom Code
+> 📘 **What's custom vs. NVIDIA's:** training (`rsl_rl/train.py`), export (`rsl_rl/play.py`), and
+> TensorRT (`trtexec`) are all NVIDIA's stock tools — this repo only adds a thin metrics aggregator
+> (`evaluate.py`) for the success rates Isaac Lab doesn't report, and the AWS wiring
+> (CodeBuild→ECR, SageMaker/Batch, CDK). The value here is *how it's wired*, not custom RL code.
 
-This lab demonstrates the **AWS-native pipeline blueprint** for Isaac Lab RL. The Python you'll
-run is mostly thin wrappers around NVIDIA's own tooling:
-
-- **Training:** NVIDIA's stock `rsl_rl/train.py` (shipped in Isaac Lab) runs the PPO loop; the
-  container entrypoint just parses SageMaker/Batch hyperparameters and invokes it.
-- **Export:** NVIDIA's stock `rsl_rl/play.py` auto-exports `policy.pt` + `policy.onnx` with the
-  observation normalizer correctly baked in ([Isaac Lab policy deployment docs](https://isaac-sim.github.io/IsaacLab/main/source/policy_deployment/index.html)).
-- **TensorRT:** NVIDIA's `trtexec` tool compiles ONNX → engine on the target device
-  ([trtexec docs](https://github.com/NVIDIA/TensorRT/blob/main/samples/trtexec/README.md)).
-- **Evaluation:** `play.py --video` (NVIDIA's documented path) both exports the policy *and* records
-  a playback MP4 — so Step 4a gives you the video for free. For success-rate metrics (which Isaac Lab
-  doesn't report), this repo adds a thin JSON aggregator (`evaluate.py`). An optional closed-loop ZMQ
-  split mirrors [GR00T's PolicyServer/PolicyClient](https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/policy/server_client.py)
-  (ZMQ REQ/REP on port 5555); on a real robot, the transport is ROS2/NITROS, not ZMQ.
-
-The value of this repo is **how it's wired** — CodeBuild→ECR container builds, SageMaker/Batch
-distributed training, CDK infrastructure-as-code — not custom RL code. Where NVIDIA ships a
-reference implementation, we use it.
-
-> **Prerequisites** are the runbook's "Before you start" checklist above (Foundation
-> deployed → `isaac-lab` image in ECR, GPU quota). See [Lab 0](lab-0-prerequisites.md) to set them up.
+> **Prerequisites:** the runbook's "Before you start" checklist (Foundation deployed → `isaac-lab`
+> image in ECR, GPU quota). See [Lab 0](lab-0-prerequisites.md).
 
 ---
 
@@ -255,149 +239,69 @@ onto a compute node) to inspect them.
 
 ## Step 4: Evaluate the Trained Policy
 
-> **Status: validated on GPU** (Lab 2 workstation, g6e.4xlarge / L40S). The native export
-> (play.py) and both eval paths ran 5 Anymal episodes end-to-end and wrote a `success_rate_pct`
-> JSON: the **closed-loop** policy server + sim client over ZMQ (4b, mirrors GR00T's
-> PolicyServer/PolicyClient pattern), and the **open-loop** `evaluate.py` (policy in-process).
-> Note: with a smoke-test policy (50 iters) the *success number is meaningless* — this validates
-> the eval **plumbing**, not policy quality. Do 4a (export) first, then 4b (eval).
+Do **4a (export)** first, then **4b (eval)**. Both run inside the **`isaac-lab` container** on the
+Lab 2 workstation (see [Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container)).
+The `pai` CLI isn't installed there, so the commands below call the scripts directly.
 
-**Where this runs:** inside the **`isaac-lab` container** on the Lab 2 workstation — the
-same environment you used for visual training. The `/workspace/toolchain` mount and the
-launcher are covered in
-[Lab 2 → "One environment for everything"](lab-2-isaac-workstation.md#one-environment-for-everything-the-isaac-lab-container).
+> ✅ **Validated on L40S** — export + both eval paths ran 5 Anymal episodes end-to-end. On a
+> 50-iter smoke policy the success *number* is meaningless; this proves the plumbing, not quality.
 
-To enter the container:
+Enter the container:
 
 ```bash
-# On the workstation host, launch the container:
 ~/run-isaac-lab.sh                      # prompt becomes /workspace/isaaclab#
-cd /workspace/toolchain                 # navigate to the mounted repo
+cd /workspace/toolchain                 # the mounted repo
 ```
 
-The export (4a) and the metrics eval (4b) each run in a single container shell. Only the *optional*
-closed-loop ZMQ variant (the collapsed "Advanced" block in 4b) needs **two shells in the same
-container** — if you try that one, attach a second shell with:
+### Step 4a: Export the policy
+
+> 📘 A raw training checkpoint isn't deployable on its own. NVIDIA's stock `play.py` is the
+> canonical exporter — it bakes the **observation normalizer** into `policy.pt` (TorchScript) +
+> `policy.onnx`. There's no separate export script; `play.py` exports on every run.
+
+**1. Pull the checkpoint from S3 — on the workstation HOST** (the container has no AWS CLI). The
+host repo `~/aws-physical-ai-toolchain` is mounted at `/workspace/toolchain`, so files extracted
+here appear in the container:
 
 ```bash
-# In a NEW host terminal, attach to the running container:
-sudo docker exec -it $(sudo docker ps -q -l) bash
-cd /workspace/toolchain
-
-# (If you have other containers running, target it explicitly:
-#  sudo docker ps   # find the physical-ai/isaac-lab row, then:
-#  sudo docker exec -it <CONTAINER_ID> bash)
-```
-
-The `pai` CLI is not installed on the workstation (it's the laptop-side control plane), so the
-commands below call the scripts directly.
-
-### Step 4a: Export the policy using Isaac Lab's native exporter
-
-> **Why use NVIDIA's native exporter:** Isaac Lab's stock `play.py` auto-exports both
-> `policy.pt` (TorchScript) and `policy.onnx` with the **observation normalizer correctly
-> baked in**. Reconstructing the normalizer from just a checkpoint is not possible (it lives
-> on the live runner object), so play.py is the canonical export path. This is the same exporter
-> used by NVIDIA's deployment docs.
->
-> Reference: [Isaac Lab Policy Deployment Docs](https://isaac-sim.github.io/IsaacLab/main/source/policy_deployment/index.html)
-
-**First, get the checkpoint onto the workstation.** The Lab 4 job wrote its output to S3 as a
-`model.tar.gz`; nothing pulls it down automatically, so copy and extract it into the repo tree.
-
-> ⚠️ **Run this on the workstation HOST, not inside the container** — the `isaac-lab` container
-> has no AWS CLI (`aws: command not found`). The host's `~/aws-physical-ai-toolchain` is
-> bind-mounted to `/workspace/toolchain` in the container, so anything you extract here appears
-> inside the container automatically. Use a host terminal (or `exit` the container, fetch, then
-> re-enter with `~/run-isaac-lab.sh`).
-
-```bash
-# On the workstation HOST, in the repo root:
 cd ~/aws-physical-ai-toolchain
 BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
 aws s3 cp "s3://$BUCKET/isaac-lab/output/<job-name>/output/model.tar.gz" .
-tar -xzf model.tar.gz          # extracts logs/rsl_rl/<task>/<timestamp>/model_<N>.pt
-ls logs/rsl_rl/*/*/model_*.pt  # MUST be under the repo (./logs), not ~/logs — the container only sees this tree
+tar -xzf model.tar.gz                       # → logs/rsl_rl/<task>/<timestamp>/model_<N>.pt
+ls logs/rsl_rl/*/*/model_*.pt               # confirm it's under ./logs (not ~/logs)
 ```
 
-**Verify the checkpoint landed in the mounted repo.** The extract must end up under
-`~/aws-physical-ai-toolchain/logs/` on the host — that's the **only** path the container sees
-(as `/workspace/toolchain/logs/`). If `tar` extracted elsewhere (e.g. into `~`), move it:
-`cp -r ~/logs/rsl_rl/* ~/aws-physical-ai-toolchain/logs/rsl_rl/`.
+> rsl_rl numbers iterations **from 0**, so a 50-iter run saves `model_49.pt`.
 
-rsl_rl nests the checkpoint under the task name and a run timestamp, and **numbers iterations
-from 0**, so a 50-iteration run saves `model_49.pt` (not `model_50.pt`). Confirm it from
-**inside the container** (where the export runs):
+**2. Export — inside the container.** `play.py` loads the checkpoint and writes
+`exported/policy.{pt,onnx}` + a playback MP4:
 
 ```bash
-ls /workspace/toolchain/logs/rsl_rl/*/*/model_*.pt
-# e.g. /workspace/toolchain/logs/rsl_rl/anymal_d_flat/2026-06-29_11-12-30/model_49.pt
-```
-
-**Export using Isaac Lab's native exporter** (NVIDIA's documented path). `play.py` boots the
-env, loads the checkpoint, exports `policy.pt` + `policy.onnx` with the normalizer baked in,
-and writes them to `<checkpoint_dir>/exported/`.
-
-> ⚠️ **Use the ABSOLUTE `/workspace/toolchain/...` path for `--checkpoint`.** `isaaclab.sh` runs
-> `play.py` from `/workspace/isaaclab`, so a bare `logs/...` resolves there (not the repo) and
-> fails with `Unable to find the file`. Always prefix `/workspace/toolchain/`.
-
-> 💡 **Pass `--video --video_length 1` so the script exits on its own.** `play.py` exports the
-> policy *before* its sim loop, then — without `--video` — runs that loop **forever** (the loop
-> only has an exit condition when `--video` is set, breaking after `video_length` steps). So plain
-> `play.py` leaves you staring at a "stuck" terminal you'd have to `Ctrl-C`. Adding `--video
-> --video_length 1` uses the script's *own* built-in exit, terminates cleanly right after the
-> export, and as a bonus writes the Step-4b-option-1 visualization MP4 in one shot. (`--video`
-> auto-enables the offscreen renderer, so it works under `--headless`.)
-
-```bash
-# Use the real absolute path from the ls above (note the 0-indexed filename):
 /workspace/isaaclab/isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/play.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 \
   --checkpoint /workspace/toolchain/logs/rsl_rl/anymal_d_flat/<timestamp>/model_49.pt \
   --num_envs 1 --headless --video --video_length 1
 ```
 
-This writes `policy.{pt,onnx}` to
-`/workspace/toolchain/logs/rsl_rl/anymal_d_flat/<timestamp>/exported/` and the MP4 to
-`.../videos/play/`. The process exits on its own once done (it may still pause ~1 min in Isaac
-Sim shutdown — that's after the files are written, so the artifacts, not a fast exit, are the
-success signal):
+> ⚠️ Use the **absolute** `/workspace/toolchain/...` checkpoint path — a bare `logs/...` resolves
+> against play.py's own dir and fails. `--video --video_length 1` makes play.py **exit on its own**
+> (without it the sim loops forever); it may still pause ~1 min in shutdown *after* writing — the
+> files, not a clean exit, are the success signal.
 
-```bash
-ls /workspace/toolchain/logs/rsl_rl/anymal_d_flat/<timestamp>/exported/   # policy.pt + policy.onnx
-```
-
-Then copy them to a stable location for Step 4b and Step 5:
+**3. Copy the artifacts** somewhere stable for Steps 4b/5:
 
 ```bash
 mkdir -p /workspace/toolchain/model_exported
 cp /workspace/toolchain/logs/rsl_rl/anymal_d_flat/<timestamp>/exported/policy.* \
    /workspace/toolchain/model_exported/
-ls /workspace/toolchain/model_exported/   # should show policy.pt and policy.onnx
+ls /workspace/toolchain/model_exported/     # policy.pt + policy.onnx
 ```
-
-> **This `play.py` command is the canonical export path** — and the *only* one NVIDIA ships.
-> Isaac Lab's exporter (`isaaclab_rl/rsl_rl/exporter.py`) is a **library with no CLI**; `play.py`
-> is the sole shipped script that calls it, and it exports on every run. There is no separate
-> "export script," and a raw rsl_rl checkpoint is **not** directly deployable — NVIDIA's own
-> inference tutorial loads the *exported* JIT (`torch.jit.load`), so this export step is required,
-> not optional. Export is **GPU-bound** (it boots Isaac Sim), so it runs here in the container —
-> never from the laptop or the `pai` CLI (which isn't installed on the workstation).
->
-> Reference: [Isaac Lab play.py source](https://github.com/isaac-sim/IsaacLab/blob/main/scripts/reinforcement_learning/rsl_rl/play.py)
-> · [exporter library](https://github.com/isaac-sim/IsaacLab/blob/main/source/isaaclab_rl/isaaclab_rl/rsl_rl/exporter.py)
-> · [standalone JIT inference tutorial](https://github.com/isaac-sim/IsaacLab/blob/main/scripts/tutorials/03_envs/policy_inference_in_usd.py)
->
-> <sub>(`training/scripts/export.py` is a thin convenience wrapper around this same command that can also chain an optional `trtexec` smoke check — not needed for the workshop.)</sub>
 
 ### Step 4b: Evaluate the policy
 
-> You **already saw the policy run** — Step 4a's `--video` wrote an MP4 to `.../videos/play/`.
-> This step adds the one thing `play.py` doesn't report: **quantitative success metrics**.
-
-Run `evaluate.py` — a thin metrics aggregator over the **native `policy.pt`** from Step 4a (it
-loads the exported policy, runs N episodes in-process, and tallies numbers play.py doesn't):
+Step 4a already gave you the playback MP4. `evaluate.py` adds the metrics play.py doesn't report —
+it loads the exported `policy.pt`, runs N episodes in-process, and writes `eval_metrics.json`
+(`success_rate_pct`, `avg_reward`, `avg_cycle_time_sec`, `failure_modes`):
 
 ```bash
 /workspace/isaaclab/isaaclab.sh -p training/scripts/evaluate.py \
@@ -405,40 +309,29 @@ loads the exported policy, runs N episodes in-process, and tallies numbers play.
   --checkpoint ./model_exported/policy.pt --num-episodes 5 --output-dir ./eval_results/
 ```
 
-Writes `eval_metrics.json` with `success_rate_pct`, `avg_reward`, `avg_cycle_time_sec`, and
-`failure_modes`. Policy inference is identical to play.py — this only adds the scoring. `--num-episodes 5`
-is a quick smoke run; bump it to **100+** when scoring a *real* trained policy.
-
-> ✅ **Validated on GPU** (L40S): ran 5 Anymal episodes in-process and wrote the JSON.
-> (With a smoke-test policy the number is meaningless; this validates plumbing.) On exit, Isaac
-> Sim may **hang for a minute in `simulation_app.close()` after the metrics file is already
-> written** — that's a known shutdown quirk, not a failure; `eval_metrics.json` is your confirmation.
+> `--num-episodes 5` is a smoke run; use **100+** for a real policy. As with export, Isaac Sim may
+> hang ~1 min on exit *after* writing — `eval_metrics.json` is your confirmation.
 
 <details>
-<summary>Advanced (optional): closed-loop eval over ZMQ — mirrors real-robot serving</summary>
+<summary>Advanced (optional): closed-loop eval over ZMQ</summary>
 
-The eval above runs the policy **in-process** (simplest, NVIDIA's documented path for built-in RL).
-For a deployment-representative test, this repo also ships a **closed-loop** variant that splits the
-policy and simulator into two processes over ZMQ (port 5555) — the same client/server split NVIDIA
-GR00T uses to serve a policy to a real robot. You don't need this to evaluate a policy; it exists to
-show the serving topology. (On a real robot the transport is ROS2/NITROS, not ZMQ.)
-
-Run it with both container shells at `/workspace/toolchain`:
+A deployment-representative variant that splits policy and simulator into two processes over ZMQ
+(port 5555) — the same client/server split NVIDIA GR00T uses to serve a real robot. Not needed for
+evaluation; it just shows the serving topology. Needs **two shells** in the container:
 
 ```bash
-# Shell 1 — policy server (binds tcp://127.0.0.1:5555, localhost only — ZMQ has no auth):
+# Shell 1 — policy server (binds tcp://127.0.0.1:5555, localhost only):
 python training/scripts/eval_policy_server.py \
   --checkpoint ./model_exported/policy.pt --device cuda
 
-# Shell 2 — sim client (boots Isaac Sim, so run via isaaclab.sh, not bare python):
+# Shell 2 — sim client (boots Isaac Sim, so run via isaaclab.sh):
 /workspace/isaaclab/isaaclab.sh -p training/scripts/eval_sim_client.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --endpoint tcp://127.0.0.1:5555 \
   --eval-rounds 5 --output-dir ./eval_results
 ```
 
-It writes the same `eval_metrics.json` as the in-process path.
-> ✅ **Validated on GPU** (L40S): ran 5 Anymal episodes over ZMQ and wrote `success_rate_pct` JSON.
-> Reference: [GR00T PolicyServer/PolicyClient](https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/policy/server_client.py)
+Attach the second shell with `sudo docker exec -it $(sudo docker ps -q -l) bash`. Writes the same
+`eval_metrics.json`. ([GR00T server/client reference](https://github.com/NVIDIA/Isaac-GR00T/blob/main/gr00t/policy/server_client.py).)
 
 </details>
 
@@ -446,36 +339,15 @@ It writes the same `eval_metrics.json` as the in-process path.
 
 ## Step 5: Ship the policy for edge deployment
 
-> **This is not a second export.** Step 4a already produced your deployable artifact —
-> `policy.onnx`. This step just (a) pushes it to S3 and (b) explains where the TensorRT engine
-> gets built. There's nothing to re-export.
+Your deployable artifact is the `policy.onnx` from Step 4a — there's nothing to re-export here.
+Just push it to S3 for Lab 5 (Greengrass → Jetson).
 
-The `.onnx` is the portable, ship-anywhere artifact. The TensorRT engine (`.trt`) is **compiled
-from it on the Jetson itself**, in Lab 5 — *not* here:
+> 📘 The TensorRT engine (`.trt`) is **not portable** across GPUs, so it's compiled *on the Jetson*
+> in Lab 5 (`trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16`), not here. Ship the `.onnx`.
 
-> **Why not build the `.trt` now?** TensorRT engines are **not portable** — one built on the L40S
-> workstation cannot run on a Jetson Orin (different GPU arch + TRT version). So you ship the
-> `.onnx` and compile on-device. That on-device `trtexec --onnx=policy.onnx --saveEngine=policy.trt
-> --fp16` step belongs to **[Lab 5](lab-5-edge-deployment.md)**, where the Jetson is in the loop.
->
-> Reference: [TensorRT Quick Start Guide](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/quick-start-guide.html)
-
-> ✅ **Validated on GPU** (L40S, in the `isaac-lab` container, 2026-06-30): the `play.py`
-> export runs end-to-end and writes `policy.onnx` + `policy.pt` **with the observation
-> normalizer baked in** (the native, correct path).
-> ⚠️ The `trtexec` binary is **not** in the `isaac-lab` container (only the TensorRT python
-> bindings are) — another reason the engine build is an on-device (Jetson) step, not a workstation
-> one. **Inference throughput is UNMEASURED** — treat any Hz claim as unvalidated until measured
-> on the target.
-
-**Push the `.onnx` to S3** so Lab 5 (Greengrass → Jetson) can pull it.
-
-> ⚠️ **Run this on the workstation HOST, not inside the container** (no AWS CLI in the container).
-> The export wrote `policy.onnx` into the mounted tree, so it's visible host-side at
-> `~/aws-physical-ai-toolchain/model_exported/`.
+**On the workstation HOST** (no AWS CLI in the container; the export wrote into the mounted tree):
 
 ```bash
-# On the workstation HOST, in the repo root:
 cd ~/aws-physical-ai-toolchain
 BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
 aws s3 cp ./model_exported/policy.onnx "s3://$BUCKET/isaac-lab/exported/policy.onnx"

@@ -54,12 +54,10 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 5. Once it works visually → launch headless training at scale on SageMaker (Lab 4)
 6. Stop instance when done
 
-> **Alternative: Isaac Automator.** NVIDIA provides [Isaac Automator](https://github.com/isaac-sim/IsaacAutomator),
-> which deploys an Isaac Sim workstation on AWS/Azure/GCP with their own Terraform/scripts. This lab's
-> value-add is the **AWS-native CDK integration** — the workstation is one stack in a larger blueprint
-> that wires SageMaker training, Batch MNP, ECR container builds, and the full pipeline. Use Automator
-> if you only need a standalone Isaac Sim box; use this lab if you're building the end-to-end AWS
-> reference architecture.
+> **Alternative:** NVIDIA's [Isaac Automator](https://github.com/isaac-sim/IsaacAutomator) deploys a
+> standalone Isaac Sim box on AWS/Azure/GCP. Use it if that's all you need; use this lab for the
+> AWS-native CDK integration (the workstation is one stack in a blueprint that also wires SageMaker,
+> Batch MNP, and ECR builds).
 
 ---
 
@@ -210,37 +208,22 @@ cd ~/aws-physical-ai-toolchain
 
 ### One environment for everything: the `isaac-lab` container
 
-All GPU work on this workstation — visual training, interactive iteration, and policy
-eval — runs **inside the `isaac-lab` Docker container**. This is the *same image*
-SageMaker and AWS Batch run in Lab 4 (Isaac Sim 4.5.0 + Isaac Lab v2.1.0), so there's
-**one consistent environment** end to end: what you see render here is exactly what
-trains at scale. The container ships Isaac Lab 2.x, so this repo's envs and eval scripts
-import the `isaaclab` / `isaaclab_tasks` packages (the older `omni.isaac.lab.*` namespace
-was renamed in 2.x; the scripts keep a try/except fallback for 1.x). (The Marketplace AMI's
-*native* Isaac Sim is used only for the standalone GUI in Step 3; RL goes through the container.)
+All GPU work here — visual training, iteration, policy eval — runs **inside the `isaac-lab`
+container**, the *same image* SageMaker and AWS Batch run in Lab 4 (Isaac Sim 4.5.0 + Isaac Lab
+2.1.0). What you see render here is exactly what trains at scale. (The Marketplace AMI's native
+Isaac Sim is only for the standalone GUI in Step 3; RL goes through the container.)
 
-The bootstrap pre-pulls the image and drops a launcher that wires up GPU + GUI
-passthrough to your DCV desktop:
+The bootstrap pre-pulls the image and drops a launcher that wires up GPU + GUI passthrough:
 
 ```bash
-# Launch the container with a render window on the DCV desktop, land in a shell:
 ~/run-isaac-lab.sh
-# (prompt becomes /workspace/isaaclab# — you are now inside the container)
+# prompt becomes /workspace/isaaclab# — you're inside the container
 ```
 
-> **What `~/run-isaac-lab.sh` does:** It's a thin wrapper around NVIDIA's documented Isaac Sim
-> container launch recipe (`docker run --gpus all -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix`
-> + `xhost +` for X11 GUI passthrough). The only additions are mounting the repo working tree
-> and Isaac cache directories (for fast reboots and edit-on-host/run-in-container). The env vars
-> `ACCEPT_EULA=Y` and `PRIVACY_CONSENT=Y` are the documented Isaac Sim container settings — this
-> is the correct/required configuration.
-
-> ✅ **GUI passthrough validated on this AMI** (g6e.4xlarge / L40S, driver 580): the
-> container's RTX/Vulkan renderer initializes against the DCV display and an Anymal RL
-> task trains to completion. A non-fatal `Warp CUDA error: cuDeviceGetUuid` may print on
-> boot (container CUDA vs. host driver) — the sim runs through it. The **first** GUI boot
-> is slow (~5 min: extension sync + shader compile); the launcher mounts persistent cache
-> dirs so later boots are much faster.
+> ✅ **GUI passthrough validated** (g6e.4xlarge / L40S, driver 580): RTX/Vulkan renders to the DCV
+> display and an Anymal task trains to completion. A non-fatal `Warp CUDA error: cuDeviceGetUuid`
+> may print on boot — ignore it. **First** GUI boot is slow (~5 min: extension sync + shader
+> compile); cached dirs make later boots fast.
 
 Inside the container, run the built-in Anymal task and watch it render — a few hundred
 iterations is plenty to confirm the workstation is healthy:
@@ -331,21 +314,9 @@ aws ec2 describe-instances --instance-ids $INSTANCE_ID \
 
 ## Running the Container Exactly as SageMaker Does (parity check)
 
-Step 4 launches the `isaac-lab` container *interactively* with GUI passthrough so you
-can watch training render. This section runs the **same image** through its `train`
-entrypoint **non-interactively** — exactly how SageMaker/Batch invoke it in Lab 4 — so
-you can reproduce a job's behavior locally before launching at scale. Same container,
-different entrypoint; no GUI.
-
-> The image is `physical-ai/isaac-lab:latest`, built by **CodeBuild into your ECR when
-> you deploy the Foundation stack**. This works only **after** Foundation is deployed in
-> *this* account/region and the build has finished. If not, the `docker pull` returns
-> `not found` — finish Lab 1 (or deploy Foundation) first. (The workstation bootstrap
-> pre-pulls it best-effort and logs a non-fatal "image not in ECR yet" if it's missing.)
-
-Pull the CodeBuild-built image from *your* ECR and run it as SageMaker would, without
-waiting for SageMaker provisioning. The registry is derived from your own
-account/region, so nothing is hardcoded:
+Optional: run the **same image** through its `train` entrypoint non-interactively — exactly how
+SageMaker/Batch invoke it in Lab 4 — to reproduce a job locally before scaling out. Needs Foundation
+deployed so `physical-ai/isaac-lab:latest` is in your ECR (else `docker pull` returns `not found`).
 
 ```bash
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -353,43 +324,25 @@ REGION=$(aws configure get region)
 ECR_REGISTRY="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 IMAGE="$ECR_REGISTRY/physical-ai/isaac-lab:latest"
 
-# Pull the Isaac Lab training container from ECR (built for you by CodeBuild)
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 docker pull "$IMAGE"
 
-# Run it like SageMaker would (simulating the training invocation)
+# Run it like SageMaker would
 docker run --gpus all \
   -v /tmp/test-output:/opt/ml/model \
   -v /tmp/test-config:/opt/ml/input/config \
-  "$IMAGE" \
-  train
+  "$IMAGE" train
 ```
-
-This is the fastest iteration loop for container issues. If you change the
-Dockerfile, you can rebuild in the cloud (`aws codebuild start-build
---project-name physical-ai-isaac-lab-build`) or, on this x86 workstation, build
-locally and push to ECR yourself.
 
 ---
 
-## Closed-Loop Policy Evaluation (come back here after Lab 4)
+## Policy Evaluation (come back here after Lab 4)
 
-> **This is a *post-Lab-4* step — it needs a policy you've already trained.** Come back to
-> this workstation *after* you have a checkpoint from [Lab 4](lab-4-rl-refinement.md). It's
-> here (not in Lab 4) because evaluating a policy means **visually driving the simulator on
-> the L40S GPU** — exactly what this workstation is for.
-
-The evaluator splits the policy and simulator into two processes — a **policy server** and a
-**sim client** that drives Isaac Lab — mirroring how the policy is served on the robot
-(Lab 5). You watch the trained policy actually attempt the task in the DCV viewport. Both run
-in the **same `isaac-lab` container** you launched above, in two shells.
-
-The full walkthrough — fetching the checkpoint from S3, exporting it with Isaac Lab's native
-exporter, and the two-shell commands — lives in
-**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy)**,
-so it sits next to the training that produced the checkpoint. (Closed-loop eval is
-**validated on this L40S workstation** — it ran 5 Anymal episodes end-to-end and wrote a
-`success_rate_pct` JSON; see that step's note.)
+Once you have a checkpoint from [Lab 4](lab-4-rl-refinement.md), you evaluate it **here** — export
+and eval both run in this workstation's `isaac-lab` container on the L40S GPU. The full walkthrough
+(fetch checkpoint → export → eval) lives in
+**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy)**, next to the training
+that produced it.
 
 ---
 
