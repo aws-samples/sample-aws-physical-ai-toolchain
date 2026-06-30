@@ -94,7 +94,12 @@ def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name
             "Set ISAACLAB_PATH environment variable if installed elsewhere."
         )
 
-    # Shell out to play.py (headless, exports to <ckpt_dir>/exported/)
+    # Shell out to play.py (headless, exports to <ckpt_dir>/exported/).
+    # play.py exports BEFORE its sim loop, and that loop only has an exit condition when
+    # --video is set (it breaks after --video_length steps). Without --video the loop runs
+    # forever, so we'd rely on the timeout below to kill it. Passing --video --video_length 1
+    # uses play.py's OWN built-in exit so it terminates cleanly right after the export
+    # (--video auto-enables the offscreen renderer, so it still works under --headless).
     cmd = [
         str(isaaclab_root / "isaaclab.sh"),
         "-p",
@@ -103,6 +108,8 @@ def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name
         f"--checkpoint={ckpt_path}",
         "--num_envs=1",
         "--headless",
+        "--video",
+        "--video_length=1",
     ]
 
     print(f"  Running: {' '.join(cmd)}")
