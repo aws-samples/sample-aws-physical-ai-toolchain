@@ -7,7 +7,7 @@ credentials, GPU, or robot needed — AWS clients are stubbed (`conftest.py`), s
 ## Run
 
 ```bash
-pip install -r tests/requirements.txt   # pytest, pyyaml, torch (for the scriptify round-trip)
+pip install -r tests/requirements.txt   # pytest, pyyaml, torch
 pytest tests/ -q
 ```
 
@@ -15,7 +15,6 @@ pytest tests/ -q
 
 | File | What it checks |
 |------|----------------|
-| `test_scriptify_policy.py` | Full round-trip: rsl_rl checkpoint → TorchScript → `torch.jit.load` → forward (the export path). |
 | `test_env_registration.py` | `training.envs` imports on a bare box; `PickAndPlaceUR3-v0` registers when gymnasium is present. |
 | `test_dry_runs.py` | `launch_rl.py`, `cosmos_setup.py` (launch/generate), `cosmos3_generate.py`, and the edge scripts produce valid `--dry-run` output and make no real AWS calls. |
 | `test_repo_hygiene.py` | Buildspecs are valid YAML; no merge-conflict markers; no hardcoded AWS account in runnable code. |

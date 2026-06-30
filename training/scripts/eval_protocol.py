@@ -1,8 +1,13 @@
 """Closed-loop evaluation protocol: message encoding + transport abstraction.
 
+Mirrors NVIDIA GR00T's PolicyServer/PolicyClient pattern (ZMQ REQ/REP on port 5555).
 Defines the wire format for policy server ↔ sim client communication and provides
 both a ZMQ socket transport (for real eval on Lab 2 workstation) and an in-process
 transport (for laptop/CI tests that have no GPU/sockets).
+
+NOTE: For built-in RL, in-process evaluation via `play.py` is the simpler documented
+path. On a real robot, the transport is ROS2/NITROS, not ZMQ. This ZMQ pattern is a
+teaching example that aligns with GR00T's architecture.
 
 Message schema v1: JSON body (obs/action are float arrays). ~150KB/msg for 12308-dim
 obs is acceptable for episodic eval (not real-time edge inference — swap to msgpack

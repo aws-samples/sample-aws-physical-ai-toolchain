@@ -70,26 +70,22 @@ Take the RL-refined model from Lab 4 and deploy it to the edge (NVIDIA Jetson) w
 > hardware steps as the documented procedure, not a validated result. Every script
 > supports `--dry-run` so you can preview the exact AWS calls without a robot.
 
-### Step 1: Export Model to TensorRT
+### Step 1: Export the Model (ONNX) and build the engine on the Jetson
+
+Export is done in **Lab 4 Step 5** using Isaac Lab's native exporter (which drives NVIDIA's
+stock `play.py` and bakes in the observation normalizer), producing `policy.onnx`. **Ship the
+`.onnx`** — TensorRT engines are NOT portable across GPU architectures / TRT versions, so the
+`.trt` engine must be built **on the Jetson Orin itself**:
+
 ```bash
-# export.py loads a TorchScript checkpoint and writes ONNX + a TensorRT engine.
-python training/scripts/export.py \
-  --checkpoint ./model_exported/policy.pt \
-  --output-onnx ./model_exported/policy.onnx \
-  --output-trt ./model_exported/policy.trt \
-  --target-device jetson-orin \
-  --fp16
+# On the Jetson Orin (NOT the workstation) — trtexec ships with the inference image:
+trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16
 ```
 
-> **TorchScript first:** `export.py` uses `torch.jit.load`, so `--checkpoint` must be
-> a **TorchScript** model. RL jobs save plain `model_*.pt` checkpoints, so convert first:
-> ```bash
-> python training/scripts/scriptify_policy.py \
->   --checkpoint model_49.pt --output policy.pt
-> # Dims are auto-inferred from the checkpoint (Anymal → obs=48 action=12).
-> # Use --inspect first to print the actor layer shapes without converting.
-> ```
-> Then pass `policy.pt` to `export.py --checkpoint`.
+> **Where the `.onnx` comes from:** Lab 4 Step 5 exports it via `pai export` /
+> `training/scripts/export.py`, a thin wrapper around NVIDIA's `play.py`. See
+> [Lab 4 → Step 5](lab-4-rl-refinement.md#step-5-export-to-tensorrt). The old custom
+> `scriptify_policy.py` path has been removed in favor of the native exporter.
 
 ### Step 2: Get the Inference Container
 

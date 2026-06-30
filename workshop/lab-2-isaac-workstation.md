@@ -19,8 +19,8 @@
 | 4 | Connect via browser | open `https://<IP>:8443` | DCV login → Ubuntu desktop renders |
 | 5 | Launch Isaac Sim (visual) | `~/run-isaac-sim-gui.sh` | 3D viewport opens |
 | 6a | Enter the training container | `~/run-isaac-lab.sh` | prompt changes to `/workspace/isaaclab#` (you're now inside the container) |
-| 6b | Start visual RL training (run *inside* the container) | `./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0` | render window + training logs steps/s |
-| 7 | (Optional) Closed-loop policy eval | inside the same container: `eval_policy_server.py` + `eval_sim_client.py` (two shells) | prints `success_rate` JSON (**unvalidated on GPU**) |
+| 6b | Start visual RL training (run *inside* the container) | `./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py --task Isaac-Velocity-Flat-Anymal-D-v0` | render window + training logs steps/s |
+| 7 | (Optional) Closed-loop policy eval | inside the same container: `eval_policy_server.py` + `eval_sim_client.py` (two shells) | writes `success_rate_pct` JSON (validated on L40S) |
 | 8 | **Stop the instance** | `pai workstation stop` | state → `stopped` (billing halts) |
 
 > **What is `~/run-isaac-lab.sh`?** It's a helper script the workstation set up for you. It starts the `isaac-lab` Docker container (the same image SageMaker trains in) and drops you into a shell *inside* it — your prompt becomes `/workspace/isaaclab#`. Every `./isaaclab.sh …` command in this lab is typed **inside that container**, not on the host. Type `exit` to leave the container.
@@ -53,6 +53,13 @@ The Isaac Sim workstation gives you a full visual desktop with GPU rendering, co
 4. Iterate on your RL environment visually — see the robot, tweak rewards, fix bugs
 5. Once it works visually → launch headless training at scale on SageMaker (Lab 4)
 6. Stop instance when done
+
+> **Alternative: Isaac Automator.** NVIDIA provides [Isaac Automator](https://github.com/isaac-sim/IsaacAutomator),
+> which deploys an Isaac Sim workstation on AWS/Azure/GCP with their own Terraform/scripts. This lab's
+> value-add is the **AWS-native CDK integration** — the workstation is one stack in a larger blueprint
+> that wires SageMaker training, Batch MNP, ECR container builds, and the full pipeline. Use Automator
+> if you only need a standalone Isaac Sim box; use this lab if you're building the end-to-end AWS
+> reference architecture.
 
 ---
 
@@ -207,9 +214,10 @@ All GPU work on this workstation — visual training, interactive iteration, and
 eval — runs **inside the `isaac-lab` Docker container**. This is the *same image*
 SageMaker and AWS Batch run in Lab 4 (Isaac Sim 4.5.0 + Isaac Lab v2.1.0), so there's
 **one consistent environment** end to end: what you see render here is exactly what
-trains at scale. The container also carries the `omni.isaac.lab.*` packages this repo's
-envs and eval scripts import. (The Marketplace AMI's *native* Isaac Sim is used only for
-the standalone GUI in Step 3; RL goes through the container.)
+trains at scale. The container ships Isaac Lab 2.x, so this repo's envs and eval scripts
+import the `isaaclab` / `isaaclab_tasks` packages (the older `omni.isaac.lab.*` namespace
+was renamed in 2.x; the scripts keep a try/except fallback for 1.x). (The Marketplace AMI's
+*native* Isaac Sim is used only for the standalone GUI in Step 3; RL goes through the container.)
 
 The bootstrap pre-pulls the image and drops a launcher that wires up GPU + GUI
 passthrough to your DCV desktop:
@@ -219,6 +227,13 @@ passthrough to your DCV desktop:
 ~/run-isaac-lab.sh
 # (prompt becomes /workspace/isaaclab# — you are now inside the container)
 ```
+
+> **What `~/run-isaac-lab.sh` does:** It's a thin wrapper around NVIDIA's documented Isaac Sim
+> container launch recipe (`docker run --gpus all -e DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix`
+> + `xhost +` for X11 GUI passthrough). The only additions are mounting the repo working tree
+> and Isaac cache directories (for fast reboots and edit-on-host/run-in-container). The env vars
+> `ACCEPT_EULA=Y` and `PRIVACY_CONSENT=Y` are the documented Isaac Sim container settings — this
+> is the correct/required configuration.
 
 > ✅ **GUI passthrough validated on this AMI** (g6e.4xlarge / L40S, driver 580): the
 > container's RTX/Vulkan renderer initializes against the DCV display and an Anymal RL
@@ -232,11 +247,11 @@ iterations is plenty to confirm the workstation is healthy:
 
 ```bash
 # Visual (render window opens on the DCV desktop):
-./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096
 
 # Headless (faster, no window) — same task, just no render:
-./isaaclab.sh -p scripts/reinforcement_learning/skrl/train.py \
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096 --headless
 ```
 
@@ -369,11 +384,12 @@ The evaluator splits the policy and simulator into two processes — a **policy 
 (Lab 5). You watch the trained policy actually attempt the task in the DCV viewport. Both run
 in the **same `isaac-lab` container** you launched above, in two shells.
 
-The full walkthrough — fetching the checkpoint from S3, scriptifying it, and the two-shell
-commands — lives in
-**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy-closed-loop)**,
+The full walkthrough — fetching the checkpoint from S3, exporting it with Isaac Lab's native
+exporter, and the two-shell commands — lives in
+**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy)**,
 so it sits next to the training that produced the checkpoint. (Closed-loop eval is
-**unvalidated on GPU** — see that step's note.)
+**validated on this L40S workstation** — it ran 5 Anymal episodes end-to-end and wrote a
+`success_rate_pct` JSON; see that step's note.)
 
 ---
 

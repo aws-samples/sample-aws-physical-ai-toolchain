@@ -1,8 +1,10 @@
 """Closed-loop policy server: loads TorchScript checkpoint, serves actions via ZMQ.
 
-Runs on the Lab 2 workstation (g6e.4xlarge L40S). Loops forever: recv obs → forward
-policy → send action. Expects a TorchScript checkpoint (scriptified via export.py);
-loudly rejects raw rsl_rl .pt files (tell user to scriptify first).
+Mirrors NVIDIA GR00T's PolicyServer pattern (ZMQ REQ/REP on port 5555). Runs on the
+Lab 2 workstation (g6e.4xlarge L40S). Loops forever: recv obs → forward policy → send action.
+
+Expects a TorchScript checkpoint (native `policy.pt` from Isaac Lab's exporter, which
+bakes in the observation normalizer). Loudly rejects raw rsl_rl .pt files.
 
 SECURITY: ZMQ has no authentication. The default bind address is localhost only.
 If you bind to a non-localhost address, ensure the policy server is behind a firewall
@@ -10,9 +12,9 @@ or accessed via SSH tunnel. The checkpoint must come from a trusted source (torc
 can execute code from a malicious .pt).
 
 Usage:
-    python eval_policy_server.py --checkpoint s3://bucket/model_scripted.pt
-    python eval_policy_server.py --checkpoint ./model_scripted.pt --device cuda
-    python eval_policy_server.py --checkpoint ./model.pt --endpoint tcp://127.0.0.1:5555
+    python eval_policy_server.py --checkpoint logs/.../exported/policy.pt
+    python eval_policy_server.py --checkpoint s3://bucket/policy.pt --device cuda
+    python eval_policy_server.py --checkpoint ./policy.pt --endpoint tcp://127.0.0.1:5555
 """
 import argparse
 import atexit
@@ -51,12 +53,12 @@ def resolve_checkpoint(checkpoint: str) -> str:
 
 
 def load_policy(checkpoint_path: str, device: str) -> torch.jit.ScriptModule:
-    """Load TorchScript policy. Fails loudly if given a raw .pt.
+    """Load native TorchScript policy (normalizer baked in). Fails loudly if given a raw .pt.
 
     WARNING: torch.jit.load can execute code from the checkpoint. Only load checkpoints
     from trusted sources (your own training output in a private S3 bucket).
     """
-    print(f"  Loading policy from {checkpoint_path}")
+    print(f"  Loading native policy from {checkpoint_path}")
     print("  ⚠️  Ensure checkpoint is from a trusted/private S3 bucket (torch.jit.load can execute code)")
     try:
         policy = torch.jit.load(checkpoint_path, map_location=device)
@@ -65,17 +67,17 @@ def load_policy(checkpoint_path: str, device: str) -> torch.jit.ScriptModule:
         if "PytorchStreamReader" in str(e) or "is not a zip" in str(e):
             print(
                 "\n❌ ERROR: Checkpoint is NOT a TorchScript model.\n"
-                "You provided a raw .pt checkpoint (likely from rl_games).\n"
-                "You must scriptify it first:\n"
-                "  python training/scripts/export.py --checkpoint <your-checkpoint.pt> \\\n"
-                "    --output-onnx model.onnx --output-trt model.trt\n"
-                "This creates a TorchScript model you can load here.\n",
+                "You provided a raw rsl_rl .pt checkpoint (state dict, not JIT).\n"
+                "Export it first with Isaac Lab's native exporter:\n"
+                "  python IsaacLab/scripts/reinforcement_learning/rsl_rl/play.py \\\n"
+                "         --task=<task> --checkpoint=logs/.../model_1000.pt\n"
+                "This writes logs/.../exported/policy.pt (TorchScript with normalizer).\n",
                 file=sys.stderr,
             )
             sys.exit(1)
         raise
     policy.eval()
-    print(f"  Policy loaded on {device}")
+    print(f"  Native policy loaded on {device} (normalizer in-graph)")
     return policy
 
 
@@ -145,10 +147,15 @@ def serve(checkpoint, endpoint, device):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Closed-loop policy server (ZMQ REP)")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path or s3:// URI to TorchScript checkpoint")
-    parser.add_argument("--endpoint", type=str, default="tcp://127.0.0.1:5555", help="ZMQ bind endpoint (default: localhost only)")
-    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu", help="Inference device")
+    parser = argparse.ArgumentParser(
+        description="Closed-loop policy server (ZMQ REP) — mirrors GR00T PolicyServer"
+    )
+    parser.add_argument("--checkpoint", type=str, required=True,
+                        help="Path or s3:// URI to native TorchScript policy.pt (with normalizer)")
+    parser.add_argument("--endpoint", type=str, default="tcp://127.0.0.1:5555",
+                        help="ZMQ bind endpoint (default: localhost only)")
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu",
+                        help="Inference device")
     args = parser.parse_args()
 
     serve(args.checkpoint, args.endpoint, args.device)

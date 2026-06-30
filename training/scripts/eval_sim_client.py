@@ -1,15 +1,21 @@
 """Closed-loop sim client: drives Isaac Lab env with actions from policy server.
 
-Lazy-imports isaacsim/Isaac Lab INSIDE functions (so importing this module on a
-laptop doesn't crash). Runs on the Lab 2 workstation (g6e.4xlarge L40S).
+Mirrors NVIDIA GR00T's PolicyClient pattern (ZMQ REQ/REP on port 5555). Lazy-imports
+isaacsim/Isaac Lab INSIDE functions (so importing this module on a laptop doesn't crash).
+Runs on the Lab 2 workstation (g6e.4xlarge L40S).
 
 Per eval round: reset env → loop {obs → transport.send → action → step} until
 term/trunc → record success. Success detection fallback: prefer info['success'],
 else terminated and not truncated, else object-height probe if exposed.
 
+The policy server loads a native TorchScript policy.pt (from Isaac Lab's exporter,
+with normalizer baked in). This client sends unnormalized observations; the server's
+policy handles normalization in-graph.
+
 Usage:
-    python eval_sim_client.py --task PickAndPlaceUR3-v0 --endpoint tcp://localhost:5555 \
-      --eval-rounds 100 --output-dir ./eval_results
+    python eval_sim_client.py --task Isaac-Velocity-Flat-Anymal-D-v0 \
+                               --endpoint tcp://localhost:5555 \
+                               --eval-rounds 100 --output-dir ./eval_results
 """
 import argparse
 import json
@@ -25,21 +31,41 @@ def _lazy_imports():
     """Lazy-import Isaac Lab deps (GPU-only). Call inside functions that need them."""
     # This is invoked ONLY when running eval (not at module-import time), so a
     # laptop with no isaacsim can still import eval_sim_client.py for tests.
+    #
+    # IMPORTANT: bootstrap Isaac via Isaac Lab's AppLauncher, NOT a raw
+    # SimulationApp({...}). AppLauncher populates the nucleus asset-root setting
+    # (/persistent/isaac/asset_root/cloud) that Isaac Lab's task configs read to
+    # locate robot USDs. A raw SimulationApp leaves it unset, so ISAACLAB_NUCLEUS_DIR
+    # resolves to the literal string "None" and env creation fails with
+    # "USD file not found at path: 'None/Isaac/IsaacLab/.../anymal_d.usd'".
+    # This matches how Lab 2's validated `./isaaclab.sh -p .../train.py` boots.
     try:
-        from isaacsim import SimulationApp
+        import argparse as _argparse
+
+        from isaaclab.app import AppLauncher
     except ImportError as e:
         print(
-            "❌ ERROR: Isaac Sim not found. This script requires Isaac Lab on a GPU.\n"
-            "Run this on the Lab 2 workstation (g6e.4xlarge).",
+            "❌ ERROR: Isaac Lab not found. This script requires Isaac Lab on a GPU.\n"
+            "Run this on the Lab 2 workstation (g6e.4xlarge) via isaaclab.sh -p.",
             file=sys.stderr,
         )
         raise e
 
-    # Enable headless (no GUI, no rendering)
-    simulation_app = SimulationApp({"headless": True, "enable_livestream": False})
+    # Headless launch through AppLauncher (no GUI, no rendering).
+    _p = _argparse.ArgumentParser()
+    AppLauncher.add_app_launcher_args(_p)
+    _app_args, _ = _p.parse_known_args([])
+    _app_args.headless = True
+    app_launcher = AppLauncher(_app_args)
+    simulation_app = app_launcher.app
 
     import gymnasium as gym
-    import omni.isaac.lab_tasks  # noqa: F401 — registers built-in envs
+    # Isaac Lab 2.x renamed this package `isaaclab_tasks` (was `omni.isaac.lab_tasks`
+    # in 1.x). Import whichever the container ships — both just register built-in envs.
+    try:
+        import isaaclab_tasks  # noqa: F401 — Isaac Lab 2.x
+    except ImportError:
+        import omni.isaac.lab_tasks  # noqa: F401 — Isaac Lab 1.x fallback
 
     # Register custom UR3 env
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -62,7 +88,18 @@ def _flatten_obs(obs: Any) -> np.ndarray:
     but are untested on a real GPU run. If a key is missing, a warning is logged.
     """
     if isinstance(obs, dict):
-        # Dict obs: flatten in export.py order (matches pick_and_place_ur3.py)
+        # Standard Isaac Lab manager-based envs (e.g. Anymal) nest the actor
+        # observation under a "policy" group — already concatenated to the
+        # policy's input dim (48 for Anymal). Use it directly when present.
+        if "policy" in obs:
+            val = obs["policy"]
+            arr = np.array(val.cpu() if hasattr(val, "cpu") else val)
+            if arr.ndim > 1:
+                arr = arr[0]  # single env from the vectorized batch
+            return arr.flatten()
+
+        # UR3 pick-and-place dict obs: flatten in export.py order
+        # (matches pick_and_place_ur3.py ObservationTermCfg names). UNVALIDATED.
         expected_keys = ["joint_pos", "joint_vel", "gripper_state", "object_pos_relative", "wrist_camera"]
         parts = []
         for key in expected_keys:
@@ -75,7 +112,13 @@ def _flatten_obs(obs: Any) -> np.ndarray:
             if hasattr(val, "__getitem__") and hasattr(val, "shape") and val.shape[0] > 1:
                 val = val[0]
             # Flatten
-            parts.append(np.array(val).flatten())
+            parts.append(np.array(val.cpu() if hasattr(val, "cpu") else val).flatten())
+        if not parts:
+            raise ValueError(
+                f"No known observation keys found in env obs dict. Available keys: "
+                f"{list(obs.keys())}. For a manager-based task expose a 'policy' group; "
+                f"for UR3 expose {expected_keys}."
+            )
         return np.concatenate(parts)
     else:
         # Pre-flattened tensor (or already vectorized)
@@ -121,8 +164,11 @@ def run_eval(
     simulation_app, gym = _lazy_imports()
 
     print(f"  Creating environment: {task}")
-    # Parse env config (Isaac Lab convention)
-    from omni.isaac.lab_tasks.utils import parse_env_cfg
+    # Parse env config (Isaac Lab convention). 2.x = isaaclab_tasks, 1.x = omni.isaac.lab_tasks.
+    try:
+        from isaaclab_tasks.utils import parse_env_cfg
+    except ImportError:
+        from omni.isaac.lab_tasks.utils import parse_env_cfg
 
     env_cfg = parse_env_cfg(task)
     env_cfg.scene.num_envs = 1  # Single env for clear eval
@@ -143,12 +189,24 @@ def run_eval(
         done = False
 
         while not done and steps < max_steps:
-            # Query policy server
+            # Query policy server (returns a numpy action array)
             action = transport.send(obs)
 
-            # Step env (Isaac Lab expects (num_envs, action_dim))
-            obs_raw, reward, terminated, truncated, info = env.step(action.reshape(1, -1))
-            done = terminated[0] or truncated[0]
+            # Isaac Lab manager-based envs expect a torch tensor on the sim device,
+            # shaped (num_envs, action_dim). Convert from the numpy action the
+            # transport returns. (gym.Env subclasses also accept numpy, but the
+            # underlying Isaac Lab env does not — convert explicitly.)
+            action_input = action.reshape(1, -1)
+            try:
+                import torch as _torch
+                action_input = _torch.as_tensor(
+                    action_input, dtype=_torch.float32, device=env.unwrapped.device
+                )
+            except Exception:
+                pass  # fall back to numpy (e.g. non-Isaac gym env in tests)
+
+            obs_raw, reward, terminated, truncated, info = env.step(action_input)
+            done = bool(terminated[0] or truncated[0])
 
             # Extract scalar reward
             if hasattr(reward, "__getitem__"):
@@ -159,9 +217,20 @@ def run_eval(
             # Flatten obs for next iteration
             obs = _flatten_obs(obs_raw)
 
-        # Detect success
-        info_single = {k: v[0] if hasattr(v, "__getitem__") else v for k, v in info.items()}
-        success = _detect_success(terminated[0], truncated[0], info_single, env)
+        # Detect success. Isaac Lab's `info` mixes per-env tensors/arrays with
+        # nested dicts (e.g. "log", "observations"). Only index into array-like
+        # values to pull env 0 — indexing a dict with [0] raises KeyError, and
+        # plain scalars/dicts pass through unchanged.
+        def _env0(v):
+            if isinstance(v, dict):
+                return v
+            if hasattr(v, "shape") and getattr(v, "ndim", 0) >= 1:  # torch/np tensor
+                return v[0]
+            if isinstance(v, (list, tuple)) and len(v) > 0:
+                return v[0]
+            return v
+        info_single = {k: _env0(v) for k, v in info.items()}
+        success = _detect_success(bool(terminated[0]), bool(truncated[0]), info_single, env)
         if success:
             successes += 1
             cycle_times.append(steps * 0.02)  # 50Hz control = 20ms/step

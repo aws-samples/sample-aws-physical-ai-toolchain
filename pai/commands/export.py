@@ -1,4 +1,4 @@
-"""pai export — Export trained policies to ONNX and TensorRT."""
+"""pai export — Export trained policies using Isaac Lab native exporter."""
 
 import click
 
@@ -6,43 +6,64 @@ from pai import helpers
 
 
 @click.command()
-@click.option("--checkpoint", required=True, help="Path to trained PyTorch checkpoint (.pt)")
-@click.option("--output-onnx", required=True, help="Output path for ONNX model")
-@click.option("--output-trt", required=True, help="Output path for TensorRT engine")
-@click.option("--target-device", default="jetson-orin", type=click.Choice(["jetson-orin", "jetson-nano", "gpu-pc"]), help="Target device for TensorRT optimization")
-@click.option("--fp16", is_flag=True, default=True, help="Use FP16 precision (faster, minimal accuracy loss)")
-@click.option("--benchmark", is_flag=True, help="Run inference benchmark after compilation")
-def export(checkpoint, output_onnx, output_trt, target_device, fp16, benchmark):
-    """Export trained policy to ONNX and TensorRT for edge deployment."""
-    helpers.heading("Policy Export Pipeline")
-    helpers.info(f"Checkpoint:  {checkpoint}")
-    helpers.info(f"Target:      {target_device}")
-    helpers.info(f"Precision:   {'FP16' if fp16 else 'FP32'}")
+@click.option("--checkpoint", required=True, help="Path to rsl_rl checkpoint (model_*.pt)")
+@click.option("--output-dir", required=True, help="Output directory for policy.pt / policy.onnx")
+@click.option("--task", required=True, help="Isaac Lab task name (e.g., Isaac-Velocity-Flat-Anymal-D-v0)")
+@click.option("--trtexec-smoke-check", is_flag=True, help="Run trtexec workstation smoke check (NOT for Jetson deploy)")
+@click.option("--fp16", is_flag=True, default=True, help="Use FP16 precision for TRT smoke check")
+@click.option("--dry-run", is_flag=True, help="Print export plan without executing")
+def export(checkpoint, output_dir, task, trtexec_smoke_check, fp16, dry_run):
+    """Export trained policy using Isaac Lab native exporter + trtexec.
 
-    # Lazy-import (pulls torch)
+    Exports policy.pt (TorchScript) and policy.onnx from an rsl_rl checkpoint.
+    Optionally runs trtexec as a workstation smoke check (NOT the Jetson artifact).
+
+    TensorRT engines are hardware-specific. Ship the .onnx and compile on the target device.
+    """
+    helpers.heading("Policy Export Pipeline (Native Exporter)")
+    helpers.info(f"Checkpoint:  {checkpoint}")
+    helpers.info(f"Task:        {task}")
+    helpers.info(f"Output dir:  {output_dir}")
+    if trtexec_smoke_check:
+        helpers.info(f"TRT smoke:   Enabled (workstation GPU, NOT for Jetson)")
+    else:
+        helpers.info(f"TRT smoke:   Skipped (use --trtexec-smoke-check to enable)")
+
+    if dry_run:
+        helpers.info("\n[DRY RUN] Would export:")
+        helpers.info(f"  {output_dir}/policy.pt")
+        helpers.info(f"  {output_dir}/policy.onnx")
+        if trtexec_smoke_check:
+            helpers.info(f"  {output_dir}/policy.trt (workstation smoke check)")
+        helpers.success("Dry run complete (no files written, no AWS calls)")
+        return
+
+    # Lazy-import (pulls torch + Isaac Lab)
     try:
         from training.scripts import export as export_module
 
-        # Step 1: PyTorch → ONNX
-        helpers.info("\n[1/3] Exporting to ONNX...")
-        onnx_path = export_module.export_to_onnx(checkpoint, output_onnx, {})
+        # Step 1: Export with native exporter
+        helpers.info("\n[1/2] Exporting with Isaac Lab native exporter...")
+        jit_path, onnx_path = export_module.export_with_native_exporter(
+            checkpoint, output_dir, task
+        )
 
-        # Step 2: ONNX → TensorRT
-        helpers.info("\n[2/3] Compiling TensorRT engine...")
-        trt_path = export_module.compile_tensorrt(onnx_path, output_trt, target_device, fp16)
-
-        # Step 3: Benchmark (optional)
-        if benchmark and trt_path:
-            helpers.info("\n[3/3] Benchmarking...")
-            export_module.benchmark_inference(trt_path)
+        # Step 2: Optional trtexec smoke check
+        if trtexec_smoke_check:
+            helpers.info("\n[2/2] Running trtexec smoke check...")
+            trt_path = export_module.trtexec_smoke_check(onnx_path, output_dir, fp16)
         else:
-            helpers.info("\n[3/3] Skipping benchmark (use --benchmark to enable)")
+            helpers.info("\n[2/2] Skipping trtexec smoke check")
+            trt_path = ""
 
         helpers.success(f"\n{'='*60}")
         helpers.success("Export complete!")
-        helpers.info(f"ONNX model:      {output_onnx}")
+        helpers.info(f"TorchScript: {jit_path}")
+        helpers.info(f"ONNX:        {onnx_path}")
         if trt_path:
-            helpers.info(f"TensorRT engine: {output_trt}")
+            helpers.info(f"TRT (smoke): {trt_path}")
+        helpers.info("\nDeploy the .onnx to Jetson and compile on-device:")
+        helpers.info("  trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16")
         helpers.success(f"{'='*60}")
     except Exception as e:
         helpers.error(f"Export failed: {e}")

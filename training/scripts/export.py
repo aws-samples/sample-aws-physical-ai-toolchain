@@ -1,252 +1,298 @@
 """
-Policy Export: PyTorch → ONNX → TensorRT
+Policy Export: PyTorch → ONNX → TensorRT (using Isaac Lab native exporter + trtexec)
 
-Converts a trained pick-and-place policy to an optimized TensorRT engine
-for real-time inference on edge hardware (Jetson Orin or GPU PC).
+Converts a trained RL policy to optimized formats for edge deployment.
 
 Pipeline:
-  1. Load PyTorch checkpoint (.pt)
-  2. Export to ONNX (.onnx) — portable intermediate format
-  3. Compile with TensorRT (.trt) — hardware-specific optimized engine
+  1. Export policy.pt + policy.onnx via Isaac Lab's stock play.py (bakes in obs normalizer)
+  2. Optionally build TensorRT engine via `trtexec` (workstation smoke check ONLY)
+
+IMPORTANT: TensorRT engines are NOT portable across GPU architectures or TRT versions.
+The engine built on an L40S workstation CANNOT be deployed to a Jetson Orin. Ship the
+.onnx file and compile on the target device.
 
 Usage:
-    python export.py --checkpoint checkpoints/best_policy.pt \
-                     --output-onnx models/policy.onnx \
-                     --output-trt models/policy.trt \
-                     --target-device jetson-orin
+    # Export policy.pt + policy.onnx from checkpoint (recommended path):
+    python export.py --checkpoint logs/rsl_rl/.../model_1000.pt \
+                     --output-dir models/ \
+                     --task Isaac-Velocity-Flat-Anymal-D-v0
+
+    # Writes models/policy.{pt,onnx} via Isaac Lab's native exporter (with normalizer)
+
+    # Build TRT engine on TARGET device (Jetson Orin):
+    trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16
+
+    # Workstation smoke check (NOT deployable to Jetson):
+    python export.py --checkpoint logs/.../model_1000.pt \
+                     --output-dir models/ \
+                     --task Isaac-Velocity-Flat-Anymal-D-v0 \
+                     --trtexec-smoke-check
+
+NOTE: This uses Isaac Lab's stock play.py under the hood, which correctly composes
+the observation normalizer with the policy network. Attempting to reconstruct the
+normalizer from a bare checkpoint is NOT possible (it lives on the live runner object),
+which is why play.py is the canonical export path.
 """
 
 import argparse
 import os
+import shutil
+import subprocess
 from pathlib import Path
 
-import torch
-import numpy as np
 
+def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name: str) -> tuple:
+    """Export policy.pt and policy.onnx using Isaac Lab's stock play.py.
 
-def export_to_onnx(checkpoint_path: str, onnx_path: str, input_shapes: dict) -> str:
-    """Export PyTorch model to ONNX format."""
-    print(f"  Loading checkpoint: {checkpoint_path}")
-    model = torch.jit.load(checkpoint_path, map_location='cpu')
-    model.eval()
+    This is a thin subprocess wrapper around NVIDIA's documented export path.
+    play.py auto-exports to <checkpoint_dir>/exported/ with the observation
+    normalizer correctly composed.
 
-    # Create dummy inputs matching observation space
-    # Joint pos (6) + joint vel (6) + gripper (1) + object pose (7) + camera (64x64x3)
-    dummy_inputs = {
-        'joint_pos': torch.randn(1, 6),
-        'joint_vel': torch.randn(1, 6),
-        'gripper_state': torch.randn(1, 1),
-        'object_pos_relative': torch.randn(1, 7),
-        'wrist_camera': torch.randn(1, 3, 64, 64),  # CHW format
-    }
+    Why subprocess instead of in-process:
+    - The normalizer only exists on the live runner object (not in the checkpoint)
+    - Reconstructing the runner requires building the full env + agent cfg (GPU)
+    - play.py already does this correctly, is maintained by NVIDIA, and is the
+      documented path - no reason to reimplement it
 
-    # Flatten to single tensor (as rl_games outputs)
-    # Total: 6 + 6 + 1 + 7 + (64*64*3) = 12308
-    dummy_flat = torch.cat([
-        dummy_inputs['joint_pos'],
-        dummy_inputs['joint_vel'],
-        dummy_inputs['gripper_state'],
-        dummy_inputs['object_pos_relative'],
-        dummy_inputs['wrist_camera'].flatten(1),
-    ], dim=-1)
+    Returns:
+        (policy_jit_path, policy_onnx_path)
+    """
+    print(f"  Checkpoint: {checkpoint_path}")
+    print(f"  Task:       {task_name}")
 
-    print(f"  Input shape: {dummy_flat.shape}")
-    print(f"  Exporting to ONNX: {onnx_path}")
+    # Resolve checkpoint to absolute path and find its parent dir
+    ckpt_path = Path(checkpoint_path).resolve()
+    if not ckpt_path.exists():
+        raise FileNotFoundError(f"Checkpoint not found: {ckpt_path}")
 
-    os.makedirs(os.path.dirname(onnx_path), exist_ok=True)
+    ckpt_dir = ckpt_path.parent
 
-    torch.onnx.export(
-        model,
-        dummy_flat,
-        onnx_path,
-        export_params=True,
-        opset_version=17,
-        do_constant_folding=True,
-        input_names=['observations'],
-        output_names=['actions'],
-        dynamic_axes={
-            'observations': {0: 'batch_size'},
-            'actions': {0: 'batch_size'},
-        },
-    )
+    # Isaac Lab's play.py writes exports to <checkpoint_dir>/exported/
+    exported_dir = ckpt_dir / "exported"
 
-    # Validate ONNX model
-    import onnx
-    onnx_model = onnx.load(onnx_path)
-    onnx.checker.check_model(onnx_model)
-    print(f"  ONNX export successful. Model size: {os.path.getsize(onnx_path) / 1024:.1f} KB")
+    print(f"  Running Isaac Lab's play.py to export with normalizer...")
+    print(f"  (This requires building the env — GPU required)")
 
-    return onnx_path
+    # Find Isaac Lab installation (assume it's in /workspace/isaaclab or parent dir structure)
+    # First check common container paths, then try to find isaaclab.sh in parent dirs
+    isaaclab_root = None
+    for candidate in [
+        Path("/workspace/isaaclab"),
+        Path.cwd() / "IsaacLab",
+        Path.cwd().parent / "IsaacLab",
+    ]:
+        if (candidate / "isaaclab.sh").exists():
+            isaaclab_root = candidate
+            break
 
+    if isaaclab_root is None:
+        raise RuntimeError(
+            "Isaac Lab installation not found. Expected isaaclab.sh at:\n"
+            "  /workspace/isaaclab (container)\n"
+            "  ./IsaacLab (local)\n"
+            "  ../IsaacLab (local)\n"
+            "Set ISAACLAB_PATH environment variable if installed elsewhere."
+        )
 
-def compile_tensorrt(onnx_path: str, trt_path: str, target_device: str, fp16: bool = True) -> str:
-    """Compile ONNX model to TensorRT engine for target hardware."""
+    # Shell out to play.py (headless, exports to <ckpt_dir>/exported/)
+    cmd = [
+        str(isaaclab_root / "isaaclab.sh"),
+        "-p",
+        "scripts/reinforcement_learning/rsl_rl/play.py",
+        f"--task={task_name}",
+        f"--checkpoint={ckpt_path}",
+        "--num_envs=1",
+        "--headless",
+    ]
+
+    print(f"  Running: {' '.join(cmd)}")
+
+    jit_path = exported_dir / "policy.pt"
+    onnx_path = exported_dir / "policy.onnx"
+
+    # KNOWN QUIRK: Isaac Sim frequently hangs inside simulation_app.close() AFTER the
+    # export is already written to disk (validated on L40S, 2026-06-30). So the exported
+    # files — not the subprocess exit code — are the real completion signal: a timeout or
+    # non-zero exit is only a true failure if the files are absent.
+    timed_out = False
+    rc = None
+    stderr_tail = ""
     try:
-        import tensorrt as trt
-    except ImportError:
-        print("  WARNING: TensorRT not available. Skipping TRT compilation.")
-        print("  The ONNX model can be compiled on the target device instead.")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=900,  # generous; play.py exports early then may hang on shutdown
+            cwd=str(isaaclab_root),
+            env={**os.environ, "ACCEPT_EULA": "Y", "PRIVACY_CONSENT": "Y"},
+        )
+        rc = result.returncode
+        stderr_tail = (result.stderr or "")[-1000:]
+    except subprocess.TimeoutExpired as e:
+        timed_out = True
+        stderr_tail = (e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or ""))[-1000:]
+
+    # Decide success by artifact presence, not exit code.
+    if not jit_path.exists() or not onnx_path.exists():
+        if timed_out:
+            raise RuntimeError(
+                "play.py timed out (15 min) AND no exported files were written — real failure.\n"
+                f"  Expected: {jit_path}\n            {onnx_path}\n"
+                f"  stderr (last 1000 chars): {stderr_tail}"
+            )
+        raise RuntimeError(
+            f"Export incomplete. Expected files not found:\n"
+            f"  {jit_path}\n  {onnx_path}\n"
+            f"  play.py exit code: {rc}\n"
+            f"  stderr (last 1000 chars): {stderr_tail}"
+        )
+
+    if timed_out:
+        print("  ⚠️  play.py hung on shutdown AFTER export (known Isaac Sim quirk) — "
+              "exported files are present, treating as success.")
+    elif rc not in (0, None):
+        print(f"  ⚠️  play.py exited {rc} but exported files are present — treating as success.")
+
+    # Copy to requested output dir
+    os.makedirs(output_dir, exist_ok=True)
+    dest_jit = Path(output_dir) / "policy.pt"
+    dest_onnx = Path(output_dir) / "policy.onnx"
+
+    shutil.copy2(jit_path, dest_jit)
+    shutil.copy2(onnx_path, dest_onnx)
+
+    print(f"  Native export successful (with observation normalizer).")
+    print(f"    JIT:  {dest_jit} ({dest_jit.stat().st_size / 1024:.1f} KB)")
+    print(f"    ONNX: {dest_onnx} ({dest_onnx.stat().st_size / 1024:.1f} KB)")
+
+    return str(dest_jit), str(dest_onnx)
+
+
+def trtexec_smoke_check(onnx_path: str, output_dir: str, fp16: bool = True) -> str:
+    """Build a TensorRT engine via trtexec (WORKSTATION SMOKE CHECK ONLY).
+
+    This is NOT the deployable artifact for a Jetson Orin. TRT engines are
+    hardware-specific and must be compiled on the target device.
+
+    NOTE: the `trtexec` binary is NOT present in the isaac-lab container (only the
+    TensorRT python bindings are). Validated on L40S 2026-06-30: this check skips
+    cleanly there. trtexec ships with the inference/Jetson image — run the on-device
+    build (the deployable path) instead of relying on this workstation smoke check.
+
+    Returns:
+        Path to the built engine, or empty string if trtexec unavailable.
+    """
+    print(f"\n  ⚠️  WORKSTATION SMOKE CHECK — building TRT engine on THIS GPU")
+    print(f"  ⚠️  This engine is NOT portable to Jetson Orin (different arch/TRT version)")
+    print(f"  ⚠️  Ship the .onnx and compile on-device with:")
+    print(f"      trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16")
+
+    trt_path = os.path.join(output_dir, "policy.trt")
+
+    # Check trtexec availability
+    try:
+        result = subprocess.run(
+            ["trtexec", "--help"],
+            capture_output=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            print("  trtexec not found — skipping TRT smoke check")
+            return ""
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        print("  trtexec not found — skipping TRT smoke check")
         return ""
 
-    print(f"  Compiling TensorRT engine for: {target_device}")
-    print(f"  FP16 precision: {fp16}")
-
-    TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-
-    # Create builder and network
-    builder = trt.Builder(TRT_LOGGER)
-    network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
-    parser = trt.OnnxParser(network, TRT_LOGGER)
-
-    # Parse ONNX model
-    with open(onnx_path, 'rb') as f:
-        if not parser.parse(f.read()):
-            for i in range(parser.num_errors):
-                print(f"  ERROR: {parser.get_error(i)}")
-            raise RuntimeError("Failed to parse ONNX model")
-
-    # Configure builder
-    config = builder.create_builder_config()
-    config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, 1 << 30)  # 1GB workspace
-
-    if fp16:
-        config.set_flag(trt.BuilderFlag.FP16)
-
-    # Set optimization profile (batch size 1 for real-time inference)
-    profile = builder.create_optimization_profile()
-    input_tensor = network.get_input(0)
-    input_shape = input_tensor.shape
-
-    # Min/opt/max batch sizes
-    profile.set_shape(
-        input_tensor.name,
-        min=(1, input_shape[1]),
-        opt=(1, input_shape[1]),
-        max=(1, input_shape[1]),
-    )
-    config.add_optimization_profile(profile)
-
     # Build engine
-    print("  Building TensorRT engine (this may take a few minutes)...")
-    serialized_engine = builder.build_serialized_network(network, config)
+    cmd = [
+        "trtexec",
+        f"--onnx={onnx_path}",
+        f"--saveEngine={trt_path}",
+    ]
+    if fp16:
+        cmd.append("--fp16")
 
-    if serialized_engine is None:
-        raise RuntimeError("Failed to build TensorRT engine")
+    print(f"  Running: {' '.join(cmd)}")
+    print(f"  (This may take a few minutes...)")
 
-    # Save engine
-    os.makedirs(os.path.dirname(trt_path), exist_ok=True)
-    with open(trt_path, 'wb') as f:
-        f.write(serialized_engine)
-
-    print(f"  TensorRT engine saved: {trt_path}")
-    print(f"  Engine size: {os.path.getsize(trt_path) / 1024 / 1024:.1f} MB")
-
-    return trt_path
-
-
-def benchmark_inference(trt_path: str, num_iterations: int = 1000):
-    """Benchmark inference speed of TensorRT engine."""
     try:
-        import tensorrt as trt
-        import pycuda.driver as cuda
-        import pycuda.autoinit  # noqa: F401
-    except ImportError:
-        print("  Skipping benchmark (TensorRT/PyCUDA not available)")
-        return
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=600,  # 10 min max
+        )
 
-    print(f"\n  Benchmarking inference ({num_iterations} iterations)...")
+        if result.returncode != 0:
+            print(f"  trtexec failed with exit code {result.returncode}")
+            print(f"  stderr: {result.stderr[-500:]}")  # last 500 chars
+            return ""
 
-    TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
-    runtime = trt.Runtime(TRT_LOGGER)
+        if not os.path.exists(trt_path):
+            print(f"  trtexec completed but {trt_path} not found")
+            return ""
 
-    with open(trt_path, 'rb') as f:
-        engine = runtime.deserialize_cuda_engine(f.read())
+        print(f"  Workstation TRT engine: {trt_path} ({os.path.getsize(trt_path) / 1024 / 1024:.1f} MB)")
+        print(f"  ✅ Smoke check PASS — ONNX parses and builds on this GPU")
+        print(f"  ⚠️  Remember: compile on the Jetson Orin before deploying")
 
-    context = engine.create_execution_context()
+        return trt_path
 
-    # Allocate buffers
-    input_shape = (1, 12308)  # Flattened observation
-    output_shape = (1, 7)     # Action (6 DOF + gripper)
-
-    h_input = np.random.randn(*input_shape).astype(np.float32)
-    h_output = np.empty(output_shape, dtype=np.float32)
-
-    d_input = cuda.mem_alloc(h_input.nbytes)
-    d_output = cuda.mem_alloc(h_output.nbytes)
-
-    stream = cuda.Stream()
-
-    # Warmup
-    for _ in range(100):
-        cuda.memcpy_htod_async(d_input, h_input, stream)
-        context.execute_async_v2([int(d_input), int(d_output)], stream.handle)
-        cuda.memcpy_dtoh_async(h_output, d_output, stream)
-        stream.synchronize()
-
-    # Benchmark
-    import time
-    start = time.perf_counter()
-    for _ in range(num_iterations):
-        cuda.memcpy_htod_async(d_input, h_input, stream)
-        context.execute_async_v2([int(d_input), int(d_output)], stream.handle)
-        cuda.memcpy_dtoh_async(h_output, d_output, stream)
-        stream.synchronize()
-    elapsed = time.perf_counter() - start
-
-    avg_ms = (elapsed / num_iterations) * 1000
-    hz = num_iterations / elapsed
-
-    print(f"  Average inference time: {avg_ms:.2f} ms")
-    print(f"  Inference rate: {hz:.0f} Hz")
-    print(f"  {'✅ PASS' if hz > 100 else '⚠️  SLOW'}: Target is >100 Hz for real-time control")
+    except subprocess.TimeoutExpired:
+        print("  trtexec timed out after 10 minutes")
+        return ""
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Export trained policy to TensorRT')
+    parser = argparse.ArgumentParser(
+        description='Export trained policy using Isaac Lab native exporter + trtexec',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=__doc__,
+    )
     parser.add_argument('--checkpoint', type=str, required=True,
-                        help='Path to trained PyTorch checkpoint (.pt)')
-    parser.add_argument('--output-onnx', type=str, required=True,
-                        help='Output path for ONNX model')
-    parser.add_argument('--output-trt', type=str, required=True,
-                        help='Output path for TensorRT engine')
-    parser.add_argument('--target-device', type=str, default='jetson-orin',
-                        choices=['jetson-orin', 'jetson-nano', 'gpu-pc'],
-                        help='Target device for TensorRT optimization')
-    parser.add_argument('--fp16', action='store_true', default=True,
-                        help='Use FP16 precision (faster, minimal accuracy loss)')
-    parser.add_argument('--benchmark', action='store_true',
-                        help='Run inference benchmark after compilation')
+                        help='Path to rsl_rl checkpoint (model_*.pt)')
+    parser.add_argument('--output-dir', type=str, required=True,
+                        help='Output directory for policy.pt / policy.onnx')
+    parser.add_argument('--task', type=str, required=True,
+                        help='Isaac Lab task name (e.g., Isaac-Velocity-Flat-Anymal-D-v0)')
+    parser.add_argument('--trtexec-smoke-check', action='store_true',
+                        help='Run trtexec to build a workstation TRT engine (smoke check ONLY)')
+    parser.add_argument('--fp16', action=argparse.BooleanOptionalAction, default=True,
+                        help='Use FP16 precision for the TRT smoke check (default: on; --no-fp16 to disable)')
     args = parser.parse_args()
 
-    print(f"{'='*60}")
-    print(f"  Policy Export Pipeline")
+    print(f"{'='*70}")
+    print(f"  Policy Export Pipeline (Isaac Lab Native Exporter)")
     print(f"  Checkpoint: {args.checkpoint}")
-    print(f"  Target: {args.target_device}")
-    print(f"  Precision: {'FP16' if args.fp16 else 'FP32'}")
-    print(f"{'='*60}")
+    print(f"  Task:       {args.task}")
+    print(f"  Output:     {args.output_dir}")
+    print(f"{'='*70}")
 
-    # Step 1: PyTorch → ONNX
-    print(f"\n[1/3] Exporting to ONNX...")
-    onnx_path = export_to_onnx(args.checkpoint, args.output_onnx, {})
+    # Step 1: Export with Isaac Lab's native exporter
+    print(f"\n[1/2] Exporting with Isaac Lab native exporter...")
+    jit_path, onnx_path = export_with_native_exporter(
+        args.checkpoint,
+        args.output_dir,
+        args.task,
+    )
 
-    # Step 2: ONNX → TensorRT
-    print(f"\n[2/3] Compiling TensorRT engine...")
-    trt_path = compile_tensorrt(onnx_path, args.output_trt, args.target_device, args.fp16)
-
-    # Step 3: Benchmark (optional)
-    if args.benchmark and trt_path:
-        print(f"\n[3/3] Benchmarking...")
-        benchmark_inference(trt_path)
+    # Step 2: Optional workstation TRT smoke check
+    if args.trtexec_smoke_check:
+        print(f"\n[2/2] Running trtexec smoke check...")
+        trt_path = trtexec_smoke_check(onnx_path, args.output_dir, args.fp16)
     else:
-        print(f"\n[3/3] Skipping benchmark (use --benchmark to enable)")
+        print(f"\n[2/2] Skipping trtexec smoke check (use --trtexec-smoke-check to enable)")
+        trt_path = ""
 
-    print(f"\n{'='*60}")
+    print(f"\n{'='*70}")
     print(f"  Export complete!")
-    print(f"  ONNX model: {args.output_onnx}")
+    print(f"  TorchScript: {jit_path}")
+    print(f"  ONNX:        {onnx_path}")
     if trt_path:
-        print(f"  TensorRT engine: {args.output_trt}")
-    print(f"  Deploy with: osmo workflow submit -f workflows/pick-and-place.yaml")
-    print(f"{'='*60}")
+        print(f"  TRT (smoke): {trt_path}")
+    print(f"\n  Deploy the .onnx to Jetson and compile on-device:")
+    print(f"    trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16")
+    print(f"{'='*70}")
 
 
 if __name__ == '__main__':
