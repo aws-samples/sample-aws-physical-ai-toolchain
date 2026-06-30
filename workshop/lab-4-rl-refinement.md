@@ -302,16 +302,24 @@ commands below call the scripts directly.
 > Reference: [Isaac Lab Policy Deployment Docs](https://isaac-sim.github.io/IsaacLab/main/source/policy_deployment/index.html)
 
 **First, get the checkpoint onto the workstation.** The Lab 4 job wrote its output to S3 as a
-`model.tar.gz`; nothing pulls it down automatically, so copy and extract it into the mounted repo:
+`model.tar.gz`; nothing pulls it down automatically, so copy and extract it into the repo tree.
+
+> ⚠️ **Run this on the workstation HOST, not inside the container** — the `isaac-lab` container
+> has no AWS CLI (`aws: command not found`). The host's `~/aws-physical-ai-toolchain` is
+> bind-mounted to `/workspace/toolchain` in the container, so anything you extract here appears
+> inside the container automatically. Use a host terminal (or `exit` the container, fetch, then
+> re-enter with `~/run-isaac-lab.sh`).
 
 ```bash
-# In the container shell, in /workspace/toolchain:
+# On the workstation HOST, in the repo root:
+cd ~/aws-physical-ai-toolchain
 BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
 aws s3 cp "s3://$BUCKET/isaac-lab/output/<job-name>/output/model.tar.gz" .
 tar -xzf model.tar.gz          # extracts logs/rsl_rl/<task>/<timestamp>/model_<N>.pt
 ```
 
-**Find the checkpoint** — rsl_rl nests it under the task name and a run timestamp, and
+**Find the checkpoint** (either shell — the file is visible host-side and in the container) — rsl_rl
+nests it under the task name and a run timestamp, and
 **numbers iterations from 0**, so a 50-iteration run saves `model_49.pt` (not `model_50.pt`):
 
 ```bash
@@ -466,9 +474,15 @@ trtexec --onnx=./model_exported/policy.onnx --saveEngine=./model_exported/policy
 > **on the target device**. **Inference throughput is UNMEASURED** — treat any Hz claim as
 > unvalidated until measured on the target.
 
-Then push the **ONNX** (not the workstation .trt) to S3 so Lab 5 (Greengrass → Jetson) can pull it:
+Then push the **ONNX** (not the workstation .trt) to S3 so Lab 5 (Greengrass → Jetson) can pull it.
+
+> ⚠️ **Run this on the workstation HOST, not inside the container** (no AWS CLI in the container).
+> The export wrote `policy.onnx` into the mounted tree, so it's visible host-side at
+> `~/aws-physical-ai-toolchain/model_exported/`.
 
 ```bash
+# On the workstation HOST, in the repo root:
+cd ~/aws-physical-ai-toolchain
 BUCKET=$(aws sts get-caller-identity --query Account --output text | xargs -I{} echo physical-ai-dev-datasets-{})
 aws s3 cp ./model_exported/policy.onnx "s3://$BUCKET/isaac-lab/exported/policy.onnx"
 ```
