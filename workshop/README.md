@@ -163,7 +163,9 @@ npx cdk deploy --all --context mode=simple
 | 1 | [Train from Demonstrations](lab-1-train-groot.md) | 2 hrs | Lab 0 |
 | 2 | [Isaac Sim Workstation](lab-2-isaac-workstation.md) | 30 min | Lab 0 |
 | 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 2 |
+| 3b | [Cosmos Predict (optional)](lab-3b-cosmos-predict.md) | 1-2 hrs | Lab 2 |
 | 4 | [RL Policy Training](lab-4-rl-refinement.md) | 3 hrs | Lab 0 |
+| 4b | [Train a Robot Arm (optional)](lab-4b-arm-manipulation.md) | 3 hrs | Lab 0 |
 | 5 | [Edge Deployment](lab-5-edge-deployment.md) | 2 hrs | Lab 4 |
 | 6 | [OSMO Orchestration](lab-6-osmo-orchestration.md) | 2-3 hrs | Labs 1-5 |
 

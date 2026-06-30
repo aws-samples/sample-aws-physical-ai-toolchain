@@ -261,9 +261,7 @@ scale in Lab 4.
 
 If you see the robots stepping and the logs ticking, your workstation is good to go.
 
-> The toolchain's UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in
-> **[Lab 4](lab-4-rl-refinement.md)**. It's not yet GPU-validated, so Lab 2 uses the proven
-> Anymal task for this smoke test.
+> The toolchain's UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in **[Lab 4](lab-4-rl-refinement.md)**. It's not yet GPU-validated, so Lab 2 uses the proven Anymal task for this smoke test. For a working arm task on the validated path, see [Lab 4b](lab-4b-arm-manipulation.md) (optional — Isaac Lab's built-in UR10 arm).
 
 ---
 

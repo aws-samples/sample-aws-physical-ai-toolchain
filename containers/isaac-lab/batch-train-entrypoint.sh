@@ -104,6 +104,14 @@ fi
 # --- Launch training via torchrun ---
 echo "Launching torchrun (rendezvous endpoint: $MAIN_IP:29500) ..."
 
+# rsl_rl/skrl/rl_games only enable multi-GPU gradient sync when --distributed is
+# passed. Without it, all torchrun procs collide on cuda:0 with no NCCL init.
+# Single-GPU single-node runs (the validated path) don't need it.
+DIST_FLAG=""
+if [ "$NNODES" -gt 1 ] || [ "$NPROC" -gt 1 ]; then
+    DIST_FLAG="--distributed"
+fi
+
 /isaac-sim/python.sh -m torch.distributed.run \
     --nproc_per_node=$NPROC \
     --nnodes=$NNODES \
@@ -115,6 +123,7 @@ echo "Launching torchrun (rendezvous endpoint: $MAIN_IP:29500) ..."
     --task=$TASK \
     --num_envs=$NUM_ENVS \
     --max_iterations=$MAX_ITERATIONS \
-    --headless
+    --headless \
+    $DIST_FLAG
 
 echo "Training complete. Checkpoints saved to $OUTPUT_DIR"

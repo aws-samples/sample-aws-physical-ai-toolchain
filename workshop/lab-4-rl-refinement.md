@@ -16,7 +16,7 @@
 | 1 | Launch the RL smoke test | `pai rl launch --max-iterations 50 --instance-type ml.g5.xlarge` | prints `Launched. Monitor: …` with a job name |
 | 2 | Watch the SageMaker job | `pai rl status <name>` | status `InProgress` → `Completed` |
 | 3 | (Optional) full training | `pai rl launch --task Isaac-Velocity-Flat-Anymal-D-v0 --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
-| 3b | (Optional) scale out across nodes | SageMaker: add `--instance-count 2`. Batch: `pai rl launch --engine batch --num-nodes 2` | job launches across N nodes (multi-node NCCL **unvalidated**) |
+| 3b | (Optional) scale out across nodes | SageMaker: add `--instance-count 2`. Batch: `pai rl launch --engine batch --num-nodes 2` | job launches across N nodes (correctly wired, **unvalidated on hardware**) |
 | 4 | Export + evaluate + watch on the **Lab 2 workstation** | 4a: `play.py … --video --video_length 1` exports `policy.{pt,onnx}` + an MP4 and self-exits. 4b: `evaluate.py` scores it. 4c: `play.py` (no `--headless`) renders it live | `exported/policy.onnx` written; `eval_metrics.json` has `success_rate_pct` (validated on L40S) |
 | 5 | Ship the `.onnx` for edge | push `policy.onnx` to S3; the `.trt` engine is built **on the Jetson** in Lab 5 (not portable) | `policy.onnx` in S3 |
 
@@ -62,6 +62,8 @@ a GR00T model or any Lab 1 output.
 ---
 
 ## Step 1: Launch RL Training
+
+> 🦾 **Want to train a robot ARM instead?** The same pipeline works on Isaac Lab's built-in UR10 arm task — see [Lab 4b](lab-4b-arm-manipulation.md) for the optional alternate path (arm reaching instead of quadruped walking).
 
 All RL training is launched from your laptop with **`pai rl launch`** — it builds the
 SageMaker job (resolving your account's ECR image, role, and output bucket) and
@@ -172,9 +174,10 @@ bigger models, more parallel envs, faster wall-clock — RL training scales acro
 **multiple nodes** two ways. Both reuse the **same `physical-ai/isaac-lab` container**;
 the only difference is who provisions the fleet and wires the NCCL topology.
 
-> ⚠️ Both paths are fully wired and will launch across N nodes, but **multi-node NCCL
-> convergence is unvalidated on G-family GPUs.** The single-node path (Steps 1–3) is the proven
-> one. Treat a green multi-node launch as untested until you've watched reward actually climb.
+> ⚠️ Both paths are correctly wired (torchrun + rsl_rl --distributed across nodes/GPUs),
+> but **multi-node convergence remains unvalidated on hardware** — no one has watched reward
+> climb on a real multi-GPU/multi-node run. The single-node path (Steps 1–3) is the proven
+> one. Treat a green multi-node launch as untested until you've confirmed reward actually improves.
 
 ### Option A — SageMaker multi-instance (quickest)
 

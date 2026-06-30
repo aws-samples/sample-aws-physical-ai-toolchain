@@ -144,6 +144,14 @@ esac
 # --- Launch training via torchrun ---
 cd /workspace/isaaclab
 
+# rsl_rl/skrl/rl_games only enable multi-GPU gradient sync when --distributed is
+# passed. Without it, all torchrun procs collide on cuda:0 with no NCCL init.
+# Single-GPU single-node runs (the validated path) don't need it.
+DIST_FLAG=""
+if [ "$NNODES" -gt 1 ] || [ "$NPROC" -gt 1 ]; then
+    DIST_FLAG="--distributed"
+fi
+
 /isaac-sim/python.sh -m torch.distributed.run \
     --nproc_per_node=$NPROC \
     --nnodes=$NNODES \
@@ -155,7 +163,8 @@ cd /workspace/isaaclab
     --task=$TASK \
     --num_envs=$NUM_ENVS \
     --max_iterations=$MAX_ITERATIONS \
-    --headless
+    --headless \
+    $DIST_FLAG
 
 # --- Copy artifacts to SageMaker output ---
 echo "Copying training artifacts to /opt/ml/model/..."
