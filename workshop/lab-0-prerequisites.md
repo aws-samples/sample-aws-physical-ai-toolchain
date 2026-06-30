@@ -46,7 +46,23 @@ git clone https://github.com/aws-samples/aws-physical-ai-toolchain.git
 cd aws-physical-ai-toolchain
 ```
 
-### 2. Install CDK dependencies
+### 2. Install the `pai` CLI
+
+The whole workshop is driven by the `pai` CLI (deploy infra, launch training,
+manage the workstation). Install it once into a virtual environment — a venv
+keeps its deps isolated and avoids the PEP 668 "externally-managed-environment"
+error on system/Homebrew Python.
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e .                   # installs `pai` + all workshop dependencies
+pai --version                      # confirm it's on PATH
+```
+
+Re-run `source .venv/bin/activate` in any new shell before using `pai`.
+
+### 3. Install CDK dependencies
 
 ```bash
 cd cdk
@@ -54,21 +70,26 @@ npm install
 cd ..
 ```
 
-### 3. Bootstrap CDK (once per account/region)
+### 4. Bootstrap CDK (once per account/region)
 
 ```bash
 npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1
 ```
 
-### 4. Set environment variables
+### 5. Set your region and environment variables
+
+`config.json` is the single source of truth for the toolchain region — both `pai`
+and CDK read it, so it can't drift from your shell. Set it once:
 
 ```bash
+pai config set aws.region us-west-2    # or your target region
+
 export CDK_DEFAULT_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
 export CDK_DEFAULT_REGION=us-east-1
 export HF_TOKEN=hf_xxxx  # Your Hugging Face token
 ```
 
-### 5. Store your NGC API key in Secrets Manager
+### 6. Store your NGC API key in Secrets Manager
 
 CodeBuild uses this to pull NVIDIA base images (Isaac Sim/Lab, Cosmos) when it
 builds the containers. One time per account:
@@ -81,18 +102,22 @@ aws secretsmanager create-secret --name physical-ai/ngc-api-key \
 (The GR00T training image builds from a public base and needs no NGC key — so if
 you only plan to do Lab 1, this step is optional.)
 
-### 6. Verify
+### 7. Verify
 
 ```bash
+pai doctor          # checks credentials, region, and (after deploy) the Foundation stack
+
 cd cdk
 npx cdk synth --context mode=simple 2>&1 | head -5
 # Should print: Successfully synthesized to cdk.out
+cd ..
 ```
 
-### 7. Deploy the Foundation stack — builds start automatically
+### 8. Deploy the Foundation stack — builds start automatically
 
 ```bash
-npx cdk deploy PhysicalAi-dev-Foundation --context mode=simple
+pai deploy foundation
+# under the hood: npx cdk deploy PhysicalAi-dev-Foundation --context mode=simple
 ```
 
 The stack itself deploys in ~3 minutes. As part of deploy, CDK uploads this repo
@@ -128,6 +153,7 @@ echo "Account:     $(aws sts get-caller-identity --query Account --output text)"
 echo "Region:      ${CDK_DEFAULT_REGION:-not set}"
 echo "Node:        $(node --version)"
 echo "CDK:         $(npx cdk --version 2>/dev/null || echo 'not installed')"
+echo "pai CLI:     $(pai --version 2>/dev/null || echo 'not installed — run: pip install -e .')"
 echo "HF_TOKEN:    ${HF_TOKEN:+set}${HF_TOKEN:-NOT SET}"
 echo "NGC secret:  $(aws secretsmanager describe-secret --secret-id physical-ai/ngc-api-key --query Name --output text 2>/dev/null || echo 'not created (only needed for Isaac/Cosmos labs)')"
 echo "==========================="

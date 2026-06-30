@@ -2,6 +2,7 @@
 
 import json
 import os
+import sys
 
 import pytest
 from click.testing import CliRunner
@@ -199,42 +200,281 @@ def test_region_resolution(runner, cli_group, temp_config, fake_boto3, monkeypat
     assert "us-west-2" in result.output
 
 
-def test_groot_launch_dry_run(runner, cli_group, fake_boto3, monkeypatch, tmp_path):
-    """pai groot launch --dry-run → resolves CFN outputs, prints request, zero AWS calls."""
+def test_groot_launch_dry_run(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot launch --dry-run → resolves CFN outputs, previews the pipeline, zero AWS writes."""
     account, clients = fake_boto3
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
-
-    # Create fake dataset dir
-    dataset_dir = tmp_path / "dataset"
-    dataset_dir.mkdir()
-    (dataset_dir / "dummy.txt").write_text("test")
 
     # Set a secret token — it must NOT appear in the dry-run output.
     monkeypatch.setenv("HF_TOKEN", "hf_supersecrettoken123")
 
-    result = runner.invoke(
-        cli_group,
-        [
-            "groot",
-            "launch",
-            "--dataset-dir",
-            str(dataset_dir),
-            "--dry-run",
-        ],
-    )
+    result = runner.invoke(cli_group, ["groot", "launch", "--dry-run"])
 
     assert result.exit_code == 0
-    assert "create_training_job" in result.output
-    assert "[dry-run] No AWS calls made." in result.output
     assert "test-bucket-123" in result.output  # from fake CFN stack output
+    assert "groot-finetune-pipeline" in result.output
+    assert "groot-models" in result.output  # registers to the model registry
+    assert "[dry-run] No AWS calls made." in result.output
 
     # Security: the HF token must be redacted, never echoed to stdout/logs.
     assert "hf_supersecrettoken123" not in result.output
     assert "<redacted>" in result.output
 
-    # Verify zero create_training_job calls
-    sm_calls = [c for c in clients["sagemaker"].calls if c[0] == "create_training_job"]
-    assert len(sm_calls) == 0
+    # Verify NO SageMaker calls at all (dry-run reads only CloudFormation outputs)
+    assert len(clients["sagemaker"].calls) == 0
+
+
+def test_groot_launch_creates_and_executes_pipeline(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot launch (no dry-run) → create_pipeline + start_pipeline_execution."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    result = runner.invoke(cli_group, ["groot", "launch", "--max-steps", "100"])
+
+    assert result.exit_code == 0
+    assert "Pipeline execution started" in result.output
+
+    call_names = [c[0] for c in clients["sagemaker"].calls]
+    assert "create_pipeline" in call_names or "update_pipeline" in call_names
+    assert "start_pipeline_execution" in call_names
+
+    # max-steps is forwarded as a pipeline parameter
+    exec_call = next(c for c in clients["sagemaker"].calls if c[0] == "start_pipeline_execution")
+    params = {p["Name"]: p["Value"] for p in exec_call[1]["PipelineParameters"]}
+    assert params["MaxSteps"] == "100"
+
+
+def test_groot_launch_dry_run_no_hf_token_warns(runner, cli_group, fake_boto3, monkeypatch):
+    """Without HF_TOKEN, launch --dry-run warns it runs unauthenticated."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    result = runner.invoke(cli_group, ["groot", "launch", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "unauthenticated" in result.output
+    assert len(clients["sagemaker"].calls) == 0
+
+
+def test_groot_runs_lists_executions(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot runs → calls list_pipeline_executions and prints the run."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(cli_group, ["groot", "runs"])
+
+    assert result.exit_code == 0
+    assert "groot-finetune-pipeline" in result.output
+    assert "Executing" in result.output
+
+    sm_calls = [c for c in clients["sagemaker"].calls if c[0] == "list_pipeline_executions"]
+    assert len(sm_calls) == 1
+
+
+def test_groot_runs_works_without_repo_on_syspath(runner, cli_group, fake_boto3, monkeypatch):
+    """Regression: `pai groot` imports training.groot.*, which is NOT part of the
+    installed pai package. The command must add the repo root to sys.path itself
+    (like rl.py) so it works when invoked as an installed CLI from any directory —
+    not just when conftest happens to have put the repo on the path.
+    """
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    # Simulate the installed-CLI environment: repo root NOT on sys.path, and any
+    # already-imported training.* modules evicted so the import must re-resolve.
+    from pai import config
+    repo = str(config.REPO_ROOT)
+    monkeypatch.setattr(sys, "path", [p for p in sys.path if p != repo])
+    for name in [m for m in list(sys.modules) if m == "training" or m.startswith("training.")]:
+        monkeypatch.delitem(sys.modules, name, raising=False)
+
+    result = runner.invoke(cli_group, ["groot", "runs"])
+
+    assert result.exit_code == 0, f"groot runs crashed without repo on path: {result.exception!r}"
+    assert "groot-finetune-pipeline" in result.output
+
+
+def test_groot_deploy_dry_run(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot deploy --dry-run → prints the create plan, makes no SageMaker calls."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "deploy",
+         "--model-s3", "s3://b/groot-data/ur3/output/job/output/model.tar.gz",
+         "--endpoint-name", "groot-ur3", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "groot-inference" in result.output  # inference image URI
+    assert "ContainerStartupHealthCheckTimeoutInSeconds" in result.output
+    assert "[dry-run] No AWS calls made." in result.output
+
+    # No endpoint actually created in dry-run
+    assert not any(c[0] == "create_endpoint" for c in clients["sagemaker"].calls)
+
+
+def test_groot_deploy_creates_endpoint(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot deploy (no dry-run) → create_model + config + endpoint."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "deploy",
+         "--model-s3", "s3://b/groot-data/ur3/output/job/output/model.tar.gz",
+         "--endpoint-name", "groot-ur3"],
+    )
+
+    assert result.exit_code == 0
+    call_names = [c[0] for c in clients["sagemaker"].calls]
+    assert "create_model" in call_names
+    assert "create_endpoint_config" in call_names
+    assert "create_endpoint" in call_names
+
+
+def test_groot_invoke_calls_runtime(runner, cli_group, fake_boto3, monkeypatch, tmp_path):
+    """pai groot invoke → reads the image, calls sagemaker-runtime invoke_endpoint."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    img = tmp_path / "wrist.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0fakejpeg")
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "invoke", "--endpoint-name", "groot-ur3",
+         "--image-path", str(img), "--state", "0,0,0,0,0,0,0", "--task", "pick up the cube"],
+    )
+
+    assert result.exit_code == 0
+    assert "action_dim" in result.output
+
+    rt_calls = clients["sagemaker-runtime"].calls
+    assert any(c[0] == "invoke_endpoint" for c in rt_calls)
+
+
+def test_groot_invoke_missing_image_aborts(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot invoke with a non-existent image → aborts before any AWS call."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "invoke", "--endpoint-name", "groot-ur3", "--image-path", "/no/such/wrist.jpg"],
+    )
+
+    assert result.exit_code != 0
+    assert "Image not found" in result.output
+    assert len(clients["sagemaker-runtime"].calls) == 0
+
+
+def test_groot_delete_calls_delete_endpoint(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot delete --yes → tears down endpoint + config + model."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(cli_group, ["groot", "delete", "--endpoint-name", "groot-ur3", "--yes"])
+
+    assert result.exit_code == 0
+    call_names = [c[0] for c in clients["sagemaker"].calls]
+    assert "delete_endpoint" in call_names
+    assert "delete_endpoint_config" in call_names
+    assert "delete_model" in call_names
+
+
+def test_groot_convert_dry_run(runner, cli_group, monkeypatch):
+    """pai groot convert --dry-run → prints the command, runs no subprocess."""
+    from pai import helpers
+
+    def _fail_on_call(*args, **kwargs):
+        raise AssertionError("helpers.run called during dry-run — should not happen")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_call)
+
+    result = runner.invoke(cli_group, ["groot", "convert", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "[dry-run]" in result.output
+    assert "convert_zarr_to_lerobot.py" in result.output
+
+
+def test_groot_convert_missing_deps_message(runner, cli_group, monkeypatch, tmp_path):
+    """A missing conversion dep (e.g. cv2) yields a clean install hint, not a traceback."""
+    from pai import helpers
+    import importlib.util as _u
+
+    # Real episodes dir so we get past the existence check to the dep check.
+    episodes = tmp_path / "episodes"
+    episodes.mkdir()
+
+    # Simulate opencv (cv2) not installed; everything else present.
+    real_find_spec = _u.find_spec
+
+    def _fake_find_spec(name, *a, **k):
+        if name == "cv2":
+            return None
+        return real_find_spec(name, *a, **k)
+
+    monkeypatch.setattr(_u, "find_spec", _fake_find_spec)
+
+    # If we somehow reach the subprocess, fail loudly — the dep check must stop first.
+    def _fail_on_run(*args, **kwargs):
+        raise AssertionError("helpers.run called despite missing deps")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_run)
+
+    result = runner.invoke(cli_group, ["groot", "convert", "--episodes-dir", str(episodes)])
+
+    assert result.exit_code != 0
+    assert "Missing data-conversion dependencies" in result.output
+    assert "cv2" in result.output
+    assert "pip install -e ." in result.output
+    # Clean abort, not an unhandled ModuleNotFoundError traceback.
+    assert not isinstance(result.exception, ModuleNotFoundError)
+
+
+def test_groot_upload_dry_run(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot upload --dry-run → resolves the bucket from CFN, prints the sync, no subprocess."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    from pai import helpers
+
+    def _fail_on_run(*args, **kwargs):
+        raise AssertionError("helpers.run called during dry-run — should not happen")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_run)
+
+    result = runner.invoke(cli_group, ["groot", "upload", "--dry-run"])
+
+    assert result.exit_code == 0
+    assert "[dry-run]" in result.output
+    assert "aws s3 sync" in result.output
+    # Bucket resolved from the fake Foundation stack output, dataset path correct.
+    assert "s3://test-bucket-123/groot-data/ur3/dataset/" in result.output
+
+
+def test_groot_upload_missing_dataset_aborts(runner, cli_group, fake_boto3, monkeypatch):
+    """pai groot upload with a non-existent dataset dir → aborts before syncing."""
+    account, clients = fake_boto3
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    from pai import helpers
+
+    def _fail_on_run(*args, **kwargs):
+        raise AssertionError("helpers.run called despite missing dataset dir")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_run)
+
+    result = runner.invoke(cli_group, ["groot", "upload", "--dataset-dir", "/no/such/dataset"])
+
+    assert result.exit_code != 0
+    assert "Dataset directory not found" in result.output
+    assert "pai groot convert" in result.output
 
 
 def test_config_show_masks_allowed_cidr(runner, cli_group, tmp_path, monkeypatch):

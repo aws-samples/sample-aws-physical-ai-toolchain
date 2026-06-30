@@ -56,6 +56,26 @@ STATE_DIM = 7   # 6 joints + 1 gripper
 ACTION_DIM = 7  # 6 Cartesian velocity × dt + 1 gripper
 
 
+def _require_zarr_v3() -> None:
+    """Fail fast with one clear message if zarr is too old.
+
+    The bundled episodes are zarr v3 format (zarr.json metadata). zarr 2.x can't
+    read them — it looks for .zgroup, finds none, and raises PathNotFoundError
+    ("nothing found at path '") for every episode. Catch that up front rather than
+    emitting 27 identical tracebacks.
+    """
+    major = int(zarr.__version__.split(".")[0])
+    if major < 3:
+        print(
+            f"ERROR: zarr {zarr.__version__} is too old — the episodes are zarr v3 "
+            f"format and need zarr>=3.\n"
+            f"  Upgrade in this environment:  pip install 'zarr>=3'\n"
+            f"  (or reinstall the toolchain:  pip install -e .)",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def list_episodes(episodes_dir: Path) -> list[str]:
     if not episodes_dir.exists():
         return []
@@ -421,6 +441,8 @@ def main():
     parser.add_argument("--camera", default="wrist",
                         help="Primary camera key in Zarr images group (default: wrist)")
     args = parser.parse_args()
+
+    _require_zarr_v3()
 
     episodes_dir = Path(args.episodes_dir)
     output_dir = Path(args.output_dir)

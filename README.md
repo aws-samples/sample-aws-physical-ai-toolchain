@@ -92,70 +92,33 @@ A complete, deployable Physical AI pipeline:
 
 ## Quick Start
 
-```bash
-# Prerequisites: AWS CLI configured, Node.js 18+, git-lfs
-# (No Docker needed — container images are built in AWS CodeBuild, not locally.)
-# Install git-lfs if needed: https://git-lfs.com  (brew install git-lfs on Mac)
-# After installing: git lfs install
-
-# 1. Clone the repo
-git clone [REPO_URL]
-cd aws-physical-ai-toolchain
-
-# 2. Create a virtual environment and install the CLI (one-time)
-#    A venv keeps the CLI's deps isolated and avoids the PEP 668
-#    "externally-managed-environment" error on system/Homebrew Python.
-python3 -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-pip install -e .
-# Re-run `source .venv/bin/activate` in any new shell before using `pai`.
-
-# 3. Set your region (and other settings) in config.json — the single source of truth.
-#    cdk reads aws.region from here, so it can't drift from your shell's AWS_REGION.
-#    config.json also holds the workstation settings used by Lab 2 (instance type,
-#    Isaac Sim Marketplace AMI map, EBS size, DCV port).
-pai config set aws.region us-west-2    # or your target region
-
-# 4. Run preflight checks
-pai doctor
-
-# 5. Deploy infrastructure (~5 min). Deploy also kicks off CodeBuild jobs that build
-#    every container image in the cloud and push them to ECR.
-pai deploy foundation
-
-# 6. Pull the teleop dataset from LFS and extract it
-git lfs pull
-unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
-
-# 7. Wait for the groot-training image (~10 min) — watch in the CodeBuild console
-aws ecr describe-images --repository-name physical-ai/groot-training \
-  --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
-
-# 8. Run the GR00T training pipeline (smoke test: ~15 min, ~$2)
-pai groot launch --max-steps 100
-
-# 9. Check status
-pai rl status <job-name>    # use the job name printed in step 8
-```
-
-<details>
-<summary>Under the hood (raw commands)</summary>
-
-The `pai` CLI wraps the underlying AWS and CDK commands:
+From a fresh clone to a running GR00T training job. Prerequisites: AWS CLI v2
+configured, Node.js 18+, and git-lfs (`brew install git-lfs && git lfs install`).
+No Docker needed — container images build in AWS CodeBuild, not locally.
 
 ```bash
-# Step 5: Deploy infrastructure
-cd cdk && npm install
-npx cdk deploy PhysicalAi-dev-Foundation --context mode=simple
+git clone <REPO_URL> && cd aws-physical-ai-toolchain
 
-# Step 8: Run GR00T pipeline
-./run-path-a.sh --max-steps=100
+python3 -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -e .                                        # installs the `pai` CLI + deps
 
-# Step 9: Check results
-aws sagemaker list-model-packages --model-package-group-name groot-models
+pai config set aws.region us-west-2                     # single source of truth (pai + CDK read it)
+pai doctor                                              # credentials + region — catch problems now
+pai deploy foundation                                   # S3 + ECR + roles; kicks off CodeBuild (~10 min)
+
+git lfs pull && unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
+
+pai groot convert                                       # Zarr teleop episodes -> LeRobot v2 (local)
+pai groot upload                                        # sync the dataset to S3 (bucket auto-resolved)
+pai groot launch --max-steps 100                        # smoke-test the fine-tuning pipeline (~15 min, ~$2)
+pai groot runs                                          # watch the run; registers to the groot-models registry
 ```
 
-</details>
+That's [Lab 1](workshop/lab-1-train-groot.md) end-to-end. For the full walk-through
+(monitoring, the full training run, serving the model as an endpoint) and the rest
+of the workshop, see **[workshop/](workshop/README.md)**. The deeper setup that the
+other labs need (CDK bootstrap, NGC API key for the Isaac/Cosmos image builds) is in
+**[Lab 0: Prerequisites](workshop/lab-0-prerequisites.md)**.
 
 > **Why CodeBuild?** The NVIDIA base images (Isaac Lab ~16 GB, Cosmos ~30 GB) are
 > too large to pull or build on a laptop, and several are x86-only (they can't be

@@ -39,10 +39,24 @@ class _FakeS3:
         pathlib.Path(Filename).touch()
 
 
+class _FakeClientError(Exception):
+    """Stand-in for botocore ClientError on fake clients."""
+
+
+class _FakeResourceNotFound(Exception):
+    """Stand-in for the SageMaker ResourceNotFound modeled exception."""
+
+
+class _FakeSageMakerExceptions:
+    ClientError = _FakeClientError
+    ResourceNotFound = _FakeResourceNotFound
+
+
 class _FakeSageMaker:
     """Fake SageMaker client for CLI tests."""
     def __init__(self):
         self.calls = []
+        self.exceptions = _FakeSageMakerExceptions()
 
     def create_training_job(self, **kwargs):
         self.calls.append(("create_training_job", kwargs))
@@ -65,6 +79,87 @@ class _FakeSageMaker:
                 "S3OutputPath": "s3://test-bucket/output/",
             },
         }
+
+    # --- SageMaker Pipeline (pai groot launch / runs) ---
+
+    def create_model_package_group(self, **kwargs):
+        self.calls.append(("create_model_package_group", kwargs))
+        return {}
+
+    def describe_pipeline(self, PipelineName):  # noqa: N803
+        self.calls.append(("describe_pipeline", {"PipelineName": PipelineName}))
+        return {"PipelineName": PipelineName}
+
+    def create_pipeline(self, **kwargs):
+        self.calls.append(("create_pipeline", kwargs))
+        return {}
+
+    def update_pipeline(self, **kwargs):
+        self.calls.append(("update_pipeline", kwargs))
+        return {}
+
+    def start_pipeline_execution(self, **kwargs):
+        self.calls.append(("start_pipeline_execution", kwargs))
+        return {"PipelineExecutionArn": "arn:aws:sagemaker:us-west-2:111122223333:pipeline/groot-finetune-pipeline/execution/abc123"}
+
+    def list_pipeline_executions(self, **kwargs):
+        self.calls.append(("list_pipeline_executions", kwargs))
+        import datetime as _dt
+        return {
+            "PipelineExecutionSummaries": [
+                {
+                    "PipelineExecutionArn": "arn:aws:sagemaker:us-west-2:111122223333:pipeline/groot-finetune-pipeline/execution/abc123",
+                    "PipelineExecutionStatus": "Executing",
+                    "CreationTime": _dt.datetime(2026, 6, 30, 12, 0, 0),
+                }
+            ]
+        }
+
+    # --- Real-time endpoint (pai groot deploy / delete) ---
+
+    def create_model(self, **kwargs):
+        self.calls.append(("create_model", kwargs))
+        return {}
+
+    def create_endpoint_config(self, **kwargs):
+        self.calls.append(("create_endpoint_config", kwargs))
+        return {}
+
+    def create_endpoint(self, **kwargs):
+        self.calls.append(("create_endpoint", kwargs))
+        return {}
+
+    def describe_endpoint(self, EndpointName):  # noqa: N803
+        self.calls.append(("describe_endpoint", {"EndpointName": EndpointName}))
+        return {"EndpointName": EndpointName, "EndpointConfigName": f"{EndpointName}-config"}
+
+    def describe_endpoint_config(self, EndpointConfigName):  # noqa: N803
+        self.calls.append(("describe_endpoint_config", {"EndpointConfigName": EndpointConfigName}))
+        return {"ProductionVariants": [{"ModelName": "groot-ur3-model"}]}
+
+    def delete_endpoint(self, EndpointName):  # noqa: N803
+        self.calls.append(("delete_endpoint", {"EndpointName": EndpointName}))
+        return {}
+
+    def delete_endpoint_config(self, EndpointConfigName):  # noqa: N803
+        self.calls.append(("delete_endpoint_config", {"EndpointConfigName": EndpointConfigName}))
+        return {}
+
+    def delete_model(self, ModelName):  # noqa: N803
+        self.calls.append(("delete_model", {"ModelName": ModelName}))
+        return {}
+
+
+class _FakeSageMakerRuntime:
+    """Fake sagemaker-runtime client for `pai groot invoke`."""
+    def __init__(self):
+        self.calls = []
+
+    def invoke_endpoint(self, **kwargs):
+        self.calls.append(("invoke_endpoint", kwargs))
+        import io
+        body = b'{"actions": [[0,0,0,0,0,0,0]], "action_dim": 7}'
+        return {"Body": io.BytesIO(body)}
 
 
 class _FakeBatch:
@@ -201,6 +296,7 @@ def fake_boto3(monkeypatch):
         "ssm": _FakeSSM(),
         "s3": _FakeS3(),
         "sagemaker": _FakeSageMaker(),
+        "sagemaker-runtime": _FakeSageMakerRuntime(),
         "batch": _FakeBatch(),
         "cloudformation": _FakeCloudFormation(),
         "ec2": _FakeEC2(),

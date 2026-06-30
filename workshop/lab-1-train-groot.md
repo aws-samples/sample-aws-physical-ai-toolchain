@@ -57,8 +57,11 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 
 ## Prerequisites
 
-- Foundation stack deployed (`cdk deploy --context mode=simple` — see Lab 0). This
-  already triggered the CodeBuild job that builds the training container in the cloud.
+- Foundation stack deployed (`pai deploy foundation` — see Lab 0). This already
+  triggered the CodeBuild job that builds the training container in the cloud.
+- The `pai` CLI installed (`pip install -e .` from the repo root — see Lab 0). Every
+  step below leads with `pai groot ...`; the raw `python training/groot/...` commands
+  are in the "Under the hood" drop-downs if you prefer them.
 - `HF_TOKEN` environment variable set (HuggingFace token for the GR00T base-model
   download; set one to avoid anonymous rate limits during the multi-GB download)
   - Get one at https://huggingface.co/settings/tokens
@@ -70,7 +73,15 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 ## Step 1: Verify Infrastructure
 
 ```bash
-# Check the Foundation stack is deployed
+# Preflight: credentials, region, Foundation stack, training image in ECR
+pai doctor
+```
+
+`pai groot launch`/`deploy` resolve the bucket, role, and ECR image from the
+Foundation stack automatically — you don't have to pass them. To see the raw
+outputs yourself:
+
+```bash
 aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
   --query 'Stacks[0].Outputs[*].[OutputKey,OutputValue]' --output table
 ```
@@ -83,7 +94,8 @@ You should see:
 | SageMakerRoleArn | `arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role` |
 | GrootTrainingRepoUri | `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/groot-training` |
 
-Save these values — you'll use them throughout the lab:
+Save these values — the `pai` commands resolve them for you, but the
+"Under the hood" raw commands and the Step 9 `MODEL_S3` path use `$BUCKET`/`$ECR_URI`:
 ```bash
 export BUCKET=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
   --query 'Stacks[0].Outputs[?OutputKey==`DatasetsBucketName`].OutputValue' --output text)
@@ -100,20 +112,32 @@ export ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-
 The training data is 27 episodes of UR3 pick-and-place, recorded via Xbox controller teleoperation. The raw data is in Zarr format (how our recording tools capture it) and needs to be converted to LeRobot v2 format (what GR00T reads).
 
 ```bash
-# 2a. Install the conversion dependencies (zarr, opencv, pandas, pyarrow)
-pip install -r training/requirements.txt
-
-# 2b. Pull the dataset from Git LFS and extract it.
+# 2a. Pull the dataset from Git LFS and extract it.
 #     The zip's internal root is `episodes/`, so this yields
 #     training/data/episodes/episodes/episode_*.
 git lfs pull
 unzip -o training/data/ur3_episodes_001_027.zip -d training/data/episodes
 
-# 2c. Convert Zarr episodes → LeRobot v2 format
+# 2b. Convert Zarr episodes → LeRobot v2 format
+#     (conversion deps come with `pip install -e .` from Lab 0)
+pai groot convert
+```
+
+`pai groot convert` defaults to the bundled UR3 episodes
+(`training/data/episodes/episodes` → `training/data/ur3_lerobot_dataset`);
+pass `--episodes-dir`/`--output-dir` to point it elsewhere, or `--dry-run` to
+see the exact command first.
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
 python training/groot/convert_zarr_to_lerobot.py \
   --episodes-dir training/data/episodes/episodes \
   --output-dir training/data/ur3_lerobot_dataset
 ```
+
+</details>
 
 **What the conversion does:**
 - Reads each Zarr episode (wrist camera frames + joint states + velocity commands)
@@ -142,11 +166,23 @@ training/data/ur3_lerobot_dataset/
 the one-command ingestion path converts → uploads → (optionally) trains:
 
 ```bash
+pai groot ingest \
+  --episodes-dir ./my_robot_episodes \
+  --prefix groot-data/myrobot \
+  --train --max-steps 100
+```
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
 python training/groot/ingest_customer_data.py \
   --episodes-dir ./my_robot_episodes \
   --prefix groot-data/myrobot \
   --train --max-steps 100
 ```
+
+</details>
 
 The expected Zarr schema (`observations/joints`, `observations/gripper_position`,
 `images/wrist`, `commands.json`, and the `zarr.json` attrs) is documented in full in
@@ -159,8 +195,21 @@ state/action dimensions in `convert_zarr_to_lerobot.py` and the GR00T modality c
 ## Step 3: Upload Dataset to S3
 
 ```bash
+pai groot upload
+```
+
+`pai groot upload` resolves the datasets bucket from the Foundation stack and
+syncs `training/data/ur3_lerobot_dataset/` to `s3://<bucket>/groot-data/ur3/dataset/`
+— where `pai groot launch` expects it.
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
 aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/dataset/"
 ```
+
+</details>
 
 ---
 
@@ -223,29 +272,48 @@ For everyone else, the CodeBuild image above is all you need.
 ## Step 5: Launch Training (Smoke Test)
 
 The training runs as a **SageMaker Pipeline** (`groot-finetune-pipeline`) that
-trains and then registers the model. You create the pipeline once, then execute it.
+trains and then registers the model. `pai groot launch` resolves your account's
+bucket, role, and ECR image from the Foundation stack, creates the pipeline if it
+doesn't exist yet, and starts an execution — all in one command.
 
-**5a — Create the pipeline (one-time):**
+**First, preview it (free — makes no AWS calls):**
 
 ```bash
+pai groot launch --dry-run
+```
+
+This prints the resolved bucket/role/image and the pipeline parameters
+(dataset prefix, max-steps, instance type, and the `groot-models` registry it
+registers to) so you can sanity-check before spending anything. If you've set
+`HF_TOKEN`, it's forwarded to the pipeline but never echoed (shown as `<redacted>`).
+
+**Then launch a 100-step smoke run** (~15 min, ~$2):
+
+```bash
+pai groot launch --max-steps 100
+```
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+`pai groot launch` is the two-step pipeline create + execute:
+
+```bash
+# Create the pipeline (one-time; safe to re-run — it updates in place):
 python training/groot/pipeline.py --create \
   --s3-bucket $BUCKET \
   --role-arn $ROLE_ARN \
   --ecr-image $ECR_URI:latest \
   --region us-west-2
-```
 
-> You only do this once. `--execute` fails with a clear "run --create first" message
-> if the pipeline doesn't exist yet.
-
-**5b — Execute a 100-step smoke run** (~15 min, ~$2):
-
-```bash
+# Execute a 100-step smoke run:
 python training/groot/pipeline.py --execute \
   --max-steps 100 \
   --dataset-prefix groot-data/ur3 \
   --region us-west-2
 ```
+
+</details>
 
 The pipeline handles:
 1. Provisioning an ml.g5.12xlarge instance (4× A10G GPUs)
@@ -272,14 +340,26 @@ a DAG view in SageMaker Studio, and re-execution with new parameters without edi
 ## Step 6: Monitor
 
 ```bash
+# List recent pipeline executions and their status
+pai groot runs
+```
+
+The execution kicks off a training job named `groot-finetune-<timestamp>`. Check it
+directly with `pai rl status <job-name>` (works for any SageMaker training job).
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
 JOB_NAME=$(aws sagemaker list-training-jobs --sort-by CreationTime \
   --sort-order Descending --max-results 1 \
   --query 'TrainingJobSummaries[0].TrainingJobName' --output text)
 
-# Check status
 aws sagemaker describe-training-job --training-job-name $JOB_NAME \
   --query '{Status:TrainingJobStatus,Secondary:SecondaryStatus}'
 ```
+
+</details>
 
 Status progression: `Pending` → `Downloading` → `Training` → `Uploading` → `Completed`
 
@@ -310,19 +390,37 @@ cat /tmp/model-output/eval_report.json
 ## Step 7b: List recent runs
 
 ```bash
+pai groot runs
+```
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
 python training/groot/pipeline.py --list-runs --region us-west-2
 ```
+
+</details>
 
 ---
 
 ## Step 8 (Optional): Full Training Run
 
-Once the smoke test passes, kick off the real training:
+Once the smoke test passes, kick off the real training (same command, more steps):
+
+```bash
+pai groot launch --max-steps 5000
+```
+
+<details>
+<summary>Under the hood (raw command)</summary>
 
 ```bash
 python training/groot/pipeline.py --execute --max-steps 5000 \
   --dataset-prefix groot-data/ur3 --region us-west-2
 ```
+
+</details>
 
 This runs for several hours (~11 hrs, ~$79 at the smoke-test config). With more steps
 the training loss should drop substantially; the exact curve depends on the data and the
@@ -342,11 +440,10 @@ robot) can ask it for actions. The endpoint runs the `groot-inference` container
 MODEL_S3="s3://$BUCKET/groot-data/ur3/output/<JOB_NAME>/output/model.tar.gz"
 
 # Preview exactly what gets created (no AWS calls):
-python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" \
-  --endpoint-name groot-ur3 --dry-run
+pai groot deploy --model-s3 "$MODEL_S3" --endpoint-name groot-ur3 --dry-run
 
 # Deploy (creates model → endpoint-config → endpoint; ~10–30 min to come InService):
-python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
+pai groot deploy --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
 ```
 
 The endpoint runs on `ml.g5.2xlarge` (GR00T inference needs a GPU). GR00T loads
@@ -355,7 +452,7 @@ slowly, so the container's startup health-check timeout is set to 30 minutes.
 **Call the endpoint** — give it a wrist image + the 7D robot state + the task:
 
 ```bash
-python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
+pai groot invoke --endpoint-name groot-ur3 \
   --image-path wrist.jpg \
   --state "0,-1.57,1.57,-1.57,-1.57,0,0" \
   --task "pick up the red cube"
@@ -365,12 +462,28 @@ python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
 **Tear it down** when finished (a running GPU endpoint bills continuously):
 
 ```bash
+pai groot delete --endpoint-name groot-ur3
+```
+
+<details>
+<summary>Under the hood (raw commands)</summary>
+
+```bash
+python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" \
+  --endpoint-name groot-ur3 --dry-run
+python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
+
+python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
+  --image-path wrist.jpg --state "0,-1.57,1.57,-1.57,-1.57,0,0" --task "pick up the red cube"
+
 python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
 ```
 
+</details>
+
 > **Status:** the deploy/serve path is wired against the proven GR00T N1.6 serving
 > API. Standing up a live endpoint needs a GPU instance and is billed hourly — run
-> it when you're ready to serve, and `--delete` when done.
+> it when you're ready to serve, and `pai groot delete` when done.
 
 ---
 

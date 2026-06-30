@@ -2,7 +2,8 @@
 # Install: pip install -r training/requirements.txt
 
 # Data conversion (zarr → LeRobot v2)
-zarr>=2.16
+# zarr>=3 required: bundled episodes are zarr v3 format (zarr.json); v2 can't read them.
+zarr>=3
 numpy>=1.24
 opencv-python>=4.8
 pandas>=2.0
