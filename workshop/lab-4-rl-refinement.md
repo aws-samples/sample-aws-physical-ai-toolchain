@@ -16,7 +16,7 @@
 | 1 | Launch the RL smoke test | `pai rl launch --max-iterations 50 --instance-type ml.g5.xlarge` | prints `Launched. Monitor: …` with a job name |
 | 2 | Watch the SageMaker job | `pai rl status <name>` | status `InProgress` → `Completed` |
 | 3 | (Optional) full training | `pai rl launch --task Isaac-Velocity-Flat-Anymal-D-v0 --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
-| 3b | (Optional) scale out across nodes | SageMaker: add `--instance-count 2`. Batch: `pai rl launch --engine batch --num-nodes 2` | job launches across N nodes (correctly wired, **unvalidated on hardware**) |
+| 3b | (Optional) scale out | Multi-GPU one box: `--instance-type ml.g5.12xlarge --instance-count 1` (✅ validated). Multi-node: add `--instance-count 2` (SageMaker) or `--engine batch --num-nodes 2` (wired, cross-node **unvalidated**) | multi-GPU: 4 ranks bind cuda:0–3, reward climbs. multi-node: job launches across N nodes |
 | 4 | Export + evaluate + watch on the **Lab 2 workstation** | 4a: `play.py … --video --video_length 1` exports `policy.{pt,onnx}` + an MP4 and self-exits. 4b: `evaluate.py` scores it. 4c: `play.py` (no `--headless`) renders it live | `exported/policy.onnx` written; `eval_metrics.json` has `success_rate_pct` (validated on L40S) |
 | 5 | Ship the `.onnx` for edge | push `policy.onnx` to S3; the `.trt` engine is built **on the Jetson** in Lab 5 (not portable) | `policy.onnx` in S3 |
 
@@ -174,10 +174,15 @@ bigger models, more parallel envs, faster wall-clock — RL training scales acro
 **multiple nodes** two ways. Both reuse the **same `physical-ai/isaac-lab` container**;
 the only difference is who provisions the fleet and wires the NCCL topology.
 
-> ⚠️ Both paths are correctly wired (torchrun + rsl_rl --distributed across nodes/GPUs),
-> but **multi-node convergence remains unvalidated on hardware** — no one has watched reward
-> climb on a real multi-GPU/multi-node run. The single-node path (Steps 1–3) is the proven
-> one. Treat a green multi-node launch as untested until you've confirmed reward actually improves.
+> ✅ **Multi-GPU validated on hardware:** a single-node 4-GPU run (`ml.g5.12xlarge`, 4× A10G)
+> was confirmed end-to-end — torchrun spawned 4 ranks, each bound to a distinct GPU
+> (`Environment device: cuda:0/1/2/3`) with per-rank seed offsets (42/43/44/45), NCCL gradient
+> sync active, and reward climbed -0.36 → 13.56 over 100 iterations. The intra-node path
+> (`--instance-count 1` with a multi-GPU instance) is proven.
+>
+> ⚠️ **Multi-node networking (`--instance-count`/`--num-nodes` ≥ 2) is wired but not yet validated**
+> — cross-node NCCL over the cluster fabric hasn't been exercised on real hardware. Treat a green
+> multi-node launch as untested until you've confirmed reward climbs across nodes.
 
 ### Option A — SageMaker multi-instance (quickest)
 
@@ -194,6 +199,11 @@ pai rl launch \
 ```
 
 SageMaker handles inter-node networking and tears the fleet down when the job ends.
+
+> ✅ **Tip — the validated middle ground:** before going multi-*node*, scale up to a multi-GPU
+> *single* instance (`--instance-type ml.g5.12xlarge --instance-count 1`). That intra-node path
+> is hardware-validated (4 ranks → cuda:0–3, NCCL sync, reward climbs) and avoids cross-node
+> network variables entirely — often all the throughput a workshop task needs.
 
 ### Option B — AWS Batch Multi-Node Parallel (the reference architecture)
 
