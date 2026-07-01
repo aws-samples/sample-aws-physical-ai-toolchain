@@ -1,4 +1,4 @@
-# Physical AI Toolchain Workshop
+# Physical AI Accelerator
 
 ## Build an End-to-End Robot Learning Pipeline on AWS
 

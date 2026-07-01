@@ -1,4 +1,4 @@
-# AWS Physical AI Toolchain
+# AWS Physical AI Accelerator
 
 An end-to-end pipeline for training robot manipulation policies on AWS — from human demonstrations to a deployed physical robot. Built entirely on open-source tools (GR00T, Isaac Lab, Cosmos, LeRobot, ROS 2, PyTorch) running on AWS infrastructure.
 
