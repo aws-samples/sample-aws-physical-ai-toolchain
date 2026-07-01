@@ -4,7 +4,7 @@ Prompts tested against `nvidia/Cosmos3-Super` via vLLM-Omni V2V endpoint.
 All use the same input reference: `episode_000000.mp4` (UR3 wrist camera, 81 frames,
 5fps, 640x480 — pick-and-place of red block onto yellow post-it).
 
-**S3 location:** `s3://physical-ai-dev-datasets-802782083985/cosmos-samples/`
+**S3 location:** `s3://<DATASETS_BUCKET>/cosmos-samples/`
 
 ---
 

@@ -1,8 +1,8 @@
-# Physical AI Accelerator
+# Physical AI Toolkit
 
 ## Build an End-to-End Robot Learning Pipeline on AWS
 
-This workshop takes you from raw teleoperation recordings to a deployed robot policy — running on real hardware — using AWS infrastructure-as-code and the most widely adopted open-source tools in physical AI (GR00T, Isaac Lab, LeRobot, ROS 2, PyTorch).
+This workshop takes you from raw teleoperation recordings to a deployed robot policy — running on real hardware — using AWS infrastructure-as-code and the most widely adopted open-source tools in physical AI (GR00T, Isaac Sim, Isaac Lab, Cosmos, LeRobot, Hugging Face, ROS 2, PyTorch).
 
 You'll build a complete **pick-and-place** pipeline: the most common industrial manipulation task and the starting point for most robotics teams. By the end, you'll have a trained, refined, and deployable policy that can pick objects from a bin and place them at a target location.
 
@@ -11,31 +11,31 @@ You'll build a complete **pick-and-place** pipeline: the most common industrial 
 ## What You'll Build
 
 ```
-Teleop Data  →  Imitation Learning  →  World Generation   →  RL Training      →  Edge Deployment
-(Lab 1)          (GR00T on              (Cosmos V2V)         (Isaac Lab on       (Greengrass +
-                  SageMaker)                                  SageMaker)          Jetson)
+Teleop Data  →  Imitation Learning  →  World Generation   →  RL Training      →  Export .onnx
+(Lab 1)          (GR00T on              (Cosmos V2V)         (Isaac Lab on       (ready for
+                  SageMaker)                                  SageMaker)          deployment)
 ```
 
 A production-grade Physical AI pipeline with:
 
 - **Infrastructure as Code** — everything deploys via `cdk deploy`. Reproducible, versionable, teardown-able.
 - **Open-source toolchain** — GR00T (foundation model), Isaac Lab (RL simulation), Cosmos (world generation), LeRobot (data format), ROS 2 (robot middleware), PyTorch (training), Docker (containers) — all open source
-- **AWS services** — SageMaker (training), S3 (data), ECR (containers), CodeBuild (CI), IoT Greengrass (edge deployment), EKS (orchestration)
-- **GPU-accelerated** — NVIDIA GPUs for parallel simulation (4096 robots simultaneously) and real-time inference at the edge (TensorRT on Jetson)
+- **AWS services** — SageMaker (training), S3 (data), ECR (containers), CodeBuild (CI), EC2 (Cosmos generation)
+- **GPU-accelerated** — NVIDIA GPUs for parallel simulation (4096 robots simultaneously) and photorealistic world generation (Cosmos 3 on H100)
 
 ---
 
-## What You'll Learn
+## What You'll Build and Learn
 
-| Lab | What You Learn | Key Skill |
-|-----|---------------|-----------|
-| Lab 0 | Environment setup and infrastructure deployment | CDK, AWS account configuration |
-| Lab 1 | Train a robot policy from demonstration data | GR00T fine-tuning, SageMaker Pipelines |
-| Lab 2 | Visual development and debugging in simulation | Isaac Sim, GPU remote desktop |
-| Lab 3 | Use Cosmos World Foundation Models to augment training data | Cosmos V2V, sim-to-real gap |
-| Lab 4 | Train an RL policy in simulation (standalone, no GR00T) | Isaac Lab, PPO, domain randomization, SageMaker |
-| Lab 5 | Deploy to physical hardware at the edge | TensorRT, Greengrass, Jetson |
-| Lab 6 | Orchestrate the full pipeline for production | NVIDIA OSMO, EKS, Kueue |
+| Lab | What You Learn | Key Skill | Time | Depends On |
+|-----|---------------|-----------|------|-----------|
+| [Lab 0](lab-0-prerequisites.md) | Environment setup and infrastructure deployment | CDK, AWS account configuration | 30 min | — |
+| [Lab 1](lab-1-train-groot.md) | Train a robot policy from demonstration data | GR00T fine-tuning, SageMaker Pipelines | 2 hrs | Lab 0 |
+| [Lab 2](lab-2-isaac-workstation.md) | Visual development and debugging in simulation | Isaac Sim, GPU remote desktop | 30 min | Lab 0 |
+| [Lab 3](lab-3-cosmos-world-generation.md) | Generate synthetic demonstrations with Cosmos (Predict) | Cosmos 3 Super, World Foundation Models | 1-2 hrs | Lab 1 |
+| [Lab 4](lab-4-cosmos-transfer.md) | Restyle existing training data with Cosmos (Transfer) | Cosmos Transfer 2.5, data augmentation | 1-2 hrs | Lab 1 |
+| [Lab 5](lab-5-rl-refinement-with-isaac.md) | Train an RL policy in simulation (standalone) | Isaac Lab, PPO, domain randomization | 3 hrs | Lab 0 |
+| [Lab 6](lab-6-osmo-orchestration.md) | Orchestrate the full pipeline for production | NVIDIA OSMO, EKS, Kueue | 2-3 hrs | Labs 1-5 |
 
 ---
 
@@ -57,7 +57,7 @@ The reference implementation uses a **UR3** arm with a **Robotiq 2F-85** gripper
 
 This entire workshop runs in the cloud. You don't need a physical robot to complete Labs 0-4. The simulation (Isaac Lab) provides a physically accurate UR3 environment where you can develop, train, and validate policies.
 
-**If you have a UR3 arm:** Lab 5 walks you through deploying to real hardware via Greengrass + Jetson. The sim-trained policy runs directly on the physical robot.
+**If you have a UR3 arm:** The trained policy can be exported as `.onnx` and deployed to edge hardware manually. Automated edge deployment (Greengrass + Jetson) is planned as a future lab.
 
 **If you have different hardware:** You can adapt the pipeline by:
 1. Recording your own teleoperation data (any robot + camera setup)
@@ -101,13 +101,13 @@ python training/groot/convert_dataset.py --input ./my_rosbags/ --output ./lerobo
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  AWS Account                                                             │
 │                                                                         │
-│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│  │   S3    │  │   ECR    │  │SageMaker │  │   EKS    │  │   IoT    │ │
-│  │Datasets │  │Containers│  │Training  │  │  OSMO    │  │Greengrass│ │
-│  │Models   │  │          │  │Pipelines │  │          │  │  Edge    │ │
-│  └────┬────┘  └────┬────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
-│       │            │            │              │              │        │
-│       └────────────┴────────────┴──────────────┴──────────────┘        │
+│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
+│  │   S3    │  │   ECR    │  │SageMaker │  │   EC2    │               │
+│  │Datasets │  │Containers│  │Training  │  │ Cosmos   │               │
+│  │Models   │  │          │  │Pipelines │  │ GPU Gen  │               │
+│  └────┬────┘  └────┬────┘  └────┬─────┘  └────┬─────┘               │
+│       │            │            │              │                       │
+│       └────────────┴────────────┴──────────────┘                       │
 │                              │                                          │
 │                    CDK (Infrastructure as Code)                          │
 │                    One command: `cdk deploy`                             │
@@ -126,7 +126,7 @@ Running the full workshop in your own AWS account:
 | Lab 2 (Workstation) | ~$3.00/hr | Stop when not in use |
 | Lab 3 (Cosmos) | ~$300-500 | Capacity Block (p5.48xlarge, ~$37/hr) |
 | Lab 4 (RL training) | ~$10-30 | ml.g5.xlarge for 2-4 hours |
-| Lab 5 (Edge) | ~$5 | Greengrass deployment |
+| Lab 5 (RL training) | ~$10-30 | ml.g5.xlarge for 2-4 hours |
 | Lab 6 (OSMO/EKS) | ~$50-100 | EKS cluster + GPU nodes |
 | **Total (Labs 0-4, no EKS)** | **~$50-100** | Most common path |
 | **Total (all labs)** | **~$150-250** | Full pipeline with OSMO |
@@ -155,20 +155,9 @@ npx cdk deploy --all --context mode=simple
 
 ---
 
-## Lab Sequence
+## Dependencies
 
-| # | Lab | Time | Depends On |
-|---|-----|------|-----------|
-| 0 | [Prerequisites](lab-0-prerequisites.md) | 30 min | — |
-| 1 | [Train from Demonstrations](lab-1-train-groot.md) | 2 hrs | Lab 0 |
-| 2 | [Isaac Sim Workstation](lab-2-isaac-workstation.md) | 30 min | Lab 0 |
-| 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 1 |
-| 4 | [RL Policy Training](lab-4-rl-refinement.md) | 3 hrs | Lab 0 |
-| 4b | [Train a Robot Arm (optional)](lab-4b-arm-manipulation.md) | 3 hrs | Lab 0 |
-| 5 | [Edge Deployment](lab-5-edge-deployment.md) | 2 hrs | Lab 4 |
-| 6 | [OSMO Orchestration](lab-6-osmo-orchestration.md) | 2-3 hrs | Labs 1-5 |
-
-Labs 2 and 3 can run in parallel with Lab 1. Lab 3 takes Lab 1's dataset as input (wrist camera MP4s) but can also use sim renders from Lab 2. **Lab 4 is standalone RL** — it trains a policy in simulation from scratch and needs only the Foundation stack (the `isaac-lab` image in ECR); it does **not** require Lab 1 (GR00T) or Lab 3 (Cosmos scenes). RL and imitation learning (Lab 1) are two independent ways to obtain a policy.
+Labs 2, 3, and 4 can run in parallel with Lab 1. Labs 3 and 4 take Lab 1's dataset as input (wrist camera MP4s) but can also use sim renders from Lab 2. **Lab 5 is standalone RL** — it trains a policy in simulation from scratch and needs only the Foundation stack (the `isaac-lab` image in ECR); it does **not** require Lab 1 (GR00T) or Labs 3-4 (Cosmos). RL and imitation learning (Lab 1) are two independent ways to obtain a policy.
 
 ---
 

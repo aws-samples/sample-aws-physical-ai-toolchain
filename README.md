@@ -1,4 +1,4 @@
-# AWS Physical AI Accelerator
+# AWS Physical AI Toolkit
 
 An end-to-end pipeline for training robot manipulation policies on AWS — from human demonstrations to a deployed physical robot. Built entirely on open-source tools (GR00T, Isaac Lab, Cosmos, LeRobot, ROS 2, PyTorch) running on AWS infrastructure.
 
@@ -140,7 +140,7 @@ Seven hands-on labs taking you from zero to a deployed robot policy:
 | [Lab 1: Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$15-30 |
 | [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$3.00/hr |
 | [Lab 3: Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Synthetic demo generation (Cosmos 3 Super, Predict mode) | 1-2 hrs | ~$300-500 |
-| [Lab 4: RL Policy Training](workshop/lab-4-rl-refinement.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
+| [Lab 4: RL Policy Training](workshop/lab-5-rl-refinement-with-isaac.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
 | [Lab 5: Edge Deployment](workshop/lab-5-edge-deployment.md) | Deploy to Jetson via Greengrass | 2 hrs | ~$5 |
 | [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$50-100 |
 

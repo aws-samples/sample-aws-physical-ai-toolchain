@@ -200,7 +200,7 @@ You'll see the full Isaac Sim visual editor — 3D viewport, content browser wit
 The goal here is to confirm your GPU workstation actually renders and trains — *not* to
 produce a useful policy. You'll run Isaac Lab's built-in **Anymal** task and watch it in
 the DCV desktop; that proves the container + GPU + GUI passthrough all work. The real
-training workflow (at scale, headless, on SageMaker/Batch) is **[Lab 4](lab-4-rl-refinement.md)**.
+training workflow (at scale, headless, on SageMaker/Batch) is **[Lab 4](lab-5-rl-refinement-with-isaac.md)**.
 
 The toolchain code is already on the workstation — the deploy bundles your working tree as
 an S3 asset and the bootstrap unzips it to `/home/ubuntu/aws-physical-ai-toolchain`:
@@ -268,7 +268,7 @@ scale in Lab 4.
 
 If you see the robots stepping and the logs ticking, your workstation is good to go.
 
-> The toolchain's UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in **[Lab 4](lab-4-rl-refinement.md)**. It's not yet GPU-validated, so Lab 2 uses the proven Anymal task for this smoke test. For a working arm task on the validated path, see [Lab 4b](lab-4b-arm-manipulation.md) (optional — Isaac Lab's built-in UR10 arm).
+> The toolchain's UR3 pick-and-place env (`PickAndPlaceUR3-v0`) is covered in **[Lab 4](lab-5-rl-refinement-with-isaac.md)**. It's not yet GPU-validated, so Lab 2 uses the proven Anymal task for this smoke test.
 
 ---
 
@@ -343,10 +343,10 @@ docker run --gpus all \
 
 ## Policy Evaluation (come back here after Lab 4)
 
-Once you have a checkpoint from [Lab 4](lab-4-rl-refinement.md), you evaluate it **here** — export,
+Once you have a checkpoint from [Lab 4](lab-5-rl-refinement-with-isaac.md), you evaluate it **here** — export,
 eval, and the live visual playback all run in this workstation's `isaac-lab` container on the L40S
 GPU. The full walkthrough (fetch checkpoint → export → eval → **watch it run**) lives in
-**[Lab 4 → Step 4](lab-4-rl-refinement.md#step-4-evaluate-the-trained-policy)**, next to the training
+**[Lab 4 → Step 4](lab-5-rl-refinement-with-isaac.md#step-4-evaluate-the-trained-policy)**, next to the training
 that produced it. Step 4c renders the trained policy live on this DCV desktop — the visual payoff of RL refinement.
 
 ---

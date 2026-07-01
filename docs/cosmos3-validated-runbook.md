@@ -177,20 +177,20 @@ aws ssm send-command --instance-ids $INSTANCE_ID \
 # Login to ECR
 aws ssm send-command --instance-ids $INSTANCE_ID \
   --document-name AWS-RunShellScript \
-  --parameters '{"commands":["aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 802782083985.dkr.ecr.us-east-1.amazonaws.com"]}' \
+  --parameters '{"commands":["aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com"]}' \
   --region us-east-1
 
 # Pull the image (~5 min, 10GB from in-region ECR)
 aws ssm send-command --instance-ids $INSTANCE_ID \
   --document-name AWS-RunShellScript \
-  --parameters '{"commands":["docker pull 802782083985.dkr.ecr.us-east-1.amazonaws.com/vllm-omni:cosmos3"]}' \
+  --parameters '{"commands":["docker pull <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/vllm-omni:cosmos3"]}' \
   --timeout-seconds 600 --region us-east-1
 
 # Start the vLLM-Omni server
 # HF_TOKEN is needed for gated model downloads (Cosmos3-Super + Cosmos-Guardrail)
 aws ssm send-command --instance-ids $INSTANCE_ID \
   --document-name AWS-RunShellScript \
-  --parameters '{"commands":["docker run -d --name cosmos3 --gpus all --ipc=host --shm-size=64g -p 8000:8000 -e HF_TOKEN=<YOUR_HF_TOKEN> -e HF_HOME=/workspace/hf-cache 802782083985.dkr.ecr.us-east-1.amazonaws.com/vllm-omni:cosmos3 bash -c \"vllm serve nvidia/Cosmos3-Super --omni --cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8 --init-timeout 2400 --stage-init-timeout 1800 --host 0.0.0.0 --port 8000\""]}' \
+  --parameters '{"commands":["docker run -d --name cosmos3 --gpus all --ipc=host --shm-size=64g -p 8000:8000 -e HF_TOKEN=<YOUR_HF_TOKEN> -e HF_HOME=/workspace/hf-cache <ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/vllm-omni:cosmos3 bash -c \"vllm serve nvidia/Cosmos3-Super --omni --cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8 --init-timeout 2400 --stage-init-timeout 1800 --host 0.0.0.0 --port 8000\""]}' \
   --region us-east-1
 ```
 
@@ -230,7 +230,7 @@ Server is ready when `/v1/models` returns `nvidia/Cosmos3-Super` in the response
 ```bash
 aws ssm send-command --instance-ids $INSTANCE_ID \
   --document-name AWS-RunShellScript \
-  --parameters '{"commands":["aws s3 cp s3://physical-ai-dev-datasets-802782083985/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4 /tmp/episode_000000.mp4 --region us-east-1 && docker cp /tmp/episode_000000.mp4 cosmos3:/tmp/episode_000000.mp4"]}' \
+  --parameters '{"commands":["aws s3 cp s3://<DATASETS_BUCKET>/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4 /tmp/episode_000000.mp4 --region us-east-1 && docker cp /tmp/episode_000000.mp4 cosmos3:/tmp/episode_000000.mp4"]}' \
   --region us-east-1
 ```
 
@@ -260,15 +260,15 @@ requests are faster (~2-3 min).
 ```bash
 aws ssm send-command --instance-ids $INSTANCE_ID \
   --document-name AWS-RunShellScript \
-  --parameters '{"commands":["docker cp cosmos3:/tmp/output_v2v.mp4 /tmp/output_v2v.mp4 && aws s3 cp /tmp/output_v2v.mp4 s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_episode_000000.mp4 --region us-east-1 && aws s3 cp /tmp/episode_000000.mp4 s3://physical-ai-dev-datasets-802782083985/cosmos-samples/original_episode_000000.mp4 --region us-east-1 && echo DONE"]}' \
+  --parameters '{"commands":["docker cp cosmos3:/tmp/output_v2v.mp4 /tmp/output_v2v.mp4 && aws s3 cp /tmp/output_v2v.mp4 s3://<DATASETS_BUCKET>/cosmos-samples/augmented_episode_000000.mp4 --region us-east-1 && aws s3 cp /tmp/episode_000000.mp4 s3://<DATASETS_BUCKET>/cosmos-samples/original_episode_000000.mp4 --region us-east-1 && echo DONE"]}' \
   --region us-east-1
 ```
 
 ### Download and compare
 
 ```bash
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/original_episode_000000.mp4 ./
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_episode_000000.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/original_episode_000000.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/augmented_episode_000000.mp4 ./
 # Open both side by side — original (640x480, 5fps) vs augmented (1280x720, 24fps)
 ```
 

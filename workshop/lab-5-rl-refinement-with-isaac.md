@@ -23,7 +23,7 @@
 | 3 | (Optional) full training | `pai rl launch --task Isaac-Velocity-Flat-Anymal-D-v0 --max-iterations 1500 --instance-type ml.g5.12xlarge` | job launches; logs `Mean reward` climbing |
 | 3b | (Optional) scale out | Multi-GPU one box: `--instance-type ml.g5.12xlarge --instance-count 1` (✅ validated). Multi-node: add `--instance-count 2` (SageMaker) or `--engine batch --num-nodes 2` (wired, cross-node **unvalidated**) | multi-GPU: 4 ranks bind cuda:0–3, reward climbs. multi-node: job launches across N nodes |
 | 4 | Export + evaluate + watch on the **Lab 2 workstation** | 4a: `play.py … --video --video_length 1` exports `policy.{pt,onnx}` + an MP4 and self-exits. 4b: `evaluate.py` scores it. 4c: `play.py` (no `--headless`) renders it live | `exported/policy.onnx` written; `eval_metrics.json` has `success_rate_pct` (validated on L40S) |
-| 5 | Ship the `.onnx` for edge | push `policy.onnx` to S3; the `.trt` engine is built **on the Jetson** in Lab 5 (not portable) | `policy.onnx` in S3 |
+| 5 | Ship the `.onnx` for deployment | push `policy.onnx` to S3 | `policy.onnx` in S3 |
 
 **Before you start, confirm:**
 - [ ] AWS credentials active for the **test account** (`pai doctor` checks this)
@@ -51,7 +51,7 @@ collision.
 
 **RL vs. imitation learning (Lab 1):** two independent ways to get a policy — IL copies human
 demos (best with good demos, weak sim); RL learns from reward (best with a strong sim + clear
-success signal). Both feed Lab 5 edge deployment. You can run Lab 4 on its own — it doesn't read
+success signal). Both produce a deployable `.onnx` policy. You can run Lab 4 on its own — it doesn't read
 a GR00T model or any Lab 1 output.
 
 ---
@@ -68,7 +68,7 @@ a GR00T model or any Lab 1 output.
 
 ## Step 1: Launch RL Training
 
-> 🦾 **Want to train a robot ARM instead?** The same pipeline works on Isaac Lab's built-in UR10 arm task — see [Lab 4b](lab-4b-arm-manipulation.md) for the optional alternate path (arm reaching instead of quadruped walking).
+> 🦾 **Want to train a robot ARM instead?** The same pipeline works on Isaac Lab's built-in UR10 arm task (arm reaching instead of quadruped walking). Change the `--task` flag to a UR10 task ID.
 
 All RL training is launched from your laptop with **`pai rl launch`** — it builds the
 SageMaker job (resolving your account's ECR image, role, and output bucket) and
@@ -383,10 +383,10 @@ holds a stable gait and tracks the commanded velocity. That contrast is the payo
 ## Step 5: Ship the policy for edge deployment
 
 Your deployable artifact is the `policy.onnx` from Step 4a — there's nothing to re-export here.
-Just push it to S3 for Lab 5 (Greengrass → Jetson).
+Just push it to S3 for deployment.
 
-> 📘 The TensorRT engine (`.trt`) is **not portable** across GPUs, so it's compiled *on the Jetson*
-> in Lab 5 (`trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16`), not here. Ship the `.onnx`.
+> 📘 The TensorRT engine (`.trt`) is **not portable** across GPUs, so it's compiled on the
+> target hardware (`trtexec --onnx=policy.onnx --saveEngine=policy.trt --fp16`). Ship the `.onnx`.
 
 **On the workstation HOST** (no AWS CLI in the container; the export wrote into the mounted tree):
 
@@ -455,5 +455,4 @@ The UR3 task is registered but not yet container-wired (see Step 1).
 
 ---
 
-**Previous:** [← Lab 3: Cosmos World Generation](lab-3-cosmos-world-generation.md)
-**Next:** [Lab 5: Edge Deployment →](lab-5-edge-deployment.md)
+**Previous:** [← Lab 4: Cosmos Transfer](lab-4-cosmos-transfer.md)

@@ -331,16 +331,16 @@ If you don't have P5 capacity, download our validated outputs from S3:
 
 ```bash
 # Original reference clip
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/original_episode_000000.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/original_episode_000000.mp4 ./
 
 # Generated: red block pick-and-place (specific prompt, seed 100) ← BEST RESULT
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_specific_prompt.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/augmented_specific_prompt.mp4 ./
 
 # Generated: blue block variant (seed 200)
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_blue_block.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/augmented_blue_block.mp4 ./
 
 # Generated: dim lighting variant (seed 300)
-aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_dim_lighting.mp4 ./
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/augmented_dim_lighting.mp4 ./
 ```
 
 ---
@@ -389,4 +389,4 @@ The complete step-by-step runbook (every CLI command we ran to validate this lab
 ---
 
 **Previous:** [← Lab 2: Isaac Sim Workstation](lab-2-isaac-workstation.md)
-**Next:** [Lab 4: RL Policy Training →](lab-4-rl-refinement.md)
+**Next:** [Lab 4: Cosmos Transfer →](lab-4-cosmos-transfer.md)

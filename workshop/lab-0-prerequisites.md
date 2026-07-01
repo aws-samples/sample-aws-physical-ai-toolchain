@@ -1,6 +1,6 @@
 # Lab 0: Prerequisites
 
-**Goal:** Verify your environment is ready to deploy the Physical AI Accelerator.
+**Goal:** Verify your environment is ready to deploy the Physical AI Toolkit.
 **Time:** 30 minutes
 **Cost:** Free (no AWS resources created)
 
@@ -12,7 +12,7 @@
 
 ## What You're Setting Up
 
-The Physical AI Accelerator is an end-to-end pipeline for training robot manipulation
+The Physical AI Toolkit is an end-to-end pipeline for training robot manipulation
 policies on AWS. You'll deploy a "Foundation stack" — S3 buckets for data/models, ECR
 repositories for containers, IAM roles for SageMaker, and CodeBuild projects that
 automatically build GPU training containers. Once deployed, Labs 1-5 use this foundation
