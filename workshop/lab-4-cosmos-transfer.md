@@ -1,6 +1,8 @@
 # Lab 4: Cosmos Transfer — Photorealistic Data Augmentation
 
-> **Status:** In progress — validating on p4d.24xlarge Spot.
+> **Status:** Validated on p5.48xlarge (8x H100 80GB) using the NIM container.
+> Geometry preservation works. Color fidelity and framerate matching require tuning.
+> See notes below for known issues and workarounds.
 
 **Goal:** Use Cosmos Transfer 2.5 to restyle your existing training videos with photorealistic visual variations while preserving exact robot motion and geometry — making your action labels remain valid
 **Time:** 1-2 hours
@@ -80,33 +82,54 @@ The prompt tells it HOW things should look. Geometry is locked — only appearan
 
 ## Steps
 
-> **TODO:** Full step-by-step instructions will be added once validation completes.
-> The validation is running now on a Spot p4d.24xlarge in us-west-2.
+> **Status:** Validated on p5.48xlarge (8x H100 80GB) with the NIM container.
+> Quality tuning still needed — output colors shift and framerate needs matching.
+> See `docs/cosmos3-validated-runbook.md` for the full validated Transfer NIM setup.
 
-### Expected workflow:
-1. Launch p4d Spot instance (or use Capacity Block)
-2. Pull `nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest`
-3. Start the NIM with all 8 GPUs
-4. Copy your Lab 1 wrist camera clip to the instance
-5. POST to `/v1/infer` with: video (base64) + edge control + style prompt
-6. Get back: same video restyled with different visual appearance
-7. Merge restyled videos into dataset (same parquet actions, new video file)
-8. Re-train GR00T (Lab 1) on the augmented dataset
+### Setup (validated):
+1. Launch p5.48xlarge (H100 80GB required — A100 40GB OOMs, NIM needs compute cap 9.0)
+2. Pull NIM: `nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest` (requires NGC API key)
+3. Run with `--gpus all` — NIM auto-selects H100 latency profile with FP8
+4. Server ready when `/v1/health/ready` returns 200
 
-### Expected API call:
-```json
-POST http://localhost:8000/v1/infer
-{
-  "prompt": "industrial warehouse with fluorescent lighting, scratched metal surfaces",
-  "video": "<base64-encoded MP4>",
-  "edge": {},
-  "num_steps": 10,
-  "guidance": 3
+### API call (validated):
+```python
+import base64, requests, json
+
+# Encode input video (must be 93-480 frames)
+with open("input_video.mp4", "rb") as f:
+    video_b64 = base64.b64encode(f.read()).decode()
+
+payload = {
+    "prompt": "Industrial factory with scratched metal table and fluorescent lighting",
+    "video": video_b64,
+    "edge": {},           # edge control preserves geometry
+    "num_steps": 35,      # full quality (10 = fast but low quality)
+    "guidance": 3
 }
+
+resp = requests.post("http://localhost:8000/v1/infer", json=payload, timeout=900)
+
+# Response is JSON with base64-encoded video
+data = resp.json()
+video_bytes = base64.b64decode(data["b64_video"])
+with open("output.mp4", "wb") as f:
+    f.write(video_bytes)
 ```
 
-The `edge: {}` tells Transfer to auto-extract edge maps from the input video and use
-them as structural constraints — locking the geometry while restyling the appearance.
+### Key constraints:
+- **Input must be 93-480 frames** (below 93 → HTTP 422 error)
+- **H100 80GB minimum** (A100 80GB OOMs on VAE decode; A100 40GB not enough)
+- **NIM requires NGC API key** + HuggingFace token (for Cosmos-Guardrail1 download)
+- **Output is base64 JSON**, not raw video — must decode `data["b64_video"]`
+- **Output is HEVC encoded** — convert to H.264 for Mac playback: `ffmpeg -i output.mp4 -c:v libx264 output_h264.mp4`
+- **Framerate mismatch:** NIM outputs at 16fps regardless of input fps. Re-encode output to match original fps.
+
+### Known quality issues (to investigate):
+- Colors shift toward the prompt's described environment (edge control doesn't preserve colors)
+- `vis` control mode preserves colors better but produces artifacts at the "latency" FP8 profile
+- The BF16 `throughput` profile may produce better quality (not yet tested)
+- Lower `guidance` (1-2) may preserve more of the original appearance
 
 ---
 
@@ -125,10 +148,9 @@ them as structural constraints — locking the geometry while restyling the appe
 
 | Resource | Cost | Notes |
 |----------|------|-------|
-| p4d.24xlarge Spot | ~$13/hr | Often available in us-west-2 |
-| p4d.24xlarge On-Demand | ~$32/hr | If Spot unavailable |
-| Capacity Block (p4d) | Varies | For guaranteed capacity |
-| Generation time | ~7-8 min per clip | Single H100; faster with all 8 GPUs |
+| p5.48xlarge (Capacity Block) | ~$37/hr (~$574 for 16hr block) | H100 80GB required |
+| Generation time | ~8-10 min per 93-frame clip (35 steps) | Faster with fewer steps (lower quality) |
+| NIM container pull | ~20 min first time | 56 GB image from NGC |
 
 Much cheaper than Lab 3 (Predict) because Transfer 2.5 is only 2B params vs. 64B.
 

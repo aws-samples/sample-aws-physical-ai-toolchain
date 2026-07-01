@@ -172,7 +172,7 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 - ✅ Lab docs (0-6) written with full intro + terminology glossary
 - ✅ Cosmos 3 Super V2V generation validated (p5.48xlarge, vLLM-Omni, Capacity Block)
 - ✅ Synthetic demo generation working (multiple prompts, ~5 min/video on 8x H100)
-- 🔲 Cosmos Transfer 2.5 (in progress — open-source path on p5)
+- 🔲 Cosmos Transfer 2.5 (NIM validated on H100 — geometry preserved, color tuning needed)
 - 🔲 OSMO orchestration (Lab 6 — placeholder, contributions welcome)
 
 ---
