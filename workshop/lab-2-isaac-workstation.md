@@ -4,6 +4,12 @@
 **Time:** 30 min setup + ongoing development sessions
 **Cost:** ~$3.00/hr + $40/month EBS when running (stop when not in use)
 
+> **New to simulation?** *Isaac Sim* is NVIDIA's physics-accurate 3D simulator (gravity,
+> friction, collisions, cameras — like a video game engine for robots). *Isaac Lab* is a
+> training framework that runs *on top of* Isaac Sim — it creates thousands of parallel
+> robot copies and trains policies via RL. See the [terminology guide](README.md#physical-ai-terminology)
+> for more.
+
 ---
 
 ## 🏃 Quick Runbook (do this in order)
@@ -233,7 +239,8 @@ iterations is plenty to confirm the workstation is healthy:
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096
 
-# Headless (faster, no window) — same task, just no render:
+# Headless (no GUI rendering — all physics still run, but faster because
+# the GPU focuses on computation instead of rendering pixels):
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/train.py \
   --task Isaac-Velocity-Flat-Anymal-D-v0 --num_envs 4096 --headless
 ```

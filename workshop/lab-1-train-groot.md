@@ -1,8 +1,11 @@
 # Lab 1: Train a Robot Policy from Demonstrations
 
-**Goal:** Fine-tune NVIDIA GR00T on teleoperation data → get a model that predicts robot joint actions from camera images
+**Goal:** Fine-tune NVIDIA GR00T (a Vision-Language-Action model — takes camera images + text instructions in, outputs motor commands) on teleoperation data → get a model that predicts robot joint actions from camera images
 **Time:** 2 hours (30 min hands-on + training runs in background)
 **Cost:** ~$2 for smoke test, ~$79 for full training
+
+> **New to Physical AI?** See the [terminology guide](README.md#physical-ai-terminology)
+> for definitions of key concepts like policy, teleoperation, VLA, and fine-tuning.
 
 ---
 
@@ -23,7 +26,7 @@ A robot manipulation policy trained via **imitation learning**. Here's what that
 **The limitation of imitation learning alone:**
 - The model can replicate what it saw in the demos (~70-80% success)
 - It struggles with variations it hasn't seen (different object positions, lighting changes)
-- Lab 2 fixes this with RL refinement in simulation
+- Lab 4 fixes this with RL refinement in simulation
 
 ---
 

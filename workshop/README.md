@@ -11,8 +11,8 @@ You'll build a complete **pick-and-place** pipeline: the most common industrial 
 ## What You'll Build
 
 ```
-Teleop Data  →  Imitation Learning  →  World Generation  →  RL Training      →  Edge Deployment
-(Lab 1)          (GR00T on              (Cosmos NIM)         (Isaac Lab on       (Greengrass +
+Teleop Data  →  Imitation Learning  →  World Generation   →  RL Training      →  Edge Deployment
+(Lab 1)          (GR00T on              (Cosmos V2V)         (Isaac Lab on       (Greengrass +
                   SageMaker)                                  SageMaker)          Jetson)
 ```
 
@@ -32,7 +32,7 @@ A production-grade Physical AI pipeline with:
 | Lab 0 | Environment setup and infrastructure deployment | CDK, AWS account configuration |
 | Lab 1 | Train a robot policy from demonstration data | GR00T fine-tuning, SageMaker Pipelines |
 | Lab 2 | Visual development and debugging in simulation | Isaac Sim, GPU remote desktop |
-| Lab 3 | Generate photorealistic training environments | Cosmos NIM API, domain gap |
+| Lab 3 | Use Cosmos World Foundation Models to augment training data | Cosmos V2V, sim-to-real gap |
 | Lab 4 | Train an RL policy in simulation (standalone, no GR00T) | Isaac Lab, PPO, domain randomization, SageMaker |
 | Lab 5 | Deploy to physical hardware at the edge | TensorRT, Greengrass, Jetson |
 | Lab 6 | Orchestrate the full pipeline for production | NVIDIA OSMO, EKS, Kueue |
@@ -124,7 +124,7 @@ Running the full workshop in your own AWS account:
 |-----------|------|-------|
 | Lab 1 (GR00T training) | ~$15-30 | ml.g5.12xlarge for 1-2 hours |
 | Lab 2 (Workstation) | ~$3.00/hr | Stop when not in use |
-| Lab 3 (Cosmos) | ~$15-30 | NIM API calls |
+| Lab 3 (Cosmos) | ~$300-500 | Capacity Block (p5.48xlarge, ~$37/hr) |
 | Lab 4 (RL training) | ~$10-30 | ml.g5.xlarge for 2-4 hours |
 | Lab 5 (Edge) | ~$5 | Greengrass deployment |
 | Lab 6 (OSMO/EKS) | ~$50-100 | EKS cluster + GPU nodes |
@@ -162,14 +162,13 @@ npx cdk deploy --all --context mode=simple
 | 0 | [Prerequisites](lab-0-prerequisites.md) | 30 min | — |
 | 1 | [Train from Demonstrations](lab-1-train-groot.md) | 2 hrs | Lab 0 |
 | 2 | [Isaac Sim Workstation](lab-2-isaac-workstation.md) | 30 min | Lab 0 |
-| 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 2 |
-| 3b | [Cosmos Predict (optional)](lab-3b-cosmos-predict.md) | 1-2 hrs | Lab 2 |
+| 3 | [Cosmos World Generation](lab-3-cosmos-world-generation.md) | 1-2 hrs | Lab 1 |
 | 4 | [RL Policy Training](lab-4-rl-refinement.md) | 3 hrs | Lab 0 |
 | 4b | [Train a Robot Arm (optional)](lab-4b-arm-manipulation.md) | 3 hrs | Lab 0 |
 | 5 | [Edge Deployment](lab-5-edge-deployment.md) | 2 hrs | Lab 4 |
 | 6 | [OSMO Orchestration](lab-6-osmo-orchestration.md) | 2-3 hrs | Labs 1-5 |
 
-Labs 2 and 3 can run in parallel with Lab 1. **Lab 4 is standalone RL** — it trains a policy in simulation from scratch and needs only the Foundation stack (the `isaac-lab` image in ECR); it does **not** require Lab 1 (GR00T) or Lab 3 (Cosmos scenes). RL and imitation learning (Lab 1) are two independent ways to obtain a policy.
+Labs 2 and 3 can run in parallel with Lab 1. Lab 3 takes Lab 1's dataset as input (wrist camera MP4s) but can also use sim renders from Lab 2. **Lab 4 is standalone RL** — it trains a policy in simulation from scratch and needs only the Foundation stack (the `isaac-lab` image in ECR); it does **not** require Lab 1 (GR00T) or Lab 3 (Cosmos scenes). RL and imitation learning (Lab 1) are two independent ways to obtain a policy.
 
 ---
 
@@ -225,7 +224,7 @@ New to robotics and Physical AI? Here's what the key terms mean.
 |------|--------------|
 | **Isaac Sim** | NVIDIA's robot simulation platform. A physics engine that can simulate gravity, friction, collisions, and cameras realistically. Think of it as a video game engine purpose-built for robots. |
 | **Isaac Lab** | A training framework that runs on top of Isaac Sim. Provides the RL training loop — creates thousands of parallel robot copies, collects experience, updates the policy. You write your task definition here. |
-| **Cosmos** | NVIDIA's World Foundation Model. Generates photorealistic synthetic environments — takes a basic sim render and makes it look like a real factory with scratches, dust, realistic lighting. Closes the visual sim-to-real gap. |
+| **Cosmos** | NVIDIA's World Foundation Model. Takes sim-rendered or real-world video and produces photorealistic variations — applies realistic materials, lighting, and textures while preserving geometry and motion. Used to augment training data so policies transfer to real hardware. |
 | **Parallel Environments** | Running 4096 copies of the same robot simultaneously on one GPU. Each practices independently. In one second of real time, the robot accumulates days of practice. This is why RL training takes hours instead of years. |
 | **Headless** | Running the simulator without displaying graphics. All physics still work, but no screen rendering. Faster because the GPU focuses on computation instead of pixels. Used during training. |
 

@@ -1,8 +1,13 @@
 # Lab 4: RL Policy Training in Simulation
 
-**Goal:** Train a robust robot policy via reinforcement learning in Isaac Lab simulation with domain randomization (validated on the built-in Anymal locomotion task)
+**Goal:** Train a robust robot policy via reinforcement learning (RL) in Isaac Lab simulation with domain randomization (validated on the built-in Anymal locomotion task)
 **Time:** 3 hours (30 min hands-on + training runs in background)
 **Cost:** ~$3 for smoke test (50 iterations), ~$28 for full training (2000 iterations). Full cost breakdown is in the [main README](../README.md#cost-summary).
+
+> **New to RL?** Reinforcement learning trains a policy through trial-and-error in
+> simulation — the robot tries millions of times, guided by a reward signal, until it
+> discovers how to succeed. See the [terminology guide](README.md#physical-ai-terminology)
+> for key concepts.
 
 ---
 
@@ -36,7 +41,7 @@
 
 You'll train a robot policy from scratch with reinforcement learning (RL) in Isaac Lab.
 The pipeline: define the task + reward, Isaac Lab runs **4096 randomized copies** of the
-env in parallel on one GPU, **PPO** updates the policy to maximize reward, checkpoint to S3.
+env in parallel on one GPU, **PPO (Proximal Policy Optimization — the standard RL algorithm for robotics)** updates the policy to maximize reward, checkpoint to S3.
 
 **Procedural domain randomization** is what makes the policy robust — every env copy varies
 the scene (object position ~5cm, lighting 1000-5000 lux, object color, camera noise), so the
@@ -270,7 +275,7 @@ cd /workspace/toolchain                 # the mounted repo
 
 > 📘 A raw training checkpoint isn't deployable on its own. NVIDIA's stock `play.py` is the
 > canonical exporter — it bakes the **observation normalizer** into `policy.pt` (TorchScript) +
-> `policy.onnx`. There's no separate export script; `play.py` exports on every run.
+> `policy.onnx` (Open Neural Network Exchange — a portable format that TensorRT can compile for edge hardware). There's no separate export script; `play.py` exports on every run.
 
 **1. Pull the checkpoint from S3 — on the workstation HOST** (the container has no AWS CLI). The
 host repo `~/aws-physical-ai-toolchain` is mounted at `/workspace/toolchain`, so files extracted

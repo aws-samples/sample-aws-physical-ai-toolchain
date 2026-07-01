@@ -1,303 +1,390 @@
 # Lab 3: Cosmos World Generation
 
-**Goal:** Generate photorealistic, diverse training environments using NVIDIA Cosmos to improve sim-to-real transfer
-**Time:** 1-2 hours
-**Cost:** ~$32/hr while Cosmos endpoint is running (teardown immediately after)
+**Goal:** Use NVIDIA Cosmos 3 Super (a World Foundation Model) to generate synthetic robot demonstrations using the Predict capability — expanding your training dataset without additional teleoperation
+**Time:** 1-2 hours (15 min deploy + ~20 min model load + generation)
+**Cost:** Capacity Block pricing varies (~$37/hr for p5.48xlarge; minimum block is typically 8-13 hrs). You pay for the full block regardless of usage — generate as many videos as you can.
 
-> ⚠️ **Workshop Note:** This lab requires `ml.p4d.24xlarge` (8× A100 80GB GPUs) for the Cosmos Transfer endpoint. This instance type is **not available in standard AWS Workshop Studio accounts** without special quota approval. In a live workshop setting, this lab is either:
-> - **Instructor-led demonstration** — instructor runs the endpoint from a pre-approved account while attendees observe
-> - **Self-paced only** — for customers running in their own AWS account with p4d quota approved
+> **New to World Foundation Models?** See the [terminology guide](README.md#physical-ai-terminology)
+> for definitions of Cosmos, VLA, and related concepts.
+
+> **Workshop Note:** This lab requires `p5.48xlarge` (8x H100 80GB) for the Cosmos 3
+> generation server. P5 capacity is scarce — this lab uses an **EC2 Capacity Block**
+> (reserved GPU allocation) to guarantee availability. In a live workshop:
+> - **Instructor-led demonstration** — instructor runs from a pre-approved account
+> - **Self-paced** — requires P5 quota + Capacity Block purchase
+> - **Pre-baked fallback** — download pre-generated samples from S3 (no GPU needed)
 >
-> Labs 0-2 and 4 work on standard workshop instances (g5.xlarge / g5.12xlarge). This lab is optional — Lab 4 (RL Policy Training) works without Cosmos using built-in domain randomization.
+> Labs 1, 2, and 4 work on standard instances (g5/g6 family). This lab is optional —
+> Lab 4 (RL Policy Training) works without Cosmos using built-in domain randomization.
 
 ---
 
 ## What You're Building
 
-Isaac Lab's built-in domain randomization (Lab 4) changes object positions, colors, and lighting randomly. That works for many tasks. But if your robot needs to handle visually complex environments — cluttered warehouses, varied lighting conditions, realistic material textures — you need *photorealistic* diversity.
+You have 27 demonstrations from Lab 1. You need hundreds to train a robust policy.
+Recording more teleop data is expensive and slow. **Cosmos 3 generates new synthetic
+demonstrations** — plausible novel trajectories of the same task — from a text prompt
+and a reference video of your starting scene.
 
-**Cosmos generates synthetic worlds** that look real:
+**What Cosmos 3 does (Predict mode — video generation):**
+- Takes the first frames of your input video as the **starting state** (the table with blocks)
+- Generates a **new 8-second video** (189 frames, 1280x720, 24fps) of the robot completing the task
+- Each generation with a different seed produces a **different trajectory** (different approach angles, timing, motion style)
+- The prompt controls **what happens** (which block, what target, what conditions)
 
-1. **Cosmos Transfer** — Takes your sim-rendered scene and makes it photorealistic (adds scratches, dust, realistic shadows, material imperfections)
-2. **Cosmos Generate** — Creates entirely new environments from text/image prompts ("generate a warehouse shelf with metal parts under fluorescent lighting")
-
-**Why this matters for robots:**
-
-The #1 reason robot policies fail in the real world is the *visual domain gap* — sim looks too clean, too perfect, too uniform. Real factories have:
-- Scratched metal surfaces that confuse depth estimation
-- Mixed lighting (fluorescent overhead + natural from windows + task lights)
-- Cluttered backgrounds the camera has never seen
-- Dust, oil, and wear on objects
-
-Cosmos closes this gap by training the policy on photorealistic variations *before* it ever sees the real world.
+**The value:** From one reference video + varied prompts/seeds, you generate dozens of
+plausible demonstrations. This is synthetic data generation for scaling robot learning.
 
 ---
 
-## When to Use Cosmos vs. Built-in Randomization
+## The Demo
 
-| Approach | Use When | Cost |
-|----------|----------|------|
-| **Isaac Lab procedural randomization** (Lab 4 default) | Object positions, basic lighting, simple color variation. Works for 80% of manipulation tasks. | Free |
-| **Cosmos Transfer** | Your policy fails on real hardware due to visual appearance (materials, textures, lighting quality) | ~$0.01-0.05 per frame |
-| **Cosmos Generate** | You need environment diversity (many different scenes, backgrounds, layouts) | ~$0.10-0.50 per scene |
+```
+Lab 1 wrist camera clip (episode_000000.mp4 — the starting scene)
+    ↓
+Cosmos 3 V2V with task prompt + seed 100
+    ↓
+Output: 8-sec video of UR3 picking red block and placing on yellow target (novel trajectory)
+    ↓
+Same prompt + seed 200 → different approach angle
+Same prompt + seed 300 → different timing
+Different prompt → different block color, lighting conditions
+```
 
-**Start with built-in randomization. Add Cosmos only if sim-to-real transfer is poor.**
+One input reference video → many synthetic demonstrations.
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Scene Generation Pipeline                                   │
-│                                                             │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────────┐  │
-│  │  Base USD │───▶│  Cosmos NIM  │───▶│  Photorealistic  │  │
-│  │  Scenes   │    │  API         │    │  Training Scenes │  │
-│  │  (Isaac   │    │              │    │  (stored in S3)  │  │
-│  │   Lab)    │    │  Transfer or │    │                  │  │
-│  │           │    │  Generate    │    │  Used by Lab 4   │  │
-│  └──────────┘    └──────────────┘    └──────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Cosmos 3 Synthetic Demonstration Generation                                 │
+│                                                                              │
+│  ┌──────────────┐    ┌────────────────────┐    ┌───────────────┐            │
+│  │ Your laptop  │    │  EC2 p5.48xlarge    │    │  Output       │            │
+│  │              │    │  (Capacity Block)   │    │               │            │
+│  │ SSM port-    │    │  ┌──────────────┐  │    │  Synthetic    │            │
+│  │ forward      │───▶│  │ vLLM-Omni    │  │───▶│  demo MP4s    │            │
+│  │ :8000        │    │  │ Cosmos3-Super│  │    │  (189 frames  │            │
+│  │              │    │  │ (8x H100)    │  │    │   1280x720)   │            │
+│  │ curl -F      │    │  └──────────────┘  │    │               │            │
+│  │ + prompt     │    │                    │    │  Each is a new│            │
+│  └──────────────┘    └────────────────────┘    │  trajectory   │            │
+│                                                └───────────────┘            │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
-
-## What Exactly Happens (Concrete Example)
-
-Here's the actual flow when you run Cosmos Transfer on a training scene:
-
-**Input you send:**
-1. A sim-rendered image — e.g., an Isaac Lab screenshot showing the UR3 arm reaching for a red block in a bin
-2. A style prompt — e.g., "industrial warehouse with fluorescent lighting, scratched metal surfaces"
-
-**What Cosmos does:**
-- Detects the structural content (robot arm shape, object position, spatial layout)
-- Replaces the "video game" textures with photorealistic materials
-- Adds realistic lighting, shadows, reflections, and surface imperfections
-- Preserves the exact geometry and robot pose (so training labels stay valid)
-
-**Output you get:**
-- The same scene, same robot pose, same object position — but looking like a photograph instead of a simulation screenshot
-
-**How this fits the pipeline:**
-```
-Isaac Lab renders 100 frames of the UR3 picking a block (clean sim visuals)
-    ↓
-Cosmos Transfer generates 4 style variations of each → 400 photorealistic frames
-    ↓
-RL trains on all 400 frames (the robot learns to succeed regardless of visual style)
-    ↓
-On real hardware: the wrist camera sees "warehouse lighting" → policy already trained on it → succeeds
-```
-
-**Without Cosmos:** Robot trained only on sim's flat gray surfaces. Real factory has scratched metal → policy confused → drops object.
-
-**With Cosmos:** Robot trained on scratched metal, dusty surfaces, mixed lighting. Real factory looks familiar → policy works.
 
 ---
 
-## Two Modes
+## How It Works
 
-```
-Mode A — Transfer (this lab, available):
-  Isaac Lab renders a clip → Cosmos Transfer restyles it photorealistically → RL trains on it
+**Input you provide:**
+1. A reference video (your Lab 1 wrist camera clip) — provides the starting scene
+2. A detailed text prompt — describes the robot, the action, and the conditions
+3. A seed — different seeds produce different trajectories for the same prompt
 
-Mode B — Generate (future, Cosmos Predict / Cosmos 3):
-  Text prompt → Cosmos generates a new scene → import to Isaac Lab
-  (separate model; not wired up yet)
+**What Cosmos 3 generates:**
+- A new 189-frame, 1280x720, 24fps video
+- Starting from the first frames of your reference (table with blocks visible)
+- Showing the robot completing the described task with a novel trajectory
+- Photorealistic quality — looks like real footage
+
+**How this scales your dataset:**
 ```
+1 reference video × 5 prompts × 5 seeds = 25 synthetic demonstrations
+```
+
+Each is a unique, plausible execution of the pick-and-place task under different conditions.
+
+> **Important:** These synthetic videos do NOT come with action labels (joint positions/velocities).
+> They're useful for vision pre-training (teach the model what "pick and place" looks like across
+> many variations) and evaluation (does a generated rollout look plausible?). For action-paired
+> training data, see the note on Cosmos Transfer 2.5 at the bottom of this lab.
 
 ---
 
 ## Prerequisites
 
-- Lab 2 completed (Isaac Sim workstation for visual verification)
-- **NGC API key** in Secrets Manager (`physical-ai/ngc-api-key`) — the Cosmos NIM
-  pulls model weights with it at container start
-- **P5 service quota** (defaults to 0 — request an increase) for the Spot p5 instance
-- Sim clips rendered to **MP4** (93–480 frames) to feed Cosmos Transfer
+- **Lab 1 completed** — you have a LeRobot v2 dataset with wrist camera MP4s in S3
+- **Hugging Face account + token** — with gated model access:
+  1. Create an account at https://huggingface.co if you don't have one
+  2. Accept the licenses for **both** gated Cosmos models (both are auto-approval):
+     - [`nvidia/Cosmos-Guardrail1`](https://huggingface.co/nvidia/Cosmos-Guardrail1) → "Expand to review and access" → accept
+     - [`nvidia/Cosmos-1.0-Guardrail`](https://huggingface.co/nvidia/Cosmos-1.0-Guardrail) → "Expand to review and access" → accept
+     - (**Critical:** vLLM-Omni downloads BOTH at startup. Missing either → 403 → server crashes.)
+  3. Create a **Read** access token:
+     - Go to https://huggingface.co/settings/tokens → **"+ Create new token"**
+     - Name: `cosmos-aws`, Type: **Read**
+     - Copy the `hf_...` value (shown only once)
+  4. Store the token in AWS Secrets Manager:
+     ```bash
+     aws secretsmanager create-secret --name physical-ai/hf-token \
+       --secret-string "hf_YOUR_TOKEN_HERE" --region us-east-1
+     ```
+- **P5 quota** — at least 192 vCPUs of "Running On-Demand P instances":
+  ```bash
+  aws service-quotas get-service-quota --service-code ec2 \
+    --quota-code L-417A185B --region us-east-1 --query 'Quota.Value'
+  ```
+- **IAM role + instance profile** — with SSM, ECR read, and S3 access (see `docs/cosmos3-validated-runbook.md`)
+- **vllm-omni:cosmos3 image in ECR** — Step 1 below
 
 ---
 
-## Step 1: Launch the Cosmos GPU Instance
+## Step 1: Mirror the vLLM-Omni Image to ECR
 
-Cosmos Transfer 2.5 runs as an NVIDIA **NIM container on an EC2 Spot p5** (8× H100),
-serving `POST /v1/infer` on port 8000. **It does not run on a SageMaker real-time
-endpoint** — SageMaker's managed GPUs ship NVIDIA driver 470, but Cosmos needs 580+.
-The full runbook is in [`docs/cosmos-deployment-guide.md`](../docs/cosmos-deployment-guide.md).
+The Cosmos 3 server uses the official `vllm/vllm-omni:cosmos3` image (~30 GB compressed).
+Mirror it to your ECR using CodeBuild (avoids pulling 30 GB locally):
 
 ```bash
-# Preview the launch (no AWS writes):
-python training/scripts/cosmos_setup.py launch --dry-run
+# Create the ECR repo
+aws ecr create-repository --repository-name vllm-omni --region us-east-1
 
-# Launch the Spot p5 (boots scripts/cosmos-userdata.sh → driver, container, NIM):
-python training/scripts/cosmos_setup.py launch
-```
-
-Prerequisites: **P5 service quota** (defaults to 0 — request an increase), an
-**NGC API key** in Secrets Manager (`physical-ai/ngc-api-key`), and an instance
-profile with ECR + Secrets Manager read. Bootstrap takes ~10–15 min. Cost: ~$7–8/hr
-on Spot — **terminate when done.**
-
-```bash
-# Wait for the NIM to report ready (checked over SSM — no inbound port needed):
-python training/scripts/cosmos_setup.py status --instance-id i-xxxx
-# → Health: {"status":"ready"}
-```
-
----
-
-## Step 2: Restyle Sim Videos with Cosmos Transfer
-
-Cosmos Transfer operates on **video** (MP4, 93–480 frames) — not single images. It
-takes a sim-rendered clip + a style prompt + a control modality (edge/depth/seg/vis)
-and returns a photorealistic clip with the same geometry/motion.
-
-```bash
-# Render sim clips to MP4 first, then:
-python training/scripts/cosmos_setup.py generate \
-  --instance-id i-xxxx \
-  --input ./sim_videos/ \
-  --output ./cosmos_out/ \
-  --control edge \
-  --dry-run    # prints the exact /v1/infer payload; drop --dry-run to run
-```
-
-The request shape (per the runbook), for reference:
-```json
-POST http://localhost:8000/v1/infer
-{
-  "prompt": "industrial warehouse with fluorescent lighting and metal shelving",
-  "video": "<base64-encoded MP4, 93-480 frames>",
-  "edge": {"enabled": true},
-  "num_steps": 35,
-  "guidance": 3,
-  "resolution": "480"
-}
-```
-
-> **Performance note (from the runbook):** on a single GPU (CP=1) a 93-frame clip
-> can exceed a 10-min request timeout. The userdata starts the NIM with
-> `NIM_MODEL_PROFILE=latency` to use all 8 H100s (CP=8, ~8× faster). This path is
-> documented and the health/API are confirmed, but a full restyle has **not** been
-> validated end-to-end in this repo (blocked on sustained p5 capacity).
-
-When done, **terminate** to stop Spot charges:
-```bash
-python training/scripts/cosmos_setup.py terminate --instance-id i-xxxx
+# Run the mirror script (creates a CodeBuild project, starts the build)
+bash scripts/mirror-vllm-omni.sh
+# → Takes ~15 min. Image lands at: <ACCOUNT>.dkr.ecr.us-east-1.amazonaws.com/vllm-omni:cosmos3
 ```
 
 ---
 
-## Step 3 (Future): Generate New Environments with Cosmos *Predict*
+## Step 2: Launch the Server (Automated)
 
-> **Not implemented in this toolkit yet — different model from Transfer.** Creating
-> *entirely new* environments from a text prompt (rather than restyling an existing
-> sim clip) is the job of **Cosmos Predict / Cosmos 3** (`NVIDIA/cosmos-framework`),
-> a separate model from the Cosmos *Transfer* used in Steps 1–2. The Cosmos 3
-> Generator image is built in CodeBuild (`physical-ai/cosmos3` in ECR), but a
-> generation runner is not wired up, and Cosmos 3 does **not** yet support the
-> controlled (edge/depth/seg) *transfer* this lab needs.
+One script handles everything — Capacity Block purchase, instance launch, image pull,
+server start, and readiness check:
+
+```bash
+# Preview what it will do (no AWS calls, no cost):
+bash scripts/cosmos3-launch.sh --dry-run
+
+# Full deploy (interactive — asks you to confirm the Capacity Block purchase):
+bash scripts/cosmos3-launch.sh
+```
+
+The script:
+1. Creates the IAM role + instance profile (idempotent)
+2. Finds the cheapest available Capacity Block and shows the price
+3. Asks for confirmation before purchasing
+4. Waits for the block to activate (may be immediate or up to 30 min)
+5. Launches p5.48xlarge into the block (8x H100, 500 GB EBS)
+6. Pulls the image from ECR (~5 min)
+7. Starts the Cosmos 3 server and waits for model loading (~15-20 min first time)
+8. Prints `COSMOS 3 SERVER IS READY` with your instance ID
+
+**Total time from script start to ready:** ~25 min (mostly model weight download).
+
+> **Cost:** Capacity Blocks are priced at ~$37/hr for p5.48xlarge. Minimum block
+> durations vary by availability (typically 8-24 hrs). You pay for the entire block
+> upfront — but once running, generate as many videos as you want. Each video takes
+> ~5 min, so in an 8-hr block you could generate ~90 synthetic demonstrations.
 >
-> For now, use Step 2 (Transfer) for sim→photorealistic, and Isaac Lab's built-in
-> domain randomization for environment diversity.
+> **Tip:** The block runs whether you're generating or not. Plan your prompts in advance
+> and batch-generate during the block window to maximize value.
 
 ---
 
-## Step 4: Integrate with Isaac Lab Domain Randomization
+## Step 3: Generate Your First Synthetic Demonstration
 
-Use Cosmos-generated scenes as background textures and environment variations in RL training:
-
-```python
-# In your Isaac Lab environment config:
-domain_randomization:
-  backgrounds:
-    source: "s3://physical-ai-dev-datasets/cosmos-scenes/"
-    mode: "random_per_episode"  # New background each episode reset
-
-  textures:
-    source: "s3://physical-ai-dev-datasets/cosmos-textures/"
-    apply_to: ["bin", "table", "walls"]
-
-  lighting:
-    # Cosmos-generated HDR environment maps
-    hdri_source: "s3://physical-ai-dev-datasets/cosmos-hdri/"
-    randomize: true
-```
-
----
-
-## Step 5: Validate Visual Quality
-
-On your Lab 2 workstation, visually verify the generated scenes look realistic:
+Copy a reference clip from your Lab 1 dataset to the instance, then generate:
 
 ```bash
-# Render a few scenes and compare sim vs. Cosmos-enhanced
-python training/scripts/generate_scenes.py \
-  --mode compare \
-  --output ./scene_comparison/ \
-  --num-samples 10
+# Copy reference video to the instance
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["aws s3 cp s3://<BUCKET>/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4 /tmp/episode_000000.mp4 --region us-east-1 && docker cp /tmp/episode_000000.mp4 cosmos3:/tmp/episode_000000.mp4"]}' \
+  --region $REGION
 ```
 
-**What to check:**
-- Do materials look realistic? (metal should have reflections, not flat gray)
-- Is lighting varied enough? (not all scenes should look the same)
-- Are textures at appropriate resolution? (no obvious pixelation)
-- Does the robot still look correct? (Cosmos shouldn't distort the robot itself)
+Generate a synthetic pick-and-place demonstration:
+
+```bash
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["docker exec cosmos3 curl -sS -X POST http://localhost:8000/v1/videos/sync -H \"Accept: video/mp4\" -F \"model=nvidia/Cosmos3-Super\" -F \"prompt=A UR3 robot arm with a Robotiq gripper reaches down to a dark matte table, grasps a small red wooden block, lifts it slowly, and places it onto a yellow sticky note approximately 6 inches away. Top-down wrist camera view. Colorful wooden blocks are scattered on the table. Smooth deliberate motion.\" -F \"size=1280x720\" -F \"num_frames=189\" -F \"fps=24\" -F \"num_inference_steps=35\" -F \"guidance_scale=6.0\" -F \"max_sequence_length=4096\" -F \"flow_shift=10.0\" -F \"extra_params={\\\"condition_frame_indexes_vision\\\":[0,1],\\\"condition_video_keep\\\":\\\"first\\\"}\" -F \"seed=100\" -F \"input_reference=@/tmp/episode_000000.mp4;type=video/mp4\" -o /tmp/output.mp4 -w \"\\nHTTP:%{http_code} SIZE:%{size_download}\" --max-time 600"]}' \
+  --timeout-seconds 900 --region $REGION
+```
+
+**Generation takes ~5-8 min on 8x H100.** HTTP 200 + ~7 MB output = success.
+
+Upload the result:
+
+```bash
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["docker cp cosmos3:/tmp/output.mp4 /tmp/output.mp4 && aws s3 cp /tmp/output.mp4 s3://<BUCKET>/cosmos-samples/generated_demo_seed100.mp4 --region us-east-1"]}' \
+  --region $REGION
+```
 
 ---
 
-## Step 6: Upload Scenes for Lab 4
+## Step 4: Try Different Prompts (~5 min each)
+
+Each generation takes **~5 min on 8x H100**. Change the seed for different trajectories
+of the same prompt, or change the prompt for different conditions. Here are tested
+variations — try them all while your block is running:
+
+**Variation A — Different block color (blue):**
+```
+A UR3 robot arm with a Robotiq gripper reaches down to a dark matte table, grasps a
+small blue wooden block, lifts it slowly, and places it onto a yellow sticky note.
+Top-down wrist camera view. Colorful wooden blocks scattered on the table.
+Smooth deliberate motion.
+```
+*Result: gripper picks up blue block instead of red. Same coherent trajectory.*
+
+**Variation B — Different lighting (dim workshop):**
+```
+A UR3 robot arm with a Robotiq gripper picks up a small red wooden block from a dark
+table and places it on a yellow sticky note. Top-down wrist camera view. Dim overhead
+lighting with strong shadows. Colorful blocks on the table.
+```
+*Result: darker scene, more dramatic shadows. Same task completion.*
+
+**Variation C — Different approach (from the left):**
+```
+A UR3 robot arm with a Robotiq gripper approaches from the left side, grasps a small
+red wooden block from a dark matte table, and places it on a yellow sticky note to the
+right. Top-down wrist camera view. Multiple colorful blocks visible. Smooth motion.
+```
+
+**Variation D — Different speed (fast):**
+```
+A UR3 robot arm with a Robotiq gripper quickly grasps a red wooden block from a dark
+table, lifts it high, then precisely places it on a yellow sticky note. Top-down wrist
+camera view. Colorful blocks on table. Swift confident motion.
+```
+
+**Variation E — Failure case (for negative training data):**
+```
+A UR3 robot arm with a Robotiq gripper attempts to grasp a small red wooden block but
+the block slips from the gripper and falls back onto the dark table. Top-down wrist
+camera view. Colorful blocks on table. The grasp fails.
+```
+
+> **Timing (validated on p5.48xlarge, 8x H100):**
+> - First generation after model load: ~8 min (includes JIT warmup)
+> - Subsequent generations: ~5 min each
+> - All generations produce 189 frames at 24fps (1280x720) = 8-second video, ~7 MB
+
+See `docs/cosmos3-prompt-catalog.md` for the complete catalog with results and lessons learned.
+
+---
+
+## Step 5: Terminate When Done
 
 ```bash
-# Resolve your datasets bucket from the Foundation stack (no hardcoded account):
-BUCKET=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-Foundation \
-  --query 'Stacks[0].Outputs[?OutputKey==`DatasetsBucketName`].OutputValue' --output text)
-
-# Upload generated scenes to S3 for RL training
-aws s3 sync ./cosmos_out/ "s3://$BUCKET/cosmos-scenes/"
-
-echo "Ready for Lab 4: RL Policy Training with Cosmos-enhanced environments"
+aws ec2 terminate-instances --instance-ids $INSTANCE_ID --region us-east-1
 ```
+
+The capacity block expires at its end time regardless. Instance charges stop on termination.
 
 ---
 
 ## ✅ Lab 3 Checkpoint
 
-- [ ] Cosmos NIM API key configured
-- [ ] Generated photorealistic scene variations using Cosmos Transfer
-- [ ] Generated new environments using Cosmos Generate
-- [ ] Visually verified quality on the workstation (Lab 2)
-- [ ] Uploaded scenes to S3 for RL training (Lab 4)
-- [ ] Understand when to use Transfer vs. Generate vs. built-in randomization
+- [ ] vLLM-Omni image mirrored to ECR
+- [ ] Capacity Block purchased and activated
+- [ ] Cosmos 3 server running (8x H100, `/v1/models` returns `nvidia/Cosmos3-Super`)
+- [ ] Generated at least one synthetic demonstration (HTTP 200, ~7 MB MP4 output)
+- [ ] Visually verified: output shows coherent pick-and-place trajectory
+- [ ] (Optional) Generated multiple variations (different seeds/prompts)
+- [ ] (Optional) Uploaded all outputs to S3
+- [ ] Terminated the instance
 
 ---
 
 ## Cost Estimation
 
-| Operation | Est. Cost | Typical Volume |
-|-----------|-----------|---------------|
-| Cosmos Transfer (per image) | ~$0.01-0.05 | 100-1000 images = $1-50 |
-| Cosmos Generate (per scene) | ~$0.10-0.50 | 50-200 scenes = $5-100 |
-| S3 storage (generated assets) | ~$0.023/GB | 10-50 GB = $0.23-1.15/month |
+| Resource | Cost | Notes |
+|----------|------|-------|
+| Capacity Block (p5.48xlarge) | ~$37/hr | Minimum block varies (8-24 hrs); pay upfront for full block |
+| S3 storage (generated videos) | ~$0.001 | ~7 MB per video |
+| CodeBuild (image mirror, one-time) | ~$0.50 | 15 min on BUILD_GENERAL1_LARGE |
 
-**For a typical project:** 200 Transfer images + 50 Generated scenes ≈ **$15-30 one-time cost**.
+**Example:** An 8-hr block at $37/hr = ~$296. In that time you can generate ~90 videos.
+That's ~$3.30 per synthetic demonstration.
+
+> **Budget tip:** Plan your prompt list in advance. Generate as many variations as you
+> can during the block window — block cost is fixed whether you generate 1 or 90 videos.
+
+---
+
+## Prompting Best Practices
+
+Based on our testing (full catalog in `docs/cosmos3-prompt-catalog.md`):
+
+1. **Be specific about the robot:** "UR3 robot arm with a Robotiq gripper"
+2. **Describe the complete action:** "reaches → grasps → lifts → places"
+3. **Specify the target precisely:** "yellow sticky note approximately 6 inches away"
+4. **State the camera angle:** "Top-down wrist camera view"
+5. **Describe the scene context:** "Colorful wooden blocks scattered on table"
+6. **Specify motion style:** "Smooth deliberate motion"
+7. **Vary one element at a time** to build diverse datasets (block color, lighting, speed)
+
+**What does NOT work:**
+- Vague prompts → model hallucinates random content
+- Editing instructions ("add scratches") → this is a generator, not an editor
+- Environment-only descriptions without action → model invents its own action
+
+---
+
+## Pre-Generated Samples (No GPU Needed)
+
+If you don't have P5 capacity, download our validated outputs from S3:
+
+```bash
+# Original reference clip
+aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/original_episode_000000.mp4 ./
+
+# Generated: red block pick-and-place (specific prompt, seed 100) ← BEST RESULT
+aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_specific_prompt.mp4 ./
+
+# Generated: blue block variant (seed 200)
+aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_blue_block.mp4 ./
+
+# Generated: dim lighting variant (seed 300)
+aws s3 cp s3://physical-ai-dev-datasets-802782083985/cosmos-samples/augmented_dim_lighting.mp4 ./
+```
+
+---
+
+## How This Fits the Pipeline
+
+Cosmos 3 generates **vision-only** synthetic demonstrations (no action labels). These are
+useful for:
+
+1. **Vision pre-training** — teach the VLA backbone what pick-and-place looks like under
+   many conditions before fine-tuning on action-paired data (Lab 1)
+2. **Dataset diversity** — expose the model to visual variations it'll encounter in deployment
+3. **Policy evaluation** — generate rollouts to visually assess if a task was completed
+4. **Scaling data** — go from 27 real demos to hundreds of synthetic ones for visual diversity
+
+For **action-paired augmentation** (same video restyled with actions preserved), Cosmos
+Transfer 2.5 (a different model) provides pixel-faithful restyling with edge/depth
+control signals. See `docs/cosmos3-validated-runbook.md` for the comparison.
 
 ---
 
 ## Without Cosmos (Fallback)
 
-If you don't have NIM API access, Lab 4 still works. Isaac Lab's built-in procedural domain randomization provides:
-- Random object positions (±5cm)
-- Random lighting intensity and direction
-- Random object colors (uniform RGB sampling)
-- Random camera noise
+Lab 4 works without this lab. Isaac Lab's built-in procedural domain randomization
+provides position, lighting, and color variation for RL training without any external
+model. Cosmos adds value when you need photorealistic visual diversity beyond what
+procedural randomization provides.
 
-This gets you ~85-90% sim-to-real transfer for standard manipulation. Cosmos pushes it to 95%+ for visually challenging environments.
+---
 
-```bash
-# Run Lab 4 without Cosmos (uses built-in randomization only)
-python training/scripts/train.py --no-cosmos --domain-rand-only
-```
+## Production Path: EKS + Cosmos 3 Flywheel
+
+For production-scale generation (thousands of videos, continuous flywheel loop), deploy
+the vLLM-Omni server on **Amazon EKS** instead of bare EC2. The Kubernetes manifest
+is at `kubernetes/generate-vllm-omni-super.yaml` (adapted from the validated
+[awslabs/awsome-distributed-ai/cosmos3](https://github.com/awslabs/awsome-distributed-ai/tree/main/3.test_cases/pytorch/cosmos3)
+reference, MIT-0).
+
+---
+
+## Full Reproduction Steps
+
+The complete step-by-step runbook (every CLI command we ran to validate this lab) is in
+[`docs/cosmos3-validated-runbook.md`](../docs/cosmos3-validated-runbook.md).
 
 ---
 

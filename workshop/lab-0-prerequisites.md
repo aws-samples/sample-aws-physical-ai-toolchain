@@ -4,6 +4,20 @@
 **Time:** 30 minutes
 **Cost:** Free (no AWS resources created)
 
+> **New to Physical AI?** This toolchain trains robot "brains" (called *policies*) that
+> take camera images and produce motor commands. See the [terminology guide](README.md#physical-ai-terminology)
+> for key concepts.
+
+---
+
+## What You're Setting Up
+
+The Physical AI Toolchain is an end-to-end pipeline for training robot manipulation
+policies on AWS. You'll deploy a "Foundation stack" — S3 buckets for data/models, ECR
+repositories for containers, IAM roles for SageMaker, and CodeBuild projects that
+automatically build GPU training containers. Once deployed, Labs 1-5 use this foundation
+to train, refine, and deploy a pick-and-place robot policy.
+
 ---
 
 ## What You Need
@@ -14,7 +28,7 @@
 | AWS CLI v2 configured | Deploy infrastructure | `aws sts get-caller-identity` |
 | Node.js 18+ | CDK requires it | `node --version` |
 | AWS CDK CLI | Deploy stacks | `npx cdk --version` |
-| NVIDIA NGC API key | CodeBuild pulls Isaac Sim/Lab/Cosmos base images | Generate at https://ngc.nvidia.com/setup/api-key |
+| NVIDIA NGC API key | CodeBuild pulls Isaac Sim/Lab/Cosmos base images from NGC (NVIDIA's container registry) | Generate at https://ngc.nvidia.com/setup/api-key |
 | Hugging Face token | Pull GR00T base model (during training) | Create at https://huggingface.co/settings/tokens |
 
 > **No Docker required.** All container images are built in **AWS CodeBuild** and

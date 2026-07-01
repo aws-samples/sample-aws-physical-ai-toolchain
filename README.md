@@ -52,7 +52,7 @@ Path B — RL:          Sim + reward ──▶ Isaac Lab PPO (GPU EC2)─┘    
 |-----------|-----------|------|
 | **GR00T** | NVIDIA's Vision-Language-Action (VLA) foundation model. A 3B-parameter neural network pre-trained on diverse robot data. You fine-tune it on your specific robot and task. | Lab 1: imitation learning from demonstrations |
 | **Isaac Lab** | NVIDIA's RL training framework running on the Isaac Sim physics engine. Simulates thousands of parallel robot environments on a single GPU. | Lab 4: RL policy training at scale |
-| **Cosmos** | NVIDIA's World Foundation Model. Generates photorealistic synthetic environments to close the visual gap between simulation and reality. | Lab 3: diverse training scene generation |
+| **Cosmos** | NVIDIA's World Foundation Model (Cosmos 3 Super). Generates synthetic robot demonstrations from text prompts + reference video using the Predict capability. | Lab 3: synthetic demo generation |
 | **TensorRT** | NVIDIA's model compiler. Optimizes trained models for real-time inference on edge hardware (Jetson). | Lab 5: edge deployment |
 | **OSMO** | NVIDIA's workflow orchestrator for multi-stage Physical AI pipelines. Manages GPU scheduling, stage sequencing, and quality gates. | Lab 6: production orchestration |
 | **LeRobot** | HuggingFace's standard data format for robot learning (Parquet + MP4). Used by GR00T for training data. | Data format throughout |
@@ -176,7 +176,7 @@ Seven hands-on labs taking you from zero to a deployed robot policy:
 | [Lab 0: Prerequisites](workshop/lab-0-prerequisites.md) | Deploy AWS infrastructure | 30 min | — |
 | [Lab 1: Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$15-30 |
 | [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$3.00/hr |
-| [Lab 3: Cosmos World Gen](workshop/lab-3-cosmos-world-generation.md) | Photorealistic training scenes | 1-2 hrs | ~$15-30 |
+| [Lab 3: Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Synthetic demo generation (Cosmos 3 Super, Predict mode) | 1-2 hrs | ~$300-500 |
 | [Lab 4: RL Policy Training](workshop/lab-4-rl-refinement.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
 | [Lab 5: Edge Deployment](workshop/lab-5-edge-deployment.md) | Deploy to Jetson via Greengrass | 2 hrs | ~$5 |
 | [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$50-100 |
@@ -209,8 +209,8 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 - ✅ Imitation (GR00T/SageMaker) and RL (Isaac Lab/EC2) as separate, independently runnable pipelines
 - ✅ Real UR3 teleop data (27 episodes, 3,467 frames, converted to LeRobot v2)
 - ✅ Lab docs (0-6) written with full intro + terminology glossary
-- ✅ Cosmos Transfer container in ECR (deploying on Spot p5 H100 instance)
-- 🔲 Cosmos endpoint testing (in progress — container on H100, driver 580.159 confirmed)
+- ✅ Cosmos 3 Super V2V generation validated (p5.48xlarge, vLLM-Omni, Capacity Block)
+- ✅ Synthetic demo generation working (multiple prompts, ~5 min/video on 8x H100)
 - 🔲 Edge deployment (CDK stack ready, untested on hardware)
 
 ---
