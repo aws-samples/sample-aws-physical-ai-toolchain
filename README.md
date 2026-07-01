@@ -1,6 +1,6 @@
 # AWS Physical AI Toolkit
 
-An end-to-end pipeline for training robot manipulation policies on AWS — from human demonstrations to a deployed physical robot. Built entirely on open-source tools (GR00T, Isaac Lab, Cosmos, LeRobot, ROS 2, PyTorch) running on AWS infrastructure.
+An end-to-end pipeline for training robot manipulation policies on AWS — from human demonstrations to a deployed physical robot. Built entirely on open-source tools (GR00T, Isaac Sim, Isaac Lab, Cosmos, LeRobot, Hugging Face, ROS 2, PyTorch) running on AWS infrastructure.
 
 ---
 
@@ -115,9 +115,9 @@ pai groot runs                                          # watch the run; registe
 ```
 
 That's [Lab 1](workshop/lab-1-train-groot.md) end-to-end. For the full walk-through
-(monitoring, the full training run, serving the model as an endpoint) and the rest
-of the workshop, see **[workshop/](workshop/README.md)**. The deeper setup that the
-other labs need (CDK bootstrap, NGC API key for the Isaac/Cosmos image builds) is in
+(monitoring, the full training run, serving the model as an endpoint), see the lab
+guides in `workshop/`. The deeper setup that the other labs need (CDK bootstrap,
+NGC API key for the Isaac/Cosmos image builds) is in
 **[Lab 0: Prerequisites](workshop/lab-0-prerequisites.md)**.
 
 > **Why CodeBuild?** The NVIDIA base images (Isaac Lab ~16 GB, Cosmos ~30 GB) are
@@ -126,25 +126,23 @@ other labs need (CDK bootstrap, NGC API key for the Isaac/Cosmos image builds) i
 > and pushes to your ECR. See [Lab 0](workshop/lab-0-prerequisites.md) for the
 > one-time NGC API key setup that the NVIDIA-based builds need.
 
-See [workshop/README.md](workshop/README.md) for the full guided experience.
-
 ---
 
 ## Workshop (Self-Paced)
 
-Seven hands-on labs taking you from zero to a deployed robot policy:
+Hands-on labs taking you from zero to a deployed robot policy:
 
 | Lab | What You Build | Time | Cost |
 |-----|---------------|------|------|
 | [Lab 0: Prerequisites](workshop/lab-0-prerequisites.md) | Deploy AWS infrastructure | 30 min | — |
 | [Lab 1: Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$15-30 |
 | [Lab 2: Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$3.00/hr |
-| [Lab 3: Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Synthetic demo generation (Cosmos 3 Super, Predict mode) | 1-2 hrs | ~$300-500 |
-| [Lab 4: RL Policy Training](workshop/lab-5-rl-refinement-with-isaac.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
-| [Lab 5: Edge Deployment](workshop/lab-5-edge-deployment.md) | Deploy to Jetson via Greengrass | 2 hrs | ~$5 |
-| [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$50-100 |
+| [Lab 3: Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Generate synthetic demos (Cosmos 3 Super, Predict mode) | 1-2 hrs | ~$300-500 |
+| [Lab 4: Cosmos Transfer](workshop/lab-4-cosmos-transfer.md) | Restyle existing data preserving actions (Transfer 2.5) | 1-2 hrs | ~$35/hr |
+| [Lab 5: RL Policy Training with Isaac](workshop/lab-5-rl-refinement-with-isaac.md) | Train a policy in simulation with RL | 3 hrs | ~$10-30 |
+| [Lab 6: OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS (placeholder) | 2-3 hrs | ~$50-100 |
 
-**No robot hardware required.** Labs 0-4 run entirely in the cloud. Lab 5 deploys to a physical robot if you have one (UR3 + Jetson).
+**No robot hardware required.** Labs 0-5 run entirely in the cloud.
 
 ---
 
@@ -174,7 +172,8 @@ The reference uses a **UR3 arm** (most popular collaborative robot in industry) 
 - ✅ Lab docs (0-6) written with full intro + terminology glossary
 - ✅ Cosmos 3 Super V2V generation validated (p5.48xlarge, vLLM-Omni, Capacity Block)
 - ✅ Synthetic demo generation working (multiple prompts, ~5 min/video on 8x H100)
-- 🔲 Edge deployment (CDK stack ready, untested on hardware)
+- 🔲 Cosmos Transfer 2.5 (in progress — open-source path on p5)
+- 🔲 OSMO orchestration (Lab 6 — placeholder, contributions welcome)
 
 ---
 
