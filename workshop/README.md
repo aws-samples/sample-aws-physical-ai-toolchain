@@ -42,41 +42,27 @@ Path B — RL:          Sim + reward ──▶ Isaac Lab PPO (GPU EC2)─┘
 
 ---
 
-## Key Technologies
-
-| Technology | What It Is | Lab |
-|-----------|-----------|-----|
-| **GR00T** | NVIDIA's Vision-Language-Action (VLA) foundation model. 3B parameters pre-trained on diverse robot data. You fine-tune it on your specific robot and task. | Lab 1 |
-| **Isaac Sim** | NVIDIA's physics-accurate 3D simulator. Gravity, friction, collisions, cameras — like a video game engine for robots. | Lab 2 |
-| **Isaac Lab** | RL training framework on top of Isaac Sim. Runs 4096 parallel robot copies on one GPU. | Lab 5 |
-| **Cosmos 3 Super** | NVIDIA's 64B World Foundation Model. Generates synthetic robot demonstrations from text prompts + a reference video (Predict mode). | Lab 3 |
-| **Cosmos Transfer 2.5** | Pixel-faithful video restyling. Preserves exact geometry and motion while changing visual appearance (materials, lighting, textures). | Lab 4 |
-| **LeRobot** | HuggingFace's standard format for robot training data (Parquet + MP4). | Throughout |
-| **SageMaker** | AWS managed training. Provisions GPUs, runs your container, uploads results, terminates. No idle cost. | Labs 1, 5 |
-
----
-
 ## What Each Lab Teaches
 
-### Lab 0: Prerequisites
+### [Lab 0: Prerequisites](lab-0-prerequisites.md)
 Deploy AWS infrastructure with CDK. Creates S3 buckets, ECR repos, IAM roles, and triggers CodeBuild to build all container images. After this, everything else "just works."
 
-### Lab 1: Train from Demonstrations (GR00T)
-Fine-tune NVIDIA's GR00T foundation model on 27 real UR3 teleoperation episodes. You'll convert raw Zarr recordings to LeRobot v2 format, upload to S3, and launch a SageMaker training pipeline. The result: a model that predicts robot motor commands from camera images.
+### [Lab 1: Train from Demonstrations (GR00T)](lab-1-train-groot.md)
+Fine-tune NVIDIA's **GR00T** foundation model (a 3B-parameter Vision-Language-Action model pre-trained on diverse robot data) on 27 real UR3 teleoperation episodes. You'll convert raw Zarr recordings to **LeRobot v2** format (HuggingFace's standard for robot training data — Parquet + MP4), upload to S3, and launch a **SageMaker** training pipeline (managed GPU training — provisions hardware, runs your container, uploads results, terminates with no idle cost). The result: a model that predicts robot motor commands from camera images.
 
-### Lab 2: Isaac Sim Workstation
-Deploy a GPU-powered remote desktop for visual development. Watch robots train in real-time, debug physics issues you can't see in logs, and iterate on RL environments visually before training at scale.
+### [Lab 2: Isaac Sim Workstation](lab-2-isaac-workstation.md)
+Deploy a GPU-powered remote desktop running **Isaac Sim** (NVIDIA's physics-accurate 3D simulator — gravity, friction, collisions, cameras, like a video game engine for robots). Watch robots train in real-time, debug physics issues you can't see in logs, and iterate on RL environments visually before training at scale.
 
-### Lab 3: Cosmos World Generation (Predict)
-Use Cosmos 3 Super (64B) to generate entirely new synthetic pick-and-place demonstrations from text prompts. One reference video + varied prompts/seeds = dozens of novel training episodes. Scales your dataset without additional teleoperation.
+### [Lab 3: Cosmos World Generation (Predict)](lab-3-cosmos-world-generation.md)
+Use **Cosmos 3 Super** (NVIDIA's 64B World Foundation Model) to generate entirely new synthetic pick-and-place demonstrations from text prompts. One reference video + varied prompts/seeds = dozens of novel training episodes. Scales your dataset without additional teleoperation.
 
-### Lab 4: Cosmos Transfer (Restyle)
-Use Cosmos Transfer 2.5 to restyle your existing training videos — same robot motion and geometry, different visual appearance (factory lighting, worn surfaces). Preserves action labels while adding visual diversity for sim-to-real transfer.
+### [Lab 4: Cosmos Transfer (Restyle)](lab-4-cosmos-transfer.md)
+Use **Cosmos Transfer 2.5** to restyle your existing training videos — pixel-faithful restyling that preserves exact geometry and motion while changing visual appearance (factory lighting, worn surfaces, different materials). Preserves action labels while adding visual diversity for sim-to-real transfer.
 
-### Lab 5: RL Policy Training with Isaac Lab
-Train a robot policy from scratch with reinforcement learning. Isaac Lab runs 4096 parallel environments on one GPU. PPO discovers robust strategies through trial-and-error guided by reward signals. Domain randomization makes the policy generalize to real hardware.
+### [Lab 5: RL Policy Training with Isaac Lab](lab-5-rl-refinement-with-isaac.md)
+Train a robot policy from scratch with reinforcement learning using **Isaac Lab** (an RL training framework on top of Isaac Sim that runs 4096 parallel robot copies on one GPU). **PPO** (Proximal Policy Optimization — the standard RL algorithm for robotics) discovers robust strategies through trial-and-error guided by reward signals. Domain randomization makes the policy generalize to real hardware.
 
-### Lab 6: OSMO Orchestration (Placeholder)
+### [Lab 6: OSMO Orchestration (Placeholder)](lab-6-osmo-orchestration.md)
 Chain multiple stages (generate → train → evaluate → deploy) into an automated production pipeline on EKS. Contributions welcome.
 
 ---
@@ -136,4 +122,4 @@ New to robotics? Here's what the key terms mean.
 
 → **[Begin with Lab 0: Prerequisites](lab-0-prerequisites.md)**
 
-For the complete glossary with cloud analogies, see [docs/glossary.md](../docs/glossary.md).
+For the complete glossary, see [docs/glossary.md](../docs/glossary.md).
