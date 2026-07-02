@@ -43,6 +43,21 @@ A Physical AI pipeline with:
 
 ---
 
+## Not Just a Toolkit — Also a Workshop
+
+This repo is both an **accelerator framework** and a **hands-on learning experience**. Each lab includes:
+
+- Step-by-step instructions with exact CLI commands and expected outputs
+- Cost and time estimates so you know what you're spending before you run anything
+- "Under the hood" sections that explain what each command does and why
+- Troubleshooting tables for common issues
+
+While some AWS cloud experience is assumed, no prior robotics experience is required. The [workshop introduction](workshop/README.md) covers foundational concepts — how robots learn from demonstrations vs. simulation, what a policy is, why sim-to-real transfer is hard, and a full terminology glossary.
+
+The workshop format is modular: run all labs in a day as an instructor-led session, work through them self-paced over a week, or jump directly to the lab that matches your immediate need.
+
+---
+
 ## Modular by Design
 
 This is a **modular framework** — use the pieces you need. Each lab is an independent building block: imitation learning (Lab 1), simulation (Labs 2, 5), synthetic data generation (Labs 3, 4), and orchestration (Lab 6) can be adopted individually or combined. The infrastructure (Lab 0) provides the shared foundation that all other labs build on.
