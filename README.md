@@ -49,11 +49,11 @@ This is a **modular framework** — use the pieces you need. Each lab is an inde
 
 ---
 
-## Example Use Case: Pick and Place
+## Pick and Place Example Use Case Included
 
-The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the #1 most common industrial robot task (bin picking, kitting, palletizing).
+The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the most common industrial robot task (bin picking, kitting, palletizing).
 
-The example uses a **UR3 arm** (most popular collaborative robot in industry) with a **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline (CDK infra, SageMaker training, Cosmos generation, Isaac Lab RL) stays the same regardless of embodiment or task.
+The example uses a **UR3 arm** (a popular collaborative robot in the industry) with its standard **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline (CDK infra, SageMaker training, Cosmos generation, Isaac Lab RL) stays the same regardless of embodiment or task.
 
 ---
 
@@ -62,21 +62,55 @@ The example uses a **UR3 arm** (most popular collaborative robot in industry) wi
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│  AWS Account                                                             │
-│                                                                         │
-│  ┌─────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐               │
-│  │   S3    │  │   ECR    │  │SageMaker │  │   EC2    │               │
-│  │Datasets │  │Containers│  │Training  │  │ Cosmos   │               │
-│  │Models   │  │          │  │Pipelines │  │ GPU Gen  │               │
-│  └────┬────┘  └────┬────┘  └────┬─────┘  └────┬─────┘               │
-│       │            │            │              │                       │
-│       └────────────┴────────────┴──────────────┘                       │
-│                              │                                          │
-│                    CDK (Infrastructure as Code)                          │
-│                    One command: `cdk deploy`                             │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─ NVIDIA OSMO Orchestrator (EKS) ── automates & sequences stages 1-6 ───────────────────────────────┐
+│                                                                                                      │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
+│  │  1       │    │  2           │    │  3 & 4       │    │  5           │    │  6           │      │
+│  │  INGEST  │───▶│  TRAIN (IL)  │───▶│  WORLD GEN   │───▶│  TRAIN (RL)  │───▶│  DEPLOY      │      │
+│  │          │    │              │    │              │    │              │    │              │      │
+│  │ Zarr/ROS │    │ GR00T N1.6   │    │ Cosmos 3     │    │ Isaac Lab    │    │ TensorRT     │      │
+│  │ → LeRobot│    │ (3B VLA)     │    │ Super (64B)  │    │ + Isaac Sim  │    │ export       │      │
+│  │ v2       │    │              │    │ Predict V2V  │    │ 4096 envs    │    │              │      │
+│  │          │    │ Amazon       │    │              │    │              │    │ AWS IoT      │      │
+│  │ Amazon S3│    │ SageMaker    │    │ Cosmos       │    │ Amazon       │    │ Greengrass   │      │
+│  │          │    │ Pipeline     │    │ Transfer 2.5 │    │ SageMaker /  │    │ → Jetson     │      │
+│  │          │    │              │    │ NIM (restyle)│    │ AWS Batch    │    │              │      │
+│  │          │    │              │    │              │    │              │    │              │      │
+│  │          │    │              │    │ EC2 p5       │    │              │    │              │      │
+│  │          │    │              │    │ (Capacity    │    │              │    │              │      │
+│  │          │    │              │    │  Block)      │    │              │    │              │      │
+│  └──────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘      │
+│                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Foundation Layer (Lab 0 — deployed once via CDK) ───────────────────────────────────────────────────┐
+│                                                                                                      │
+│  Amazon S3          Amazon ECR         IAM Roles        AWS CodeBuild        config.json             │
+│  (datasets +        (container         (SageMaker,      (auto-builds all     (region, instance       │
+│   models)            images)            EC2, Batch)      containers → ECR)    types, AMI map)        │
+│                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Developer Workstation (Lab 2) ──┐
+│  EC2 g6e + NICE DCV              │
+│  Isaac Sim visual GUI            │
+│  Debug RL environments live      │
+└──────────────────────────────────┘
 ```
+
+**Stages:**
+1. **Ingest** — Convert teleoperation recordings (Zarr, ROS bags, CSV) to LeRobot v2 format and store in S3
+2. **Train (Imitation Learning)** — Fine-tune GR00T on your demonstrations via SageMaker Pipeline
+3. **World Generation** — Generate new synthetic demonstrations with Cosmos 3 Predict, or restyle existing video with Cosmos Transfer 2.5 preserving actions
+4. **Train (Reinforcement Learning)** — Train a policy from scratch in Isaac Lab with domain randomization (4096 parallel environments on one GPU)
+5. **Deploy** — Export to TensorRT, deploy to robot fleet via Greengrass
+
+**OSMO** wraps all stages into an automated, repeatable pipeline on EKS — scheduling GPU workloads, sequencing stages, and gating on quality metrics.
+
+**Foundation** provides the shared infrastructure (S3, ECR, IAM, CodeBuild) that all stages build on, deployed once via CDK.
+
+> This is the high-level abstracted architecture. Each lab includes a detailed architecture
+> diagram with specific instance types, API endpoints, and data flow for its stage.
 
 ---
 

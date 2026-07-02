@@ -106,6 +106,10 @@ Each is a unique, plausible execution of the pick-and-place task under different
 
 ## Prerequisites
 
+> **Bring your own data:** The example uses our UR3 pick-and-place video as a reference,
+> but you can use any wrist camera MP4 from your own robot or simulation. Write prompts
+> that describe YOUR task and environment — the pipeline is the same regardless of robot or use case.
+
 - **Lab 1 completed** — you have a LeRobot v2 dataset with wrist camera MP4s in S3
 - **Hugging Face account + token** — with gated model access:
   1. Create an account at https://huggingface.co if you don't have one
@@ -170,6 +174,22 @@ The script:
 6. Pulls the image from ECR (~5 min)
 7. Starts the Cosmos 3 server and waits for model loading (~15-20 min first time)
 8. Prints `COSMOS 3 SERVER IS READY` with your instance ID
+
+> **Manual scan (if you want to check availability before running the script):**
+> ```bash
+> for REGION in us-east-1 us-east-2 us-west-2; do
+>   echo "=== $REGION ==="
+>   aws ec2 describe-capacity-block-offerings \
+>     --instance-type p5.48xlarge \
+>     --capacity-duration-hours 24 \
+>     --instance-count 1 \
+>     --region $REGION \
+>     --query 'CapacityBlockOfferings[*].{Hours:CapacityBlockDurationHours,Cost:UpfrontFee,AZ:AvailabilityZone,Start:StartDate}' \
+>     --output table
+> done
+> ```
+> P5 instances are rarely available on-demand (at the time of this writing).
+> Block durations and pricing vary by region and time of day.
 
 **Total time from script start to ready:** ~25 min (mostly model weight download).
 

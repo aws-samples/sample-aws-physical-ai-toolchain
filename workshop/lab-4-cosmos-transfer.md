@@ -6,7 +6,7 @@
 
 **Goal:** Use Cosmos Transfer 2.5 to restyle your existing training videos with photorealistic visual variations while preserving exact robot motion and geometry — making your action labels remain valid
 **Time:** 1-2 hours
-**Cost:** ~$13/hr on Spot p4d.24xlarge (or ~$37/hr via Capacity Block)
+**Cost:** ~$37/hr via p5.48xlarge Capacity Block (H100 80GB required)
 
 > **New to Transfer vs. Predict?** Lab 3 (Predict) generates *new* demonstrations from
 > prompts. This lab (Transfer) restyles *existing* demonstrations — same motion, different
@@ -42,9 +42,9 @@ Reference Architecture, the SO-101 Sim-to-Real tutorial, and the GR00T-Mimic Blu
 | Input | Reference video + text prompt | Video + edge map + style prompt |
 | Output | Novel demonstration (vision-only) | Restyled demonstration (action-paired) |
 | Use case | Scale dataset with new trajectories | Scale dataset with visual diversity |
-| GPU required | 8x H100 (640 GB) | 1x A100 80GB or 8x A100 40GB |
+| GPU required | 8x H100 (640 GB) | 8x H100 80GB (p5.48xlarge) |
 | Container | `vllm/vllm-omni:cosmos3` | `nvcr.io/nim/nvidia/cosmos-transfer2.5-2b` |
-| Cost | ~$37/hr (p5 Capacity Block) | ~$13/hr (p4d Spot) |
+| Cost | ~$37/hr (p5 Capacity Block) | ~$37/hr (p5 Capacity Block) |
 
 ---
 
@@ -55,12 +55,12 @@ Reference Architecture, the SO-101 Sim-to-Real tutorial, and the GR00T-Mimic Blu
 │  Cosmos Transfer 2.5 — Pixel-Faithful Restyling                              │
 │                                                                              │
 │  ┌──────────────┐    ┌────────────────────┐    ┌───────────────┐            │
-│  │ Lab 1 wrist  │    │  EC2 p4d.24xlarge   │    │  Output       │            │
-│  │ camera MP4   │───▶│  (Spot instance)    │───▶│  Restyled MP4 │            │
+│  │ Lab 1 wrist  │    │  EC2 p5.48xlarge    │    │  Output       │            │
+│  │ camera MP4   │───▶│  (Capacity Block)   │───▶│  Restyled MP4 │            │
 │  │ + edge map   │    │                    │    │               │            │
 │  │ + style      │    │  Cosmos Transfer   │    │  SAME motion  │            │
 │  │   prompt     │    │  2.5 NIM           │    │  NEW visuals  │            │
-│  └──────────────┘    │  (8x A100 40GB)    │    │  Actions stay │            │
+│  └──────────────┘    │  (8x H100 80GB)    │    │  Actions stay │            │
 │                      └────────────────────┘    │  valid!       │            │
 │                                                └───────────────┘            │
 └──────────────────────────────────────────────────────────────────────────────┘
@@ -76,71 +76,227 @@ The prompt tells it HOW things should look. Geometry is locked — only appearan
 - **Lab 1 completed** — you have wrist camera MP4s in S3
 - **NGC API key** in Secrets Manager (`physical-ai/ngc-api-key`) — Transfer NIM pulls from NGC
 - **HuggingFace token** in Secrets Manager (`physical-ai/hf-token`) — for guardrail model
-- **P4d quota** (or Spot access) — 8x A100 40GB
+- **P5 GPU capacity** — p5.48xlarge (8x H100 80GB) via Capacity Block (see scanning script below)
+- **HuggingFace licenses accepted:**
+  - `nvidia/Cosmos-Guardrail1`
+  - `nvidia/Cosmos-1.0-Guardrail`
+  - `nvidia/Cosmos-Predict2.5-2B`
+  - `nvidia/Cosmos-Transfer2.5-2B`
 
 ---
 
-## Steps
+## Running This Lab
 
-> **Status:** Validated on p5.48xlarge (8x H100 80GB) with the NIM container.
-> Quality tuning still needed — output colors shift and framerate needs matching.
-> See `docs/cosmos3-validated-runbook.md` for the full validated Transfer NIM setup.
+**One-command path (recommended):** The automation script handles everything — Capacity Block scan, purchase, instance launch, NIM pull, and server start:
 
-### Setup (validated):
-1. Launch p5.48xlarge (H100 80GB required — A100 40GB OOMs, NIM needs compute cap 9.0)
-2. Pull NIM: `nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest` (requires NGC API key)
-3. Run with `--gpus all` — NIM auto-selects H100 latency profile with FP8
-4. Server ready when `/v1/health/ready` returns 200
-
-### API call (validated):
-```python
-import base64, requests, json
-
-# Encode input video (must be 93-480 frames)
-with open("input_video.mp4", "rb") as f:
-    video_b64 = base64.b64encode(f.read()).decode()
-
-payload = {
-    "prompt": "Industrial factory with scratched metal table and fluorescent lighting",
-    "video": video_b64,
-    "edge": {},           # edge control preserves geometry
-    "num_steps": 35,      # full quality (10 = fast but low quality)
-    "guidance": 3
-}
-
-resp = requests.post("http://localhost:8000/v1/infer", json=payload, timeout=900)
-
-# Response is JSON with base64-encoded video
-data = resp.json()
-video_bytes = base64.b64decode(data["b64_video"])
-with open("output.mp4", "wb") as f:
-    f.write(video_bytes)
+```bash
+bash scripts/cosmos-transfer-launch.sh          # full automated deploy
+bash scripts/cosmos-transfer-launch.sh --dry-run  # preview without spending
 ```
 
-### Key constraints:
-- **Input must be 93-480 frames** (below 93 → HTTP 422 error)
-- **H100 80GB minimum** (A100 80GB OOMs on VAE decode; A100 40GB not enough)
-- **NIM requires NGC API key** + HuggingFace token (for Cosmos-Guardrail1 download)
-- **Output is base64 JSON**, not raw video — must decode `data["b64_video"]`
-- **Output is HEVC encoded** — convert to H.264 for Mac playback: `ffmpeg -i output.mp4 -c:v libx264 output_h264.mp4`
-- **Framerate mismatch:** NIM outputs at 16fps regardless of input fps. Re-encode output to match original fps.
+**Step-by-step path:** Follow Steps 1-7 below if you want to understand each piece or customize the setup.
 
-### Known quality issues (to investigate):
-- Colors shift toward the prompt's described environment (edge control doesn't preserve colors)
-- `vis` control mode preserves colors better but produces artifacts at the "latency" FP8 profile
-- The BF16 `throughput` profile may produce better quality (not yet tested)
-- Lower `guidance` (1-2) may preserve more of the original appearance
+> **Bring your own data:** The example uses our UR3 pick-and-place episodes, but you can
+> use any MP4 video (93-480 frames) from your own robot or simulation. The pipeline is
+> the same regardless of robot or task.
+
+> **Future improvement:** These steps will be integrated into a CDK stack for fully
+> declarative infrastructure-as-code deployment.
+
+---
+
+## Step 1: Find and Purchase a Capacity Block
+
+P5 instances are rarely available on-demand (at the time of this writing). Use a Capacity Block (reserved GPU allocation). Scan for availability across regions:
+
+```bash
+for REGION in us-east-1 us-east-2 us-west-2; do
+  echo "=== $REGION ==="
+  aws ec2 describe-capacity-block-offerings \
+    --instance-type p5.48xlarge \
+    --capacity-duration-hours 24 \
+    --instance-count 1 \
+    --region $REGION \
+    --query 'CapacityBlockOfferings[*].{Hours:CapacityBlockDurationHours,Cost:UpfrontFee,AZ:AvailabilityZone,Start:StartDate}' \
+    --output table
+done
+```
+
+Purchase when you find one that fits your schedule:
+
+```bash
+aws ec2 purchase-capacity-block \
+  --capacity-block-offering-id <OFFERING_ID> \
+  --instance-platform Linux/UNIX \
+  --region <REGION> \
+  --tag-specifications 'ResourceType=capacity-reservation,Tags=[{Key=Name,Value=cosmos-transfer}]'
+```
+
+Wait for the block to go `active` (it activates at the scheduled StartDate):
+
+```bash
+aws ec2 describe-capacity-reservations \
+  --capacity-reservation-ids <CR_ID> \
+  --region <REGION> \
+  --query 'CapacityReservations[0].State'
+```
+
+---
+
+## Step 2: Launch the Instance
+
+Once the block is active:
+
+```bash
+REGION="<your-region>"
+CR_ID="<your-capacity-reservation-id>"
+BLOCK_AZ="<AZ from block output>"
+
+# Find a subnet in the block's AZ
+SUBNET=$(aws ec2 describe-subnets --filters "Name=availability-zone,Values=$BLOCK_AZ" \
+  --query 'Subnets[0].SubnetId' --output text --region $REGION)
+
+# Get the Deep Learning AMI (NVIDIA drivers pre-installed)
+AMI=$(aws ec2 describe-images --owners amazon \
+  --filters "Name=name,Values=Deep Learning Base OSS Nvidia Driver GPU AMI (Ubuntu 22.04)*" \
+  --region $REGION --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --output text)
+
+# Launch into the capacity block
+aws ec2 run-instances \
+  --image-id $AMI \
+  --instance-type p5.48xlarge \
+  --placement AvailabilityZone=$BLOCK_AZ \
+  --security-group-ids <YOUR_SG_ID> \
+  --iam-instance-profile Name=<YOUR_PROFILE> \
+  --block-device-mappings '[{"DeviceName":"/dev/sda1","Ebs":{"VolumeSize":500,"VolumeType":"gp3"}}]' \
+  --instance-market-options '{"MarketType":"capacity-block"}' \
+  --capacity-reservation-specification '{"CapacityReservationTarget":{"CapacityReservationId":"'$CR_ID'"}}' \
+  --tag-specifications 'ResourceType=instance,Tags=[{Key=Name,Value=cosmos-transfer}]' \
+  --region $REGION
+```
+
+> **Note:** The `--instance-market-options '{"MarketType":"capacity-block"}'` flag is
+> required for Capacity Block instances. Without it you get "market type not valid."
+
+---
+
+## Step 3: Pull and Start the NIM
+
+Wait for SSM to come online (~2 min after boot), then set up via SSM:
+
+```bash
+INSTANCE_ID=<from launch output>
+
+# Verify GPUs
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["nvidia-smi -L | head -2"]}' --region $REGION
+
+# Login to NGC
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["aws secretsmanager get-secret-value --secret-id physical-ai/ngc-api-key --region us-east-1 --query SecretString --output text | docker login nvcr.io --username \\$oauthtoken --password-stdin"]}' \
+  --region $REGION
+
+# Pull the Transfer NIM (~20 min, 56 GB)
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["docker pull nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest"]}' \
+  --timeout-seconds 1800 --region $REGION
+
+# Start the NIM (auto-selects H100 profile)
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["NGC_KEY=$(aws secretsmanager get-secret-value --secret-id physical-ai/ngc-api-key --region us-east-1 --query SecretString --output text) && HF_TOKEN=$(aws secretsmanager get-secret-value --secret-id physical-ai/hf-token --region us-east-1 --query SecretString --output text) && docker run -d --name cosmos-transfer-nim --gpus all --ipc=host --shm-size=64g -p 8000:8000 -e NGC_API_KEY=$NGC_KEY -e HF_TOKEN=$HF_TOKEN nvcr.io/nim/nvidia/cosmos-transfer2.5-2b:latest"]}' \
+  --region $REGION
+```
+
+Wait ~15 min for TRT engine download and model loading. Check readiness:
+
+```bash
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["curl -s http://localhost:8000/v1/health/ready && echo READY || echo NOT_READY"]}' \
+  --region $REGION
+```
+
+Server is ready when it returns HTTP 200.
+
+---
+
+## Step 4: Copy Your Training Video to the Instance
+
+```bash
+# Copy a wrist camera clip from your Lab 1 dataset (must be 93-480 frames)
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["aws s3 cp s3://<BUCKET>/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000009.mp4 /tmp/input_video.mp4 --region us-east-1"]}' \
+  --region $REGION
+```
+
+> **Important:** Input must be **93-480 frames**. At 5fps, that's 18.6-96 seconds.
+> If your clips are shorter than 93 frames, use a longer episode or pad with repeated frames.
+
+---
+
+## Step 5: Run Transfer Inference
+
+Post your video to the NIM with an edge control signal and style prompt:
+
+```bash
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["cat > /tmp/run_transfer.py << PYEOF\nimport base64, requests, json, subprocess\n\nwith open(\"/tmp/input_video.mp4\", \"rb\") as f:\n    video_b64 = base64.b64encode(f.read()).decode()\n\npayload = {\n    \"prompt\": \"Industrial factory with scratched metal table and fluorescent lighting\",\n    \"video\": video_b64,\n    \"edge\": {},\n    \"num_steps\": 35,\n    \"guidance\": 3\n}\n\nprint(f\"Posting {len(video_b64)//1024}KB...\")\nresp = requests.post(\"http://localhost:8000/v1/infer\", json=payload, timeout=900)\nprint(f\"Status: {resp.status_code}, Size: {len(resp.content)}\")\n\nif resp.status_code == 200:\n    data = resp.json()\n    video = base64.b64decode(data[\"b64_video\"])\n    with open(\"/tmp/transfer_raw.mp4\", \"wb\") as f:\n        f.write(video)\n    # Convert to H.264 at original fps for Mac/browser playback\n    subprocess.run([\"ffmpeg\", \"-y\", \"-i\", \"/tmp/transfer_raw.mp4\", \"-r\", \"5\", \"-c:v\", \"libx264\", \"-crf\", \"18\", \"/tmp/transfer_output.mp4\"], capture_output=True)\n    print(\"TRANSFER_SUCCESS\")\nelse:\n    print(resp.text[:500])\nPYEOF\npython3 /tmp/run_transfer.py"]}' \
+  --timeout-seconds 900 --region $REGION
+```
+
+**Generation takes ~8-10 min** on H100 with 35 diffusion steps.
+
+---
+
+## Step 6: Download and Compare
+
+Upload the result to S3, then download both original and restyled:
+
+```bash
+aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScript \
+  --parameters '{"commands":["aws s3 cp /tmp/transfer_output.mp4 s3://<BUCKET>/cosmos-samples/transfer_result.mp4 --region us-east-1"]}' \
+  --region $REGION
+
+# Download to your laptop
+aws s3 cp s3://<BUCKET>/cosmos-samples/transfer_result.mp4 ./
+```
+
+Open both clips side by side — the output should show the same robot motion with a restyled environment.
+
+> **Pre-generated samples:** If you don't have P5 capacity, see
+> `training/data/cosmos-samples/` for before/after examples with prompts documented.
+
+---
+
+## Step 7: Terminate
+
+```bash
+aws ec2 terminate-instances --instance-ids $INSTANCE_ID --region $REGION
+```
+
+The Capacity Block fee is already paid regardless.
 
 ---
 
 ## ✅ Lab 4 Checkpoint
 
-- [ ] Transfer NIM running on p4d (8x A100)
-- [ ] Posted one clip with edge control
-- [ ] Output preserves robot motion exactly (visual comparison confirms)
-- [ ] Same video, different visual style — action labels valid
-- [ ] (Optional) Generated multiple style variations
-- [ ] (Optional) Merged into augmented dataset and re-trained
+- [ ] Capacity Block purchased and activated (p5.48xlarge)
+- [ ] NIM pulled and server responding to `/v1/health/ready`
+- [ ] Posted one clip (93+ frames) with edge control
+- [ ] Output preserves robot motion (visual comparison confirms geometry)
+- [ ] Converted output to H.264 at original fps for playback
+- [ ] (Optional) Tried different prompts for varied environments
+- [ ] (Optional) Merged restyled videos into augmented dataset
+- [ ] Terminated instance
+
+---
+
+## Known Issues (for contributors)
+
+- Colors shift toward the prompt's described environment (edge control preserves geometry but not color)
+- `vis` control mode preserves colors better but produces artifacts on the FP8 "latency" profile
+- The BF16 `throughput` NIM profile may produce better quality (not yet tested — restart container with `NIM_MODEL_PROFILE=throughput`)
+- Lower `guidance` (1-2) may preserve more of the original appearance
+- `depth` control mode may give better structure preservation than `edge`
 
 ---
 
@@ -151,8 +307,6 @@ with open("output.mp4", "wb") as f:
 | p5.48xlarge (Capacity Block) | ~$37/hr (~$574 for 16hr block) | H100 80GB required |
 | Generation time | ~8-10 min per 93-frame clip (35 steps) | Faster with fewer steps (lower quality) |
 | NIM container pull | ~20 min first time | 56 GB image from NGC |
-
-Much cheaper than Lab 3 (Predict) because Transfer 2.5 is only 2B params vs. 64B.
 
 ---
 
