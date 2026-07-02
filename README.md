@@ -61,42 +61,7 @@ The example uses a **UR3 arm** (a popular collaborative robot in the industry) w
 
 ## Architecture
 
-```
-┌─ NVIDIA OSMO Orchestrator (EKS) ── automates & sequences stages 1-6 ───────────────────────────────┐
-│                                                                                                      │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐    ┌──────────────┐      │
-│  │  1       │    │  2           │    │  3 & 4       │    │  5           │    │  6           │      │
-│  │  INGEST  │───▶│  TRAIN (IL)  │───▶│  WORLD GEN   │───▶│  TRAIN (RL)  │───▶│  DEPLOY      │      │
-│  │          │    │              │    │              │    │              │    │              │      │
-│  │ Zarr/ROS │    │ GR00T N1.6   │    │ Cosmos 3     │    │ Isaac Lab    │    │ TensorRT     │      │
-│  │ → LeRobot│    │ (3B VLA)     │    │ Super (64B)  │    │ + Isaac Sim  │    │ export       │      │
-│  │ v2       │    │              │    │ Predict V2V  │    │ 4096 envs    │    │              │      │
-│  │          │    │ Amazon       │    │              │    │              │    │ AWS IoT      │      │
-│  │ Amazon S3│    │ SageMaker    │    │ Cosmos       │    │ Amazon       │    │ Greengrass   │      │
-│  │          │    │ Pipeline     │    │ Transfer 2.5 │    │ SageMaker /  │    │ → Jetson     │      │
-│  │          │    │              │    │ NIM (restyle)│    │ AWS Batch    │    │              │      │
-│  │          │    │              │    │              │    │              │    │              │      │
-│  │          │    │              │    │ EC2 p5       │    │              │    │              │      │
-│  │          │    │              │    │ (Capacity    │    │              │    │              │      │
-│  │          │    │              │    │  Block)      │    │              │    │              │      │
-│  └──────────┘    └──────────────┘    └──────────────┘    └──────────────┘    └──────────────┘      │
-│                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
-
-┌─ Foundation Layer (Lab 0 — deployed once via CDK) ───────────────────────────────────────────────────┐
-│                                                                                                      │
-│  Amazon S3          Amazon ECR         IAM Roles        AWS CodeBuild        config.json             │
-│  (datasets +        (container         (SageMaker,      (auto-builds all     (region, instance       │
-│   models)            images)            EC2, Batch)      containers → ECR)    types, AMI map)        │
-│                                                                                                      │
-└──────────────────────────────────────────────────────────────────────────────────────────────────────┘
-
-┌─ Developer Workstation (Lab 2) ──┐
-│  EC2 g6e + NICE DCV              │
-│  Isaac Sim visual GUI            │
-│  Debug RL environments live      │
-└──────────────────────────────────┘
-```
+![AWS Physical AI Toolkit Architecture](arch-diagram.png)
 
 **Stages:**
 1. **Ingest** — Convert teleoperation recordings (Zarr, ROS bags, CSV) to LeRobot v2 format and store in S3
