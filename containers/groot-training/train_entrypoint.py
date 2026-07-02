@@ -26,6 +26,7 @@ under torch.distributed.run (proven pattern — experiment.run reads WORLD_SIZE/
 import importlib
 import json
 import os
+import shlex
 import subprocess
 import sys
 import traceback
@@ -159,14 +160,16 @@ def maybe_relaunch_with_torchrun() -> None:
             print(f"  WARNING: pre-download failed ({e}); ranks will download independently.", flush=True)
 
         print(f"  Detected {num_gpus} GPUs — re-launching under torchrun...", flush=True)
+        # Security: all command elements are internally constructed (sys.executable,
+        # module name, GPU count from torch.cuda, own script path). No user input.
         cmd = [
             sys.executable, "-m", "torch.distributed.run",
             "--nproc_per_node", str(num_gpus),
             "--master_port", "29500",
             sys.argv[0],
         ]
-        print(f"    {' '.join(cmd)}", flush=True)
-        sys.exit(subprocess.call(cmd))
+        print(f"    {shlex.join(cmd)}", flush=True)
+        sys.exit(subprocess.call(cmd))  # noqa: S603
 
 
 # --------------------------------------------------------------------------- #

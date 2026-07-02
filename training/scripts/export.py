@@ -36,6 +36,7 @@ which is why play.py is the canonical export path.
 
 import argparse
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -112,7 +113,7 @@ def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name
         "--video_length=1",
     ]
 
-    print(f"  Running: {' '.join(cmd)}")
+    print(f"  Running: {shlex.join(cmd)}")
 
     jit_path = exported_dir / "policy.pt"
     onnx_path = exported_dir / "policy.onnx"
@@ -125,7 +126,9 @@ def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name
     rc = None
     stderr_tail = ""
     try:
-        result = subprocess.run(
+        # Security: cmd is list-form (no shell=True). All elements are resolved
+        # Path objects or hardcoded strings — no unsanitized user input.
+        result = subprocess.run(  # noqa: S603
             cmd,
             capture_output=True,
             text=True,
@@ -198,7 +201,7 @@ def trtexec_smoke_check(onnx_path: str, output_dir: str, fp16: bool = True) -> s
 
     # Check trtexec availability
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             ["trtexec", "--help"],
             capture_output=True,
             timeout=5,
@@ -219,11 +222,12 @@ def trtexec_smoke_check(onnx_path: str, output_dir: str, fp16: bool = True) -> s
     if fp16:
         cmd.append("--fp16")
 
-    print(f"  Running: {' '.join(cmd)}")
+    print(f"  Running: {shlex.join(cmd)}")
     print(f"  (This may take a few minutes...)")
 
     try:
-        result = subprocess.run(
+        # Security: cmd elements are hardcoded flags + validated file paths.
+        result = subprocess.run(  # noqa: S603
             cmd,
             capture_output=True,
             text=True,

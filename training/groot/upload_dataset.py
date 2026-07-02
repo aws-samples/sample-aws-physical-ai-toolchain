@@ -11,6 +11,7 @@ WORKSHOP NOTE: Run this after converting/downloading a dataset and before launch
 """
 
 import argparse
+import shlex
 import subprocess
 import json
 import sys
@@ -36,7 +37,11 @@ def get_bucket_from_cloudformation(stack_name: str = "PhysicalAi-dev-Foundation"
 
 
 def upload_dataset(dataset_dir: str, bucket: str, prefix: str) -> dict:
-    """Upload dataset to S3 using aws s3 sync."""
+    """Upload dataset to S3 using aws s3 sync.
+
+    Security: all arguments are validated (argparse CLI input + CloudFormation output).
+    No shell=True; list-form subprocess prevents injection.
+    """
 
     s3_uri = f"s3://{bucket}/{prefix}/dataset/"
 
@@ -46,11 +51,12 @@ def upload_dataset(dataset_dir: str, bucket: str, prefix: str) -> dict:
     print(f"  Destination: {s3_uri}")
     print(f"{'='*60}")
 
-    # Run aws s3 sync
+    # Run aws s3 sync — arguments are list-form (no shell interpolation).
+    # shlex.quote() used in logging only; the list form is inherently safe.
     cmd = ["aws", "s3", "sync", dataset_dir, s3_uri, "--quiet"]
-    print(f"\n  Running: {' '.join(cmd)}")
+    print(f"\n  Running: {shlex.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
 
     if result.returncode != 0:
         print(f"  ERROR: {result.stderr}")

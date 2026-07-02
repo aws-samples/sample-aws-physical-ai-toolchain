@@ -120,9 +120,34 @@ def main():
         server_thread = threading.Thread(target=run_server, daemon=True)
         server_thread.start()
 
-        # Give server time to bind
+        # Wait for the ZMQ server to become reachable before starting the client.
         import time
-        time.sleep(2)
+
+        def _wait_for_server(endpoint: str, timeout: float = 10.0, interval: float = 0.5):
+            """Poll the ZMQ endpoint until it accepts a connection or timeout."""
+            import zmq
+            ctx = zmq.Context()
+            sock = ctx.socket(zmq.REQ)
+            sock.setsockopt(zmq.LINGER, 0)
+            sock.setsockopt(zmq.RCVTIMEO, int(interval * 1000))
+            sock.connect(endpoint)
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                try:
+                    sock.send(b"ping")
+                    sock.recv()
+                    sock.close()
+                    ctx.term()
+                    return
+                except zmq.Again:
+                    pass  # server not ready yet — retry
+            sock.close()
+            ctx.term()
+            raise TimeoutError(
+                f"Policy server at {endpoint} did not respond within {timeout}s"
+            )
+
+        _wait_for_server(args.endpoint)
 
         # Run client (this blocks until eval completes)
         transport = ZmqTransport(args.endpoint)

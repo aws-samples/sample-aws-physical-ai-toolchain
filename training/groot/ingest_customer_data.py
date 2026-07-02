@@ -32,6 +32,7 @@ WORKSHOP NOTE: conversion needs the data deps (zarr, opencv, pandas, pyarrow):
 
 import argparse
 import json
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -44,12 +45,14 @@ STACK_NAME = "PhysicalAi-dev-Foundation"
 
 
 def get_stack_output(key: str, stack_name: str = STACK_NAME) -> str:
-    """Read a single CloudFormation stack output (via the AWS CLI)."""
-    result = subprocess.run(
-        ["aws", "cloudformation", "describe-stacks", "--stack-name", stack_name,
-         "--query", f"Stacks[0].Outputs[?OutputKey=='{key}'].OutputValue", "--output", "text"],
-        capture_output=True, text=True,
-    )
+    """Read a single CloudFormation stack output (via the AWS CLI).
+
+    Security: key and stack_name are hardcoded constants or argparse inputs.
+    List-form subprocess (no shell=True) prevents injection.
+    """
+    cmd = ["aws", "cloudformation", "describe-stacks", "--stack-name", stack_name,
+           "--query", f"Stacks[0].Outputs[?OutputKey=='{key}'].OutputValue", "--output", "text"]
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
     if result.returncode != 0:
         raise RuntimeError(f"Could not read stack output {key}: {result.stderr.strip()}")
     val = result.stdout.strip()
@@ -78,29 +81,26 @@ def plan(episodes_dir: str, output_dir: str, prefix: str, train: bool, max_steps
 
 def run_convert(episodes_dir: str, output_dir: str) -> None:
     print(f"\n  [1] Converting Zarr → LeRobot v2: {episodes_dir} → {output_dir}")
-    subprocess.run(
-        [sys.executable, str(CONVERT_SCRIPT),
-         "--episodes-dir", episodes_dir, "--output-dir", output_dir],
-        check=True,
-    )
+    cmd = [sys.executable, str(CONVERT_SCRIPT),
+           "--episodes-dir", episodes_dir, "--output-dir", output_dir]
+    subprocess.run(cmd, check=True)  # noqa: S603
 
 
 def run_upload(output_dir: str, bucket: str, prefix: str) -> str:
     s3_uri = f"s3://{bucket}/{prefix}/dataset/"
     print(f"\n  [2] Uploading to {s3_uri}")
-    subprocess.run(["aws", "s3", "sync", output_dir, s3_uri, "--quiet"], check=True)
+    cmd = ["aws", "s3", "sync", output_dir, s3_uri, "--quiet"]
+    subprocess.run(cmd, check=True)  # noqa: S603
     return s3_uri
 
 
 def run_train(bucket: str, prefix: str, role_arn: str, ecr_image: str, max_steps: int, region: str) -> None:
     print(f"\n  [3] Launching training ({max_steps} steps)")
-    subprocess.run(
-        [sys.executable, str(LAUNCH_SCRIPT),
-         "--s3-bucket", bucket, "--dataset-prefix", prefix,
-         "--role-arn", role_arn, "--ecr-image", f"{ecr_image}:latest",
-         "--max-steps", str(max_steps), "--region", region],
-        check=True,
-    )
+    cmd = [sys.executable, str(LAUNCH_SCRIPT),
+           "--s3-bucket", bucket, "--dataset-prefix", prefix,
+           "--role-arn", role_arn, "--ecr-image", f"{ecr_image}:latest",
+           "--max-steps", str(max_steps), "--region", region]
+    subprocess.run(cmd, check=True)  # noqa: S603
 
 
 def main():

@@ -56,6 +56,9 @@ ENTRYPOINT ["/entrypoint.sh"]
 # ============================================================
 # Stage: Jetson (aarch64)
 # ============================================================
+# hadolint ignore=DL4000
+# NOTE: Multiple ENTRYPOINT instructions are intentional — this is a multi-stage
+# build. Each stage is built independently via `docker build --target <stage>`.
 # L4T TensorRT base for JetPack 6.x (TensorRT 10.3). Tags are TensorRT-versioned
 # (rX.Y.Z-runtime), not JetPack-versioned — verified against the NGC registry.
 FROM nvcr.io/nvidia/l4t-tensorrt:r10.3.0-runtime AS jetson
