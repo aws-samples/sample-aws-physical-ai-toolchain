@@ -1,0 +1,32 @@
+version: 0.2
+
+# Builds the Isaac Lab RL training container in CodeBuild and pushes it to ECR.
+# Base image is from NVIDIA NGC (nvcr.io), so an NGC API key is required.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/isaac-lab)
+#   AWS_DEFAULT_REGION  - build region
+#   NGC_SECRET_NAME     - Secrets Manager secret holding the NGC API key
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - echo "Logging in to NGC (nvcr.io)..."
+      - NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "$NGC_SECRET_NAME" --region "$AWS_DEFAULT_REGION" --query SecretString --output text)
+      - echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+  build:
+    commands:
+      - echo "Building isaac-lab-training image (this can take a while — ~16 GB NGC base)..."
+      # Dockerfile COPYs paths relative to the repo root (training/, workflows/),
+      # so the build context is the repo root and we point -f at the Dockerfile.
+      - docker build --platform linux/amd64 -t isaac-lab-training -f containers/isaac-lab/Dockerfile .
+      - docker tag isaac-lab-training:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:latest"
+      - 'echo "Done. Image: $ECR_REPO_URI:latest"'

@@ -1,0 +1,33 @@
+version: 0.2
+
+# Builds the GR00T fine-tuning container in CodeBuild and pushes it to ECR.
+# Base image is an AWS PyTorch Deep Learning Container (ECR account 763104351884);
+# CodeBuild authenticates to that account in pre_build. No NGC credentials required.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/groot-training)
+#   AWS_DEFAULT_REGION  - build region
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to target ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      # The base image is an AWS Deep Learning Container in a public AWS ECR account
+      # (763104351884). CodeBuild must authenticate to pull it.
+      - echo "Logging in to the AWS DLC ECR account (763104351884)..."
+      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-west-2.amazonaws.com
+  build:
+    commands:
+      - echo "Building groot-training image..."
+      # Dockerfile COPYs are relative to this directory, so build context = here.
+      - cd containers/groot-training
+      - docker build --platform linux/amd64 -t groot-training .
+      - docker tag groot-training:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:latest"
+      - 'echo "Done. Image: $ECR_REPO_URI:latest"'
