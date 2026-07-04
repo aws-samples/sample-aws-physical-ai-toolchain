@@ -3,25 +3,25 @@
 Convert Zarr episodes to LeRobot v2 format for GR00T fine-tuning.
 Part of aws-physical-ai-toolchain (not from NVIDIA GR00T public repo).
 
-INPUT:  A folder of Zarr-format UR3 teleop episodes. Each episode folder contains:
-          observations/joints             — joint angles (6D, radians, ~10Hz)
-          observations/gripper_position   — gripper state (0–255)
-          observations/timestamps         — telemetry timestamps
-          images/wrist                    — wrist camera RGB frames
-          images/wrist_timestamps         — camera timestamps (5Hz)
-          commands.json                   — URScript speedl() commands from Xbox controller
-          zarr.json                       — metadata: task_name, task_description, camera_hz
+INPUT: A folder of Zarr-format UR3 teleop episodes. Each episode folder contains:
+          observations/joints — joint angles (6D, radians, ~10Hz)
+          observations/gripper_position — gripper state (0–255)
+          observations/timestamps — telemetry timestamps
+          images/wrist — wrist camera RGB frames
+          images/wrist_timestamps — camera timestamps (5Hz)
+          commands.json — URScript speedl() commands from Xbox controller
+          zarr.json — metadata: task_name, task_description, camera_hz
 
 OUTPUT: A LeRobot v2 dataset directory containing:
-          data/chunk-000/episode_*.parquet   — one per episode, one row per camera frame
+          data/chunk-000/episode_*.parquet — one per episode, one row per camera frame
                                                columns: observation.state (7D), action (7D),
                                                episode_index, frame_index, timestamp,
                                                task_index, next.reward/done/success
-          videos/chunk-000/observation.images.wrist/*.mp4  — wrist camera video
-          meta/info.json         — dataset shape and feature definitions
-          meta/modality.json     — maps column names to GR00T's state/action/video slots
-          meta/episodes.jsonl    — per-episode human-readable task description and length
-          meta/tasks.jsonl       — task vocabulary; task_index in parquet → text here
+          videos/chunk-000/observation.images.wrist/*.mp4 — wrist camera video
+          meta/info.json — dataset shape and feature definitions
+          meta/modality.json — maps column names to GR00T's state/action/video slots
+          meta/episodes.jsonl — per-episode human-readable task description and length
+          meta/tasks.jsonl — task vocabulary; task_index in parquet → text here
 
 NOTE ON task_index:
     Each episode has a unique task description from its Zarr task_name attribute.
@@ -40,7 +40,7 @@ GR00T DATA FORMAT REQUIREMENTS:
 Usage:
     python3 lab1/convert_zarr_to_lerobot.py \\
         --episodes-dir training/data/ur3_episodes/episodes \\
-        --output-dir   training/data/ur3_lerobot_dataset
+        --output-dir training/data/ur3_lerobot_dataset
 
 Prerequisites:
     pip install zarr numpy opencv-python pandas pyarrow
@@ -65,8 +65,8 @@ EPISODES_DIR = Path("./data/episodes")
 OUTPUT_DIR = Path("./data/lerobot")
 
 # UR3 has 6 joints + 1 gripper = 7D state/action
-STATE_DIM = 7   # 6 joints + 1 gripper
-ACTION_DIM = 7  # 6 Cartesian velocity × dt + 1 gripper
+STATE_DIM = 7 # 6 joints + 1 gripper
+ACTION_DIM = 7 # 6 Cartesian velocity × dt + 1 gripper
 
 
 def list_episodes(episodes_dir: Path) -> list[str]:
@@ -129,11 +129,11 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
 
     # Load telemetry
     telem_ts = np.array(root["observations"]["timestamps"])
-    joints = np.array(root["observations"]["joints"])       # (N, 6) rad
-    gripper = np.array(root["observations"]["gripper_position"])  # (N,) 0-255
+    joints = np.array(root["observations"]["joints"]) # (N, 6) rad
+    gripper = np.array(root["observations"]["gripper_position"]) # (N,) 0-255
 
     # Load camera
-    cam_frames = root["images"][camera_key]                  # (M, H, W, 3)
+    cam_frames = root["images"][camera_key] # (M, H, W, 3)
     cam_ts = np.array(root["images"][f"{camera_key}_timestamps"])
     n_frames = len(cam_ts)
 
@@ -204,7 +204,7 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
             "next.done": is_last,
             "next.success": is_last,
             "index": global_frame_offset + frame_idx,
-            "task_index": episode_index,  # unique per episode — matches tasks.jsonl order
+            "task_index": episode_index, # unique per episode — matches tasks.jsonl order
         })
 
     # Write parquet
@@ -230,7 +230,7 @@ def convert_episode(episodes_dir: Path, episode_id: str, episode_index: int,
     writer.release()
 
     action_src = f"{len(vel_cmds)} commands" if vel_cmds else "joint deltas (no commands.json)"
-    print(f"  {episode_id} → episode_{episode_index:06d} "
+    print(f" {episode_id} → episode_{episode_index:06d} "
           f"({n_frames} frames, {len(telem_ts)} telem, actions from {action_src})")
 
     return {
@@ -322,7 +322,7 @@ def write_metadata(output_dir: Path, episode_metas: list[dict],
         "robot_type": "ur3",
         "total_episodes": total_eps,
         "total_frames": total_frames,
-        "total_tasks": total_eps,   # one unique task description per episode
+        "total_tasks": total_eps, # one unique task description per episode
         "total_videos": total_eps,
         "total_chunks": 1,
         "chunks_size": 1000,
@@ -369,8 +369,8 @@ def main():
         sys.exit(1)
 
     print(f"Converting {len(episode_ids)} episodes to LeRobot v2 format")
-    print(f"  Source: {episodes_dir}")
-    print(f"  Output: {output_dir}")
+    print(f" Source: {episodes_dir}")
+    print(f" Output: {output_dir}")
     print()
 
     episode_metas = []
@@ -386,7 +386,7 @@ def main():
             global_frame_offset += meta["length"]
             episode_metas.append(meta)
         except Exception as e:
-            print(f"  ERROR converting {ep_id}: {e}")
+            print(f" ERROR converting {ep_id}: {e}")
             import traceback
             traceback.print_exc()
 
@@ -396,7 +396,7 @@ def main():
 
     # Get image shape and fps from first episode
     first_ep = zarr.open(str(episodes_dir / episode_ids[0]), mode="r")
-    image_shape = tuple(first_ep["images"][args.camera].shape[1:])  # (H, W, 3)
+    image_shape = tuple(first_ep["images"][args.camera].shape[1:]) # (H, W, 3)
     fps = first_ep.attrs.get("camera_hz", 5)
 
     write_metadata(output_dir, episode_metas,
@@ -406,12 +406,12 @@ def main():
     total_frames = sum(m["length"] for m in episode_metas)
     print(f"\nDone! Converted {len(episode_metas)} episodes ({total_frames} total frames)")
     print(f"\nOutput: {output_dir}/")
-    print(f"  data/chunk-000/       ({len(episode_metas)} parquet files)")
-    print(f"  videos/chunk-000/     ({len(episode_metas)} mp4 files per camera)")
-    print(f"  meta/                 (modality.json, episodes.jsonl, info.json, tasks.jsonl)")
+    print(f" data/chunk-000/ ({len(episode_metas)} parquet files)")
+    print(f" videos/chunk-000/ ({len(episode_metas)} mp4 files per camera)")
+    print(f" meta/ (modality.json, episodes.jsonl, info.json, tasks.jsonl)")
     print(f"\nNext steps:")
-    print(f"  aws s3 sync {output_dir}/ s3://<bucket>/groot-data/<username>/dataset/")
-    print(f"  ./bin/train-groot.sh --username <username>")
+    print(f" aws s3 sync {output_dir}/ s3://<bucket>/groot-data/<username>/dataset/")
+    print(f" ./bin/train-groot.sh --username <username>")
 
 
 if __name__ == "__main__":

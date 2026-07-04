@@ -16,8 +16,8 @@ import numpy as np
 
 def _try_torchcodec():
     try:
-        from torchcodec.decoders import VideoDecoder  # noqa: F401
-        VideoDecoder  # trigger import so OSError surfaces now
+        from torchcodec.decoders import VideoDecoder # noqa: F401
+        VideoDecoder # trigger import so OSError surfaces now
         return True
     except Exception:
         return False

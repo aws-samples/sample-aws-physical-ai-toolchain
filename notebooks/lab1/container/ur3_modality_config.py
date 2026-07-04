@@ -12,9 +12,9 @@ EEF (end-effector): the arm actions are commanded Cartesian velocity × dt from
 
 Keys + index ranges must match what convert_zarr_to_lerobot.py writes into the
 dataset's meta/modality.json:
-    state:  arm [0:6], gripper [6:7]   (UR3 is 6-DOF + 1-DOF gripper = 7D)
-    action: arm [0:6], gripper [6:7]   (6 Cartesian-velocity deltas + 1 gripper)
-    video:  wrist                       (single wrist camera)
+    state: arm [0:6], gripper [6:7] (UR3 is 6-DOF + 1-DOF gripper = 7D)
+    action: arm [0:6], gripper [6:7] (6 Cartesian-velocity deltas + 1 gripper)
+    video: wrist (single wrist camera)
     language: annotation.human.action.task_description
 
 For a different robot, change modality_keys/index ranges here AND in

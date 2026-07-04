@@ -1,8 +1,14 @@
 """Restart Cosmos NIM with correct profile_id (H100 fp8 latency)."""
+import sys
 import boto3, time
 
 REGION = "us-east-2"
-INSTANCE_ID = "i-YOUR_INSTANCE_ID"
+INSTANCE_ID = sys.argv[1] if len(sys.argv) > 1 else ""
+
+if not INSTANCE_ID:
+    print("Usage: python restart_nim.py <instance-id>")
+    sys.exit(1)
+
 ssm = boto3.client("ssm", region_name=REGION)
 
 # Profile ID for H100 fp8 latency, from docker logs:

@@ -36,12 +36,12 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
 
     print("=" * 60)
-    print("  Isaac Lab RL Training (SageMaker)")
-    print(f"  Task:           {task}")
-    print(f"  Num envs:       {num_envs}")
-    print(f"  Max iterations: {max_iterations}")
-    print(f"  Experiment:     {experiment_name}")
-    print(f"  Output:         {output_dir}")
+    print(" Isaac Lab RL Training (SageMaker)")
+    print(f" Task: {task}")
+    print(f" Num envs: {num_envs}")
+    print(f" Max iterations: {max_iterations}")
+    print(f" Experiment: {experiment_name}")
+    print(f" Output: {output_dir}")
     print("=" * 60)
 
     # =========================================================================
@@ -58,7 +58,7 @@ def main():
         "--logger", "tensorboard",
     ]
 
-    print(f"\n  Running: {' '.join(cmd)}\n")
+    print(f"\n Running: {' '.join(cmd)}\n")
 
     env = os.environ.copy()
     env["ACCEPT_EULA"] = "Y"
@@ -72,10 +72,10 @@ def main():
     )
 
     if result.returncode != 0:
-        print(f"\n  ERROR: Training exited with code {result.returncode}")
+        print(f"\n ERROR: Training exited with code {result.returncode}")
         # Still try to save any partial outputs
     else:
-        print(f"\n  Training complete!")
+        print(f"\n Training complete!")
 
     # =========================================================================
     # 3. COPY CHECKPOINTS TO OUTPUT DIR
@@ -83,7 +83,7 @@ def main():
     # Isaac Lab saves logs to /workspace/isaaclab/logs/
     logs_dir = Path("/workspace/isaaclab/logs")
     if logs_dir.exists():
-        print(f"  Copying training artifacts to {output_dir}...")
+        print(f" Copying training artifacts to {output_dir}...")
         subprocess.run(
             ["cp", "-r", str(logs_dir), output_dir],
             check=False,
@@ -101,7 +101,7 @@ def main():
     with open(f"{output_dir}/training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
-    print(f"  Metadata saved. SageMaker will upload {output_dir} to S3.")
+    print(f" Metadata saved. SageMaker will upload {output_dir} to S3.")
 
     # Exit with the training exit code
     sys.exit(result.returncode)

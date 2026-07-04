@@ -51,8 +51,8 @@ def _write_failure(message: str) -> None:
         with open(FAILURE_FILE, "w") as f:
             f.write(message)
     except OSError:
-        pass  # /opt/ml/output may not exist locally — the non-zero exit still fails the job
-    print(f"\n  FAILURE: {message}", file=sys.stderr, flush=True)
+        pass # /opt/ml/output may not exist locally — the non-zero exit still fails the job
+    print(f"\n FAILURE: {message}", file=sys.stderr, flush=True)
 
 
 def _hp(name, default):
@@ -131,17 +131,17 @@ def load_modality_config(modality_config_path: str) -> None:
     if path.exists() and path.suffix == ".py":
         sys.path.append(str(path.parent))
         importlib.import_module(path.stem)
-        print(f"  Loaded modality config: {path}", flush=True)
+        print(f" Loaded modality config: {path}", flush=True)
     else:
         raise FileNotFoundError(f"Modality config path does not exist: {modality_config_path}")
 
 
 def pre_download_model(model_name: str) -> None:
     """Download the base model to the HF cache before torchrun (avoid rank races)."""
-    print(f"  Pre-downloading {model_name} to cache...", flush=True)
+    print(f" Pre-downloading {model_name} to cache...", flush=True)
     from huggingface_hub import snapshot_download
     cache_dir = snapshot_download(model_name)
-    print(f"  Model cached at: {cache_dir}", flush=True)
+    print(f" Model cached at: {cache_dir}", flush=True)
 
 
 def maybe_relaunch_with_torchrun() -> None:
@@ -156,16 +156,16 @@ def maybe_relaunch_with_torchrun() -> None:
         try:
             pre_download_model(base_model)
         except Exception as e:
-            print(f"  WARNING: pre-download failed ({e}); ranks will download independently.", flush=True)
+            print(f" WARNING: pre-download failed ({e}); ranks will download independently.", flush=True)
 
-        print(f"  Detected {num_gpus} GPUs — re-launching under torchrun...", flush=True)
+        print(f" Detected {num_gpus} GPUs — re-launching under torchrun...", flush=True)
         cmd = [
             sys.executable, "-m", "torch.distributed.run",
             "--nproc_per_node", str(num_gpus),
             "--master_port", "29500",
             sys.argv[0],
         ]
-        print(f"    {' '.join(cmd)}", flush=True)
+        print(f" {' '.join(cmd)}", flush=True)
         sys.exit(subprocess.call(cmd))
 
 
@@ -189,14 +189,14 @@ def run_training() -> None:
 
     if local_rank == 0:
         print("=== GR00T N1.6-3B Fine-Tuning ===")
-        print(f"  Base model:       {base_model}")
-        print(f"  Dataset:          {dataset_path}")
-        print(f"  Output:           {output_dir}")
-        print(f"  Max steps:        {max_steps}")
-        print(f"  Global batch:     {global_batch_size}")
-        print(f"  Learning rate:    {learning_rate}")
-        print(f"  Num GPUs:         {num_gpus}")
-        print(f"  Grad accum steps: {gradient_accumulation_steps}")
+        print(f" Base model: {base_model}")
+        print(f" Dataset: {dataset_path}")
+        print(f" Output: {output_dir}")
+        print(f" Max steps: {max_steps}")
+        print(f" Global batch: {global_batch_size}")
+        print(f" Learning rate: {learning_rate}")
+        print(f" Num GPUs: {num_gpus}")
+        print(f" Grad accum steps: {gradient_accumulation_steps}")
         print(flush=True)
 
     # Register the UR3 embodiment (all ranks need it before importing gr00t configs).
@@ -264,9 +264,9 @@ def run_training() -> None:
 
     if local_rank == 0:
         per_device_bs = global_batch_size // max(num_gpus, 1)
-        print(f"  [OPT] gradient_checkpointing = True")
-        print(f"  Per-device batch size: {per_device_bs}")
-        print(f"  Effective batch size: {global_batch_size} (grad_accum={gradient_accumulation_steps})")
+        print(f" [OPT] gradient_checkpointing = True")
+        print(f" Per-device batch size: {per_device_bs}")
+        print(f" Effective batch size: {global_batch_size} (grad_accum={gradient_accumulation_steps})")
         print(flush=True)
 
     # Delete pre-computed stats so the container's SDK regenerates them
@@ -279,12 +279,12 @@ def run_training() -> None:
                        os.path.join(dataset_path, "meta", "relative_stats.json")]:
         if os.path.exists(stats_file):
             os.remove(stats_file)
-            print(f"  Deleted stale stats: {stats_file}", flush=True)
+            print(f" Deleted stale stats: {stats_file}", flush=True)
 
     run(config)
 
     if local_rank == 0:
-        print(f"\n  Fine-tuning complete. Checkpoint saved to: {output_dir}", flush=True)
+        print(f"\n Fine-tuning complete. Checkpoint saved to: {output_dir}", flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -339,7 +339,7 @@ def write_baselines_only(dataset_dir: str, output_path: Path, reason: str) -> No
     }
     with open(output_path / "eval_report.json", "w") as f:
         json.dump(report, f, indent=2)
-    print("    Wrote dataset-baselines-only report (no model inference).", flush=True)
+    print(" Wrote dataset-baselines-only report (no model inference).", flush=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -359,7 +359,7 @@ def require_sdk():
         )
         sys.exit(1)
     try:
-        import torch  # noqa: F401
+        import torch # noqa: F401
     except Exception as e:
         _write_failure(
             f"Container is broken: 'import torch' failed ({e}). The image did not build "
@@ -396,7 +396,7 @@ def main():
             reason="open-loop model eval deferred to a GPU-validated follow-up",
         )
     except Exception as e:
-        print(f"  WARNING: baseline computation failed: {e}", flush=True)
+        print(f" WARNING: baseline computation failed: {e}", flush=True)
         eval_status = "eval_unavailable"
 
     metadata = {
@@ -415,10 +415,10 @@ def main():
     }
     with open(Path(MODEL_DIR) / "training_metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
-    print("\n  Metadata saved. SageMaker will upload the model dir to S3. Done.", flush=True)
+    print("\n Metadata saved. SageMaker will upload the model dir to S3. Done.", flush=True)
 
 
 if __name__ == "__main__":
-    require_sdk()                   # fail loud before importing torch / relaunching
+    require_sdk() # fail loud before importing torch / relaunching
     maybe_relaunch_with_torchrun()
     main()

@@ -1,8 +1,14 @@
 """One-shot fix: pull correct NIM image on running instance."""
+import sys
 import boto3
 
 REGION = "us-east-2"
-INSTANCE_ID = "i-YOUR_INSTANCE_ID"
+INSTANCE_ID = sys.argv[1] if len(sys.argv) > 1 else ""
+
+if not INSTANCE_ID:
+    print("Usage: python fix_cosmos_nim.py <instance-id>")
+    sys.exit(1)
+
 ssm = boto3.client("ssm", region_name=REGION)
 
 fix_cmd = r"""

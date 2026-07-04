@@ -12,17 +12,15 @@ Tests the full pipeline:
   7. Log all timings
 
 Usage:
-    python test_cosmos_e2e.py                    # full run
-    python test_cosmos_e2e.py --dry-run          # preview config only
-    python test_cosmos_e2e.py --skip-launch i-xxxx  # reuse existing instance
-
-Findings are appended to LESSONS_LEARNED.md automatically.
+    python test_cosmos_e2e.py # full run
+    python test_cosmos_e2e.py --dry-run # preview config only
+    python test_cosmos_e2e.py --skip-launch i-xxxx # reuse existing instance
 
 Account-specific facts discovered 2026-07-02:
-  - NGC secret name:  ngc-api-key  (NOT physical-ai/ngc-api-key)
-  - IAM profile:      physical-ai-dev-cosmos-profile  (freshly created)
+  - NGC secret name: ngc-api-key (NOT physical-ai/ngc-api-key)
+  - IAM profile: physical-ai-dev-cosmos-profile (freshly created)
   - ECR cosmos image: does not exist → pulling from NGC nvcr.io directly
-  - Best Spot AZ:     us-east-2a (~$13.58/hr)
+  - Best Spot AZ: us-east-2a (~$13.58/hr)
 """
 
 import argparse
@@ -43,23 +41,23 @@ import boto3
 REGION = "us-east-2"
 ACCOUNT = "YOUR_ACCOUNT_ID"
 INSTANCE_TYPE = "p5.48xlarge"
-SPOT_AZ = "us-east-2a"                          # cheapest AZ per price history
+SPOT_AZ = "us-east-2a" # cheapest AZ per price history
 INSTANCE_PROFILE = "physical-ai-dev-cosmos-profile"
-NGC_SECRET_NAME = "ngc-api-key"                 # actual name in Secrets Manager
+NGC_SECRET_NAME = "ngc-api-key" # actual name in Secrets Manager
 NIM_PORT = 8000
-BOOTSTRAP_TIMEOUT_MIN = 35                       # DLAMI: NGC pull(15m) + model load(10m) + buffer
-INFER_TIMEOUT_SEC = 600                          # 10 min for fast test (5 steps)
+BOOTSTRAP_TIMEOUT_MIN = 35 # DLAMI: NGC pull(15m) + model load(10m) + buffer
+INFER_TIMEOUT_SEC = 600 # 10 min for fast test (5 steps)
 
 # Test inference settings — fast
 TEST_NUM_STEPS = 5
 TEST_RESOLUTION = "256"
-TEST_FRAMES = 100                                # 100 frames at 5 fps = 20s clip
+TEST_FRAMES = 100 # 100 frames at 5 fps = 20s clip
 TEST_PROMPT = "industrial warehouse with fluorescent lighting"
 
 # Paths
-REPO_ROOT = Path(__file__).resolve().parents[2]  # notebooks/lab3/ -> repo root
+REPO_ROOT = Path(__file__).resolve().parents[2] # notebooks/lab3/ -> repo root
 USERDATA_PATH = REPO_ROOT / "scripts" / "cosmos-userdata.sh"
-LESSONS_PATH = Path(__file__).parent / "LESSONS_LEARNED.md"
+LOG_PATH = Path(__file__).parent / "test_cosmos_e2e.log"
 OUTPUT_DIR = Path("/tmp/cosmos_test_output")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -75,12 +73,12 @@ def log(msg: str, level: str = "INFO"):
 
 def t_start(label: str):
     timings[label] = {"start": time.time()}
-    log(f"START  {label}")
+    log(f"START {label}")
 
 def t_end(label: str) -> float:
     elapsed = time.time() - timings[label]["start"]
     timings[label]["elapsed"] = elapsed
-    log(f"END    {label} — {elapsed:.1f}s")
+    log(f"END {label} — {elapsed:.1f}s")
     return elapsed
 
 
@@ -104,9 +102,9 @@ def make_test_mp4(path: Path, n_frames: int = 100, w: int = 256, h: int = 256) -
         for i in range(n_frames):
             frame = np.zeros((h, w, 3), dtype=np.uint8)
             # Gradient background (simulates lighting change)
-            frame[:, :, 0] = int(40 + i * 0.4)           # R channel ramps up
-            frame[:h // 2, :, 2] = 80                    # Blue ceiling
-            frame[h // 2:, :, 1] = 40                    # Green floor
+            frame[:, :, 0] = int(40 + i * 0.4) # R channel ramps up
+            frame[:h // 2, :, 2] = 80 # Blue ceiling
+            frame[h // 2:, :, 1] = 40 # Green floor
             # Moving robot arm proxy — vertical bar moving horizontally
             x = int((w - 40) * (i / n_frames))
             cv2.rectangle(frame, (x, 20), (x + 30, h - 20), (200, 200, 200), -1)
@@ -126,7 +124,7 @@ def make_test_mp4(path: Path, n_frames: int = 100, w: int = 256, h: int = 256) -
 def _make_test_mp4_ffmpeg(path: Path, n_frames: int, w: int, h: int) -> Path:
     """Fallback: generate test MP4 via ffmpeg lavfi."""
     import subprocess
-    duration = n_frames / 5  # 5 fps
+    duration = n_frames / 5 # 5 fps
     cmd = [
         "ffmpeg", "-y",
         "-f", "lavfi",
@@ -216,7 +214,7 @@ def launch_spot_p5(dry_run: bool = False) -> str:
             raise
 
     iid = resp["Instances"][0]["InstanceId"]
-    log(f"Launched: {iid}  (AZ: {resp['Instances'][0].get('Placement', {}).get('AvailabilityZone', 'unknown')})")
+    log(f"Launched: {iid} (AZ: {resp['Instances'][0].get('Placement', {}).get('AvailabilityZone', 'unknown')})")
     return iid
 
 
@@ -273,7 +271,7 @@ def ssm_run(instance_id: str, command: str, timeout: int = 60) -> tuple[str, str
             WaiterConfig={"Delay": 5, "MaxAttempts": max(4, timeout // 5)}
         )
     except Exception:
-        pass  # Will check status in get_command_invocation
+        pass # Will check status in get_command_invocation
 
     result = ssm.get_command_invocation(CommandId=cmd_id, InstanceId=instance_id)
     stdout = result.get("StandardOutputContent", "")
@@ -302,7 +300,7 @@ def wait_for_nim_ready(instance_id: str, timeout_min: int = BOOTSTRAP_TIMEOUT_MI
                 timeout=30
             )
             health = stdout.strip()
-            log(f"  Health check [{attempt}]: {health[:100]}")
+            log(f" Health check [{attempt}]: {health[:100]}")
 
             if "ready" in health.lower() and "not_ready" not in health.lower():
                 log(f"NIM is READY after {attempt} attempts")
@@ -316,10 +314,10 @@ def wait_for_nim_ready(instance_id: str, timeout_min: int = BOOTSTRAP_TIMEOUT_MI
                     "docker logs cosmos 2>&1 | grep -iE 'error|ready|serving|profile|starting' | tail -5",
                     timeout=30
                 )
-                log(f"  Docker status:\n{docker_out.strip()}")
+                log(f" Docker status:\n{docker_out.strip()}")
 
         except Exception as e:
-            log(f"  Health poll error (attempt {attempt}): {e}", "WARN")
+            log(f" Health poll error (attempt {attempt}): {e}", "WARN")
 
         time.sleep(45)
 
@@ -443,9 +441,9 @@ def append_run_results(instance_id: str, success: bool, notes: list[str]):
     lines = [
         f"\n---\n",
         f"## Test Run — {ts}\n\n",
-        f"**Instance:** `{instance_id}`  \n",
-        f"**Region/AZ:** `{REGION}` / `{SPOT_AZ}`  \n",
-        f"**Result:** {'✅ SUCCESS' if success else '❌ FAILED'}  \n\n",
+        f"**Instance:** `{instance_id}` \n",
+        f"**Region/AZ:** `{REGION}` / `{SPOT_AZ}` \n",
+        f"**Result:** {' SUCCESS' if success else ' FAILED'} \n\n",
         "### Timings\n\n",
         "| Step | Duration |\n|------|----------|\n",
     ]
@@ -457,9 +455,9 @@ def append_run_results(instance_id: str, success: bool, notes: list[str]):
     for n in notes:
         lines.append(f"- {n}\n")
 
-    with open(LESSONS_PATH, "a") as f:
+    with open(LOG_PATH, "a") as f:
         f.writelines(lines)
-    log(f"Appended results to {LESSONS_PATH}")
+    log(f"Appended results to {LOG_PATH}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -474,7 +472,7 @@ def main():
 
     log("=" * 60)
     log("Cosmos Transfer 2.5 — End-to-End Test")
-    log(f"Region: {REGION}  AZ: {SPOT_AZ}  Instance: {INSTANCE_TYPE}")
+    log(f"Region: {REGION} AZ: {SPOT_AZ} Instance: {INSTANCE_TYPE}")
     log(f"Test: {TEST_FRAMES} frames, {TEST_NUM_STEPS} steps, res={TEST_RESOLUTION}")
     log("=" * 60)
 
@@ -531,7 +529,7 @@ def main():
 
         output_path = OUTPUT_DIR / "test_output.mp4"
         output_path.write_bytes(output_bytes)
-        log(f"Output saved: {output_path}  ({len(output_bytes) // 1024}KB)")
+        log(f"Output saved: {output_path} ({len(output_bytes) // 1024}KB)")
         notes.append(f"Inference: {elapsed:.0f}s, output {len(output_bytes) // 1024}KB")
 
         # ── Step 5: Upload to S3 for Lab 4 consumption ────────────────────
@@ -587,7 +585,7 @@ def main():
         log("\n=== TIMING SUMMARY ===")
         for label, info in timings.items():
             elapsed = info.get("elapsed", time.time() - info["start"])
-            log(f"  {label:40s} {elapsed:6.1f}s")
+            log(f" {label:40s} {elapsed:6.1f}s")
         log("=" * 60)
 
     sys.exit(0 if success else 1)
