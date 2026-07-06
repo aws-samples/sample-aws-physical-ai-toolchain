@@ -404,6 +404,126 @@ def ingest(episodes_dir, prefix, train, max_steps, dry_run):
         raise click.Abort()
 
 
+# ---------------------------------------------------------------------------
+# record / control — physical UR3 hardware loop (optional, bring-your-own-robot)
+# ---------------------------------------------------------------------------
+#
+# These two commands bracket the cloud pipeline with the physical robot: `record`
+# captures teleop demonstrations into the Zarr layout `convert` reads, and
+# `control` runs a deployed endpoint as a closed-loop policy on the arm. They need
+# a real UR3 (+ wrist camera) reachable over the network — everything else in
+# `pai groot` runs without hardware. See workshop/lab-1b-hardware-in-the-loop.md.
+
+
+def _require_ur3_reachable(robot_ip: str):
+    """Warn early if the UR3 URScript port isn't reachable at robot_ip:30002.
+
+    Not fatal — the underlying tools also handle connection errors — but a clear
+    up-front message beats a mid-run socket traceback.
+    """
+    import socket
+
+    try:
+        with socket.create_connection((robot_ip, 30002), timeout=2.0):
+            return
+    except OSError:
+        helpers.warn(f"No UR3 responding at {robot_ip}:30002 (URScript port).")
+        helpers.info("  Set the arm's IP with ROBOT_IP, e.g. ROBOT_IP=192.168.1.100 pai groot ...")
+        helpers.info("  This command needs a physical UR3 + wrist camera on the network.")
+
+
+@groot.command()
+@click.option("--task", required=True, help="Task label for the episodes, e.g. 'pick up the red cube'")
+@click.option("--mode", type=click.Choice(["gamepad", "keyboard"]), default="gamepad",
+              help="gamepad: browser + game controller; keyboard: WASD (SSH-tunnel friendly)")
+@click.option("--robot-ip", default=None, help="UR3 IP (default: $ROBOT_IP or 127.0.0.1 for a sim)")
+@click.option("--port", type=int, default=8765, help="Local port for the browser teleop UI")
+@click.option("--episodes-dir", default="training/data/episodes/episodes",
+              help="Where to write Zarr episodes (what `pai groot convert` reads)")
+@click.option("--dry-run", is_flag=True, help="Show what would run; start nothing")
+def record(task, mode, robot_ip, port, episodes_dir, dry_run):
+    """Teleoperate a physical UR3 and record demonstrations to Zarr (optional, needs hardware).
+
+    Opens a browser teleop UI (gamepad) or reads the keyboard (SSH-friendly),
+    drives the arm, and records synchronized joint/gripper/camera data into
+    <episodes-dir>/episode_* — the exact layout `pai groot convert` consumes.
+    Requires a UR3 + wrist camera on the network; not part of the cloud path.
+    """
+    robot_ip = robot_ip or os.environ.get("ROBOT_IP", "127.0.0.1")
+    module = "robot.ur3.gamepad_teleop" if mode == "gamepad" else "robot.ur3.keyboard_teleop"
+    cmd = [sys.executable, "-m", module, "--record", task, "--port", str(port)]
+
+    if dry_run:
+        helpers.info("[dry-run] Would run:")
+        helpers.info(f"  ROBOT_IP={robot_ip} PAI_EPISODES_DIR={episodes_dir} {' '.join(cmd)}")
+        helpers.info("\n[dry-run] No teleop session started.")
+        return
+
+    _require_data_deps()
+    _require_ur3_reachable(robot_ip)
+
+    env = os.environ.copy()
+    env["ROBOT_IP"] = robot_ip
+    env["PAI_EPISODES_DIR"] = str(Path(episodes_dir).resolve())
+
+    helpers.heading(f"Teleop recording ({mode}) -> {episodes_dir}")
+    helpers.info(f"  Robot: {robot_ip}   Task: {task}")
+    if mode == "gamepad":
+        helpers.info(f"  A browser window will open at http://localhost:{port}")
+    helpers.info("  Press the record control (or Ctrl+C) to stop.\n")
+    try:
+        helpers.run(cmd, check=True, env=env)
+    except subprocess.CalledProcessError as e:
+        helpers.error(f"Teleop session exited with code {e.returncode}")
+        raise click.Abort()
+    helpers.success("\nRecording done. Next: pai groot convert")
+
+
+@groot.command()
+@click.option("--task", required=True, help="Natural-language task, e.g. 'pick up the red cube'")
+@click.option("--endpoint-name", default="groot-ur3", help="Deployed endpoint to drive the arm")
+@click.option("--robot-ip", default=None, help="UR3 IP (default: $ROBOT_IP or 127.0.0.1 for a sim)")
+@click.option("--max-queries", type=int, default=20, help="Max endpoint queries before stopping")
+@click.option("--save-images", is_flag=True, help="Save wrist frames to /tmp for debugging")
+@click.option("--dry-run", is_flag=True, help="Show what would run; start nothing")
+def control(task, endpoint_name, robot_ip, max_queries, save_images, dry_run):
+    """Run a deployed endpoint as a closed-loop policy on a physical UR3 (optional, needs hardware).
+
+    Captures the wrist camera, queries the SageMaker endpoint for an action
+    chunk, and executes it on the arm at the control rate — the closing step of
+    the loop. Deploy the endpoint first with `pai groot deploy`. Requires a UR3
+    + wrist camera on the network.
+    """
+    region = config.resolve_region()
+    robot_ip = robot_ip or os.environ.get("ROBOT_IP", "127.0.0.1")
+    cmd = [sys.executable, "-m", "robot.ur3.control", task,
+           "--endpoint", endpoint_name, "--max-queries", str(max_queries)]
+    if save_images:
+        cmd.append("--save-images")
+
+    if dry_run:
+        helpers.info("[dry-run] Would run:")
+        helpers.info(f"  ROBOT_IP={robot_ip} AWS_DEFAULT_REGION={region} {' '.join(cmd)}")
+        helpers.info("\n[dry-run] No control loop started.")
+        return
+
+    _require_data_deps()
+    _require_ur3_reachable(robot_ip)
+
+    env = os.environ.copy()
+    env["ROBOT_IP"] = robot_ip
+    env["AWS_DEFAULT_REGION"] = region
+
+    helpers.heading(f"Closed-loop control -> {endpoint_name}")
+    helpers.info(f"  Robot: {robot_ip}   Task: {task}   Region: {region}")
+    helpers.warn("  The arm will MOVE. Keep the e-stop within reach.\n")
+    try:
+        helpers.run(cmd, check=True, env=env)
+    except subprocess.CalledProcessError as e:
+        helpers.error(f"Control loop exited with code {e.returncode}")
+        raise click.Abort()
+
+
 def register(cli: click.Group):
     """Register groot commands with the CLI."""
     cli.add_command(groot)

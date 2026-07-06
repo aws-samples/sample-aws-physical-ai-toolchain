@@ -50,6 +50,9 @@ Deploy AWS infrastructure with CDK. Creates S3 buckets, ECR repos, IAM roles, an
 ### [Lab 1: Train from Demonstrations (GR00T)](lab-1-train-groot.md)
 Fine-tune NVIDIA's **GR00T** foundation model (a 3B-parameter Vision-Language-Action model pre-trained on diverse robot data) on 27 real UR3 teleoperation episodes. You'll convert raw Zarr recordings to **LeRobot v2** format (HuggingFace's standard for robot training data — Parquet + MP4), upload to S3, and launch a **SageMaker** training pipeline (managed GPU training — provisions hardware, runs your container, uploads results, terminates with no idle cost). The result: a model that predicts robot motor commands from camera images.
 
+### [Lab 1b: Close the Loop on a Physical UR3](lab-1b-hardware-in-the-loop.md) — *optional hardware track*
+The complete end-to-end example on real hardware: teleoperate a UR3 to **record your own demonstrations** (`pai groot record`), train and deploy them via Lab 1, then let the policy **drive the arm autonomously** (`pai groot control`). **No robot required for the workshop** — Labs 0–6 run on the bundled data. This lab is the bring-your-own-robot reference showing how teleop capture and closed-loop control bracket the cloud pipeline.
+
 ### [Lab 2: Isaac Sim Workstation](lab-2-isaac-workstation.md)
 Deploy a GPU-powered remote desktop running **Isaac Sim** (NVIDIA's physics-accurate 3D simulator — gravity, friction, collisions, cameras, like a video game engine for robots). Watch robots train in real-time, debug physics issues you can't see in logs, and iterate on RL environments visually before training at scale.
 

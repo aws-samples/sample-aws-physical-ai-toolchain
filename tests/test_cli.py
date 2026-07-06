@@ -654,3 +654,85 @@ def test_rl_status_batch(runner, cli_group, fake_boto3, monkeypatch):
     # Verify batch describe_jobs was called
     batch_calls = [c for c in clients["batch"].calls if c[0] == "describe_jobs"]
     assert len(batch_calls) == 1
+
+
+# ---------------------------------------------------------------------------
+# groot record / control — physical UR3 hardware loop (optional)
+# ---------------------------------------------------------------------------
+
+
+def test_groot_record_dry_run(runner, cli_group, monkeypatch):
+    """pai groot record --dry-run → previews the teleop command, starts no subprocess."""
+    from pai import helpers
+
+    def _fail_on_call(*args, **kwargs):
+        raise AssertionError("helpers.run called during dry-run — should not happen")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_call)
+    monkeypatch.setenv("ROBOT_IP", "10.0.0.5")
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "record", "--task", "pick up the red cube", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "[dry-run]" in result.output
+    # gamepad is the default mode → the gamepad teleop module is what would run
+    assert "robot.ur3.gamepad_teleop" in result.output
+    assert "ROBOT_IP=10.0.0.5" in result.output
+
+
+def test_groot_record_keyboard_mode_selects_module(runner, cli_group, monkeypatch):
+    """--mode keyboard → the SSH-friendly keyboard teleop module is chosen."""
+    from pai import helpers
+
+    monkeypatch.setattr(helpers, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no run in dry-run")))
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "record", "--task", "t", "--mode", "keyboard", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "robot.ur3.keyboard_teleop" in result.output
+
+
+def test_groot_control_dry_run(runner, cli_group, monkeypatch):
+    """pai groot control --dry-run → previews the control command, starts no subprocess."""
+    from pai import helpers
+
+    def _fail_on_call(*args, **kwargs):
+        raise AssertionError("helpers.run called during dry-run — should not happen")
+
+    monkeypatch.setattr(helpers, "run", _fail_on_call)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "control", "--task", "pick up the red cube",
+         "--endpoint-name", "groot-ur3", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "[dry-run]" in result.output
+    assert "robot.ur3.control" in result.output
+    assert "groot-ur3" in result.output
+
+
+def test_groot_control_endpoint_forwarded(runner, cli_group, monkeypatch):
+    """The endpoint name reaches the control invocation."""
+    from pai import helpers
+
+    monkeypatch.setattr(helpers, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no run in dry-run")))
+
+    result = runner.invoke(
+        cli_group,
+        ["groot", "control", "--task", "t",
+         "--endpoint-name", "my-custom-endpoint", "--dry-run"],
+    )
+
+    assert result.exit_code == 0
+    assert "my-custom-endpoint" in result.output

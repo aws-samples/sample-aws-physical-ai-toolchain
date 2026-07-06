@@ -111,6 +111,11 @@ export ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-
 
 The training data is 27 episodes of UR3 pick-and-place, recorded via Xbox controller teleoperation. The raw data is in Zarr format (how our recording tools capture it) and needs to be converted to LeRobot v2 format (what GR00T reads).
 
+> **Want to record your own?** With a physical UR3 you can capture demonstrations by
+> teleoperation with `pai groot record` — it writes the same Zarr layout the steps
+> below expect. See [Lab 1b](lab-1b-hardware-in-the-loop.md). No hardware? Use the
+> bundled 27 episodes and continue.
+
 ```bash
 # 2a. Pull the dataset from Git LFS and extract it.
 #     The zip's internal root is `episodes/`, so this yields
@@ -484,6 +489,11 @@ python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
 > **Status:** the deploy/serve path is wired against the proven GR00T N1.6 serving
 > API. Standing up a live endpoint needs a GPU instance and is billed hourly — run
 > it when you're ready to serve, and `pai groot delete` when done.
+
+> **Have a physical UR3?** [Lab 1b: Close the Loop on a Physical UR3](lab-1b-hardware-in-the-loop.md)
+> shows the full hardware loop — record your own demos by teleoperation
+> (`pai groot record`) and let this deployed endpoint drive the arm autonomously
+> (`pai groot control`). Hardware is optional; the cloud steps above are unchanged.
 
 ---
 
