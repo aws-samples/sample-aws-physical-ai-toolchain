@@ -105,7 +105,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
   .controls { font-size: 0.85em; line-height: 1.7; color: #999; }
   .controls b { color: #ddd; }
   .rec { color: #f44336; font-weight: 700; animation: blink 1s infinite; }
-  .replay-active { color: #00d4ff; font-weight: 700; animation: blink 1s infinite; }
   @keyframes blink { 50% { opacity: 0.3; } }
   .tcp { font-family: 'SF Mono', monospace; font-size: 1.05em; }
   .ep-list { max-height: 200px; overflow-y: auto; margin-top: 8px; }
@@ -143,7 +142,6 @@ HTML_PAGE = r"""<!DOCTYPE html>
 <div class="card">
   <h2>Episodes</h2>
   <button class="ep-btn" onclick="loadEpisodes()">Refresh</button>
-  <button class="ep-btn stop" id="stop-replay-btn" onclick="stopReplay()" style="display:none">Stop Replay</button>
   <div id="ep-list" class="ep-list">Click Refresh to load episodes</div>
 </div>
 
@@ -313,8 +311,6 @@ function pollInput() {
       info += '<span>' + (data.speed_label || '') + '</span>';
       info += ' &nbsp; grip=' + (data.gripper || '?');
       if (data.recording) info += ' &nbsp; <span class="rec">REC</span>';
-      if (data.replaying) info += ' &nbsp; <span class="replay-active">REPLAY</span>';
-      document.getElementById('stop-replay-btn').style.display = data.replaying ? 'inline-block' : 'none';
       if (data.message) info += '<br><span style="color:#ffeb3b">' + data.message + '</span>';
       info += '</div>';
       document.getElementById('robot-info').innerHTML = info;
@@ -340,22 +336,9 @@ function loadEpisodes() {
         const samples = ep.telemetry_samples || 0;
         return '<div class="ep-item">' +
           '<span>' + esc + ' (' + dur + 's, ' + samples + ' samples)</span>' +
-          '<button class="ep-btn" data-ep="'+esc+'" onclick="startReplay(this.dataset.ep)">Replay</button>' +
           '</div>';
       }).join('');
     })
-    .catch(() => {});
-}
-
-function startReplay(episodeId) {
-  fetch('/replay', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({episode_id: episodeId})})
-    .then(r => r.json())
-    .then(data => { if (!data.ok) alert(data.error || 'Replay failed'); })
-    .catch(() => {});
-}
-
-function stopReplay() {
-  fetch('/replay/stop', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'})
     .catch(() => {});
 }
 
@@ -478,8 +461,6 @@ class TeleopState:
         self.gripper = "open"
         self.speed_label = ""
         self.recording = False
-        self.replaying = False
-        self.replay_episode = None  # episode_id to replay
         self.message = ""
         self.quit = False
         self.was_moving = False
@@ -488,7 +469,6 @@ class TeleopState:
         self.y_was_pressed = False
         self.robot = None
         self.recorder = None
-        self.sender = None  # URScriptSender for replay
 
 
 shared = TeleopState()
@@ -525,7 +505,6 @@ class TeleopHandler(http.server.BaseHTTPRequestHandler):
                     "gripper": shared.gripper,
                     "speed_label": shared.speed_label,
                     "recording": shared.recording,
-                    "replaying": shared.replaying,
                     "message": shared.message,
                 }
                 shared.message = ""
@@ -544,157 +523,11 @@ class TeleopHandler(http.server.BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps(episodes).encode())
 
-        elif self.path == "/replay":
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            try:
-                data = json.loads(body)
-            except json.JSONDecodeError:
-                self.send_error(400)
-                return
-            episode_id = data.get("episode_id")
-            if not episode_id:
-                self.send_error(400)
-                return
-            with shared.lock:
-                if shared.replaying:
-                    resp = {"ok": False, "error": "Already replaying"}
-                elif shared.recording:
-                    resp = {"ok": False, "error": "Stop recording first"}
-                else:
-                    shared.replay_episode = episode_id
-                    resp = {"ok": True}
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-
-        elif self.path == "/replay/stop":
-            with shared.lock:
-                shared.replay_episode = None
-                shared.replaying = False
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode())
-
         else:
             self.send_error(404)
 
     def log_message(self, format, *args):
         pass
-
-
-def replay_episode(robot, sender, episode_id):
-    """Replay a recorded episode using speedj on the persistent socket."""
-    import numpy as np
-    from robot.ur3.recorder import EpisodeStore
-
-    store = EpisodeStore()
-    try:
-        root = store.load_episode(episode_id)
-    except FileNotFoundError:
-        print(f"  Episode not found: {episode_id}")
-        with shared.lock:
-            shared.replaying = False
-            shared.replay_episode = None
-            shared.message = f"Episode not found: {episode_id}"
-        return
-    joints = np.array(root["observations"]["joints"])
-    timestamps = np.array(root["observations"]["timestamps"])
-    grip = np.array(root["observations"]["gripper_position"])
-
-    n = len(joints)
-    if n < 2:
-        print(f"  Episode too short ({n} samples)")
-        with shared.lock:
-            shared.replaying = False
-            shared.replay_episode = None
-            shared.message = f"Episode too short: {episode_id}"
-        return
-
-    print(f"  Replay: moving to episode start...")
-
-    with shared.lock:
-        shared.replaying = True
-        shared.message = f"Replay: moving to start..."
-
-    try:
-        robot.move_joints(list(joints[0]), vel=0.3, accel=0.3)
-        time.sleep(0.5)
-
-        dt = np.median(np.diff(timestamps))
-        hz = 1.0 / dt
-        print(f"  Replay: {n} steps at {hz:.0f}Hz, {timestamps[-1]-timestamps[0]:.1f}s")
-
-        with shared.lock:
-            shared.message = f"REPLAY: {episode_id}"
-
-        gripper_state = 0
-        stopped_early = False
-        for i in range(n - 1):
-            step_start = time.time()
-
-            if shared.replay_episode is None:
-                print("  Replay stopped by user")
-                stopped_early = True
-                break
-
-            force = robot.get_force()
-            if force:
-                force_mag = math.sqrt(sum(f * f for f in force[:3]))
-                if force_mag > 120.0:
-                    print(f"  SAFETY: Force {force_mag:.1f}N — stopping replay")
-                    stopped_early = True
-                    break
-
-            step_dt = timestamps[i + 1] - timestamps[i]
-            if step_dt <= 0 or step_dt > 1.0:
-                step_dt = dt
-
-            delta = joints[i + 1] - joints[i]
-            velocities = (delta / step_dt).tolist()
-
-            cap = 0.5
-            velocities = [max(-cap, min(cap, v)) for v in velocities]
-
-            sender.send_speedj(velocities, accel=1.0, t=float(step_dt))
-
-            g = int(grip[i])
-            if g > 127 and gripper_state <= 127:
-                robot.gripper_close()
-                gripper_state = 255
-                print(f"  Step {i}: gripper CLOSE")
-            elif g <= 127 and gripper_state > 127:
-                robot.gripper_open()
-                gripper_state = 0
-                print(f"  Step {i}: gripper OPEN")
-
-            j = robot.get_joints()
-            tcp = robot.get_tcp_pose()
-            with shared.lock:
-                shared.joints = j
-                shared.tcp = tcp
-
-            elapsed = time.time() - step_start
-            remaining = float(step_dt) - elapsed
-            if remaining > 0:
-                time.sleep(remaining)
-
-        msg = f"Replay stopped: {episode_id}" if stopped_early else f"Replay done: {episode_id}"
-        print(f"  {msg}")
-    except Exception as e:
-        msg = f"Replay error: {e}"
-        print(f"  {msg}")
-    finally:
-        try:
-            sender.send_stopj()
-        except Exception:
-            pass
-        with shared.lock:
-            shared.replaying = False
-            shared.replay_episode = None
-            shared.message = msg
 
 
 def robot_loop():
@@ -714,7 +547,6 @@ def robot_loop():
 
     sender = URScriptSender(ROBOT_IP)
     sender.connect()
-    shared.sender = sender
     loop_period = 1.0 / LOOP_HZ
 
     while not shared.quit:
@@ -729,15 +561,6 @@ def robot_loop():
         with shared.lock:
             shared.tcp = tcp
             shared.joints = joints
-
-        # Replay requested?
-        replay_ep = shared.replay_episode
-        if replay_ep and not shared.replaying:
-            if shared.was_moving:
-                sender.send_stopj()
-                shared.was_moving = False
-            replay_episode(robot, sender, replay_ep)
-            continue
 
         if gp is None or gp_age > 0.3:
             if shared.was_moving:

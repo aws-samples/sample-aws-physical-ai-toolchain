@@ -20,7 +20,6 @@ import json
 import math
 import os
 import socket
-import sys
 import threading
 import time
 
@@ -34,7 +33,7 @@ from robot.ur3.config import UR3_CONFIG
 # Config
 # ---------------------------------------------------------------------------
 ROBOT_IP = os.environ.get("ROBOT_IP", "127.0.0.1")
-ENDPOINT_NAME = os.environ.get("GROOT_ENDPOINT", "groot-n1")
+ENDPOINT_NAME = os.environ.get("GROOT_ENDPOINT", "groot-ur3")
 REGION = os.environ.get("AWS_DEFAULT_REGION", "us-west-2")
 
 START_JOINTS_DEG = [38.5, -90.4, 78.5, -90.2, -92.7, 12.5]
