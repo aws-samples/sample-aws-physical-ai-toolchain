@@ -272,6 +272,18 @@ def run_training() -> None:
         print(f"  Effective batch size: {global_batch_size} (grad_accum={gradient_accumulation_steps})")
         print(flush=True)
 
+    # Delete pre-computed stats so the container's SDK regenerates them in the
+    # correct format for this SDK version. The stats.json format changed between
+    # N1.5 and N1.6 — pre-uploaded stats from a different SDK version cause
+    # KeyError: 'mean' in sharded_mixture_dataset.py.
+    import glob
+    for stats_file in glob.glob(os.path.join(dataset_path, "meta", "*.stats.json")) + \
+                      [os.path.join(dataset_path, "meta", "stats.json"),
+                       os.path.join(dataset_path, "meta", "relative_stats.json")]:
+        if os.path.exists(stats_file):
+            os.remove(stats_file)
+            print(f"  Deleted stale stats: {stats_file}", flush=True)
+
     run(config)
 
     if local_rank == 0:
