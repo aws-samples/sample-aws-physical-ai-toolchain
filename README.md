@@ -30,15 +30,14 @@ A Physical AI pipeline with:
 | # | Lab | What You Build | Time |
 |---|-----|---------------|------|
 | 0 | [Prerequisites](workshop/lab-0-prerequisites.md) | Deploy AWS infrastructure | 30 min |
-| 1 | [Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs |
-| 1b | [Close the Loop on a UR3](workshop/lab-1b-hardware-in-the-loop.md) | End-to-end on real hardware: teleop record → train → autonomous control *(optional, needs a UR3)* | 1-2 hrs |
+| 1 | [Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker (+ optional physical-UR3 record & control) | 2 hrs |
 | 2 | [Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min |
 | 3 | [Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Generate synthetic demos (Cosmos 3 Super, Predict) | 1-2 hrs |
 | 4 | [Cosmos Transfer](workshop/lab-4-cosmos-transfer.md) | Restyle existing data preserving actions (Transfer 2.5) | 1-2 hrs |
 | 5 | [RL Policy Training](workshop/lab-5-rl-refinement-with-isaac.md) | Isaac Lab RL policy training in simulation | 3 hrs |
 | 6 | [OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS (placeholder) | 2-3 hrs |
 
-**No robot hardware required.** Labs 0-6 run entirely in the cloud on the bundled demonstrations. Lab 1b is an optional hardware track for teams with a physical UR3 — it shows the complete teleop → train → deploy → autonomous-control loop on a real arm.
+**No robot hardware required.** Labs 0-6 run entirely in the cloud on the bundled demonstrations. Lab 1 also includes an optional bring-your-own-robot track — teams with a physical UR3 can record their own demonstrations and run the trained policy on the arm, completing the full teleop → train → deploy → autonomous-control loop.
 
 → **New to Physical AI?** Read the [Workshop Introduction](workshop/README.md) for background on how robots learn, key terminology, and what each lab teaches.
 

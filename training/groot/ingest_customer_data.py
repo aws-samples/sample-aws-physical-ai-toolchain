@@ -8,7 +8,7 @@ training-ready dataset in S3 (and, optionally, kick off training):
 
 This is the on-ramp for customers who want to train on THEIR OWN demonstrations
 rather than the bundled UR3 demo. The expected Zarr schema is documented in
-docs/ZARR_SCHEMA.md.
+docs/zarr-schema.md.
 
 Usage:
     # Convert + upload your episodes (bucket auto-detected from the Foundation stack):

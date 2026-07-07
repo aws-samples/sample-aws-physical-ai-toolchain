@@ -64,7 +64,7 @@ def _record_synthetic_episode(episodes_dir):
 
 
 def test_recorder_writes_documented_zarr_schema(tmp_path):
-    """The recorder emits exactly the keys docs/ZARR_SCHEMA.md promises."""
+    """The recorder emits exactly the keys docs/zarr-schema.md promises."""
     import zarr
 
     episodes_dir = tmp_path / "episodes"

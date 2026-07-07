@@ -111,10 +111,46 @@ export ECR_URI=$(aws cloudformation describe-stacks --stack-name PhysicalAi-dev-
 
 The training data is 27 episodes of UR3 pick-and-place, recorded via Xbox controller teleoperation. The raw data is in Zarr format (how our recording tools capture it) and needs to be converted to LeRobot v2 format (what GR00T reads).
 
-> **Want to record your own?** With a physical UR3 you can capture demonstrations by
-> teleoperation with `pai groot record` — it writes the same Zarr layout the steps
-> below expect. See [Lab 1b](lab-1b-hardware-in-the-loop.md). No hardware? Use the
-> bundled 27 episodes and continue.
+**No robot needed** — the 27 episodes ship with the repo. Pull and convert them below. If you *do* have a UR3 and want to record your own demonstrations first, expand the optional section, then rejoin at conversion.
+
+<details>
+<summary>🤖 Optional: record your own demonstrations (requires a physical UR3)</summary>
+
+This is the front bookend of the full hardware loop. It needs a real UR3 (URScript
+port 30002 + dashboard port 29999 reachable), a wrist camera (Intel RealSense D405, or
+any UVC/RTSP camera via the OpenCV fallback), and a Robotiq 2F-85 gripper. Nothing
+else in this lab requires hardware.
+
+```bash
+export ROBOT_IP=192.168.1.100    # your UR3's IP (127.0.0.1 targets a local URSim)
+
+# Gamepad teleop (opens a browser UI that reads an HTML5 game controller):
+pai groot record --task "pick up the red cube" --mode gamepad
+
+# ...or keyboard teleop (WASD+IJKL; works over an SSH tunnel, no browser/gamepad):
+pai groot record --task "pick up the red cube" --mode keyboard
+
+# Preview without moving the arm:
+pai groot record --task "pick up the red cube" --dry-run
+```
+
+Controls (gamepad): left stick = X/Y, right stick = Z + wrist rotation, triggers =
+gripper, **A** = start/stop recording, **B** = emergency stop.
+
+Each demonstration lands in `training/data/episodes/episodes/episode_NNN_<task>/` —
+exactly where `pai groot convert` looks below, so recorded data flows straight into
+the pipeline (see [docs/zarr-schema.md](../docs/zarr-schema.md) for the layout).
+Record **50–100** demonstrations with natural variation for a policy that generalizes.
+Check what you captured with `python -m robot.ur3.recorder list`.
+
+> **Safety:** the arm moves during teleop. Clear the workspace and keep the
+> teach-pendant e-stop within reach.
+>
+> **Status:** the teleop capture path is ported from a validated GR00T reference
+> but has not been re-verified on physical hardware in this repo — smoke-test it on
+> your arm before a long recording session.
+
+</details>
 
 ```bash
 # 2a. Pull the dataset from Git LFS and extract it.
@@ -191,7 +227,7 @@ python training/groot/ingest_customer_data.py \
 
 The expected Zarr schema (`observations/joints`, `observations/gripper_position`,
 `images/wrist`, `commands.json`, and the `zarr.json` attrs) is documented in full in
-[docs/ZARR_SCHEMA.md](../docs/ZARR_SCHEMA.md). For a non-UR3 robot you also update the
+[docs/zarr-schema.md](../docs/zarr-schema.md). For a non-UR3 robot you also update the
 state/action dimensions in `convert_zarr_to_lerobot.py` and the GR00T modality config
 (`containers/groot-training/ur3_modality_config.py`) — both are explained there.
 
@@ -490,10 +526,52 @@ python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
 > API. Standing up a live endpoint needs a GPU instance and is billed hourly — run
 > it when you're ready to serve, and `pai groot delete` when done.
 
-> **Have a physical UR3?** [Lab 1b: Close the Loop on a Physical UR3](lab-1b-hardware-in-the-loop.md)
-> shows the full hardware loop — record your own demos by teleoperation
-> (`pai groot record`) and let this deployed endpoint drive the arm autonomously
-> (`pai groot control`). Hardware is optional; the cloud steps above are unchanged.
+---
+
+## Step 10 (Optional): Close the Loop on a Physical UR3
+
+This is the back bookend of the full hardware loop: let the deployed endpoint drive a
+real arm. Like the optional recording in Step 2, it needs a physical UR3 + wrist
+camera. Everything above this point is cloud-only.
+
+`pai groot control` captures the wrist camera, asks the endpoint for an action chunk,
+executes the first few actions on the arm, then re-queries — receding-horizon control
+at the rate the model trained on (5 Hz).
+
+```bash
+export ROBOT_IP=192.168.1.100    # your UR3's IP
+
+# Preview (no motion, no endpoint call):
+pai groot control --task "pick up the red cube" --endpoint-name groot-ur3 --dry-run
+
+# Run it for real — THE ARM WILL MOVE:
+pai groot control --task "pick up the red cube" --endpoint-name groot-ur3 --max-queries 20
+```
+
+Each cycle: grab a wrist frame + read the 7D state → POST to the endpoint → get a
+16-step action chunk (`[vx, vy, vz, rx, ry, rz, gripper]`) → execute the first 4 steps
+via URScript `speedl` (clamped by the safety controller) → re-query. Add
+`--save-images` to dump the frames the policy saw to `/tmp` for debugging.
+
+> **Safety:** the arm moves autonomously here. Clear the workspace, keep the e-stop in
+> hand, and start with `--max-queries` small. `SafeUR3Controller` clamps joint,
+> workspace, and velocity limits and trips on force — but it is not a substitute for
+> the physical e-stop.
+>
+> **Status:** the closed-loop control path is ported from a validated GR00T reference
+> and its endpoint contract is verified against a live SageMaker endpoint, but the
+> on-arm motion has not been re-verified on physical hardware in this repo — smoke-test
+> carefully before relying on it.
+
+<details>
+<summary>Under the hood (raw command)</summary>
+
+```bash
+ROBOT_IP=192.168.1.100 python -m robot.ur3.control "pick up the red cube" \
+  --endpoint groot-ur3 --max-queries 20
+```
+
+</details>
 
 ---
 
@@ -506,6 +584,7 @@ You've completed Lab 1 if you can answer:
 - [ ] What instance type did we use? (ml.g5.12xlarge — 4× A10G GPUs)
 - [ ] Where is the trained model? (S3 bucket + Model Registry `groot-models`)
 - [ ] What's the limitation? (imitation only — fails on unseen variations → Lab 4 fixes this with RL)
+- [ ] Which steps need a physical robot, and which don't? (only the optional record/control bookends need a UR3; convert → train → deploy are cloud-only)
 
 ---
 

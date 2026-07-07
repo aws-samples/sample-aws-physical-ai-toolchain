@@ -374,7 +374,7 @@ def delete(endpoint_name, yes):
 def ingest(episodes_dir, prefix, train, max_steps, dry_run):
     """Bring your own data: convert Zarr -> upload to S3 -> optionally train.
 
-    The expected Zarr schema is documented in docs/ZARR_SCHEMA.md.
+    The expected Zarr schema is documented in docs/zarr-schema.md.
     """
     region = config.resolve_region()
     script = _groot_script("ingest_customer_data.py")
@@ -412,7 +412,8 @@ def ingest(episodes_dir, prefix, train, max_steps, dry_run):
 # captures teleop demonstrations into the Zarr layout `convert` reads, and
 # `control` runs a deployed endpoint as a closed-loop policy on the arm. They need
 # a real UR3 (+ wrist camera) reachable over the network — everything else in
-# `pai groot` runs without hardware. See workshop/lab-1b-hardware-in-the-loop.md.
+# `pai groot` runs without hardware. See the optional bring-your-own-robot sections
+# in workshop/lab-1-train-groot.md (Step 2 for record, Step 10 for control).
 
 
 def _require_ur3_reachable(robot_ip: str):

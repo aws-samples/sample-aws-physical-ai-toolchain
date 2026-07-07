@@ -4,7 +4,7 @@ GR00T modality config for the UR3 arm (NEW_EMBODIMENT) — reference copy.
 NOTE: the training job does NOT import this file. `train_entrypoint.py` writes an
 identical config inline (write_embodiment_config) so the container is self-contained.
 This file is kept as the canonical, readable reference for customizing the embodiment
-when bringing your own robot (see docs/ZARR_SCHEMA.md). Keep the two in sync.
+when bringing your own robot (see docs/zarr-schema.md). Keep the two in sync.
 
 Ported from the validated lab-cloud-env GR00T N1.6 reference. The action space is
 EEF (end-effector): the arm actions are commanded Cartesian velocity × dt from

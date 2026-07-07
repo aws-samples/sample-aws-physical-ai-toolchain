@@ -23,7 +23,7 @@ Usage (from the repo root):
     # Then train (see workshop/lab-1-train-groot.md)
     python training/groot/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100
 
-Bring your own data: the input Zarr schema is documented in docs/ZARR_SCHEMA.md.
+Bring your own data: the input Zarr schema is documented in docs/zarr-schema.md.
 Point --episodes-dir at your own recordings and the same script applies.
 
 Prerequisites:
