@@ -1,0 +1,216 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Network Policies for OSMO namespace
+# These policies implement defense-in-depth by restricting pod-to-pod traffic
+
+---
+# Default deny all ingress traffic
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ${OSMO_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow ingress from ALB to OSMO service
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-alb-to-service
+  namespace: ${OSMO_NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: osmo-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: 80
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+
+---
+# Allow internal OSMO service communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-osmo-internal
+  namespace: ${OSMO_NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: osmo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: osmo
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 8080
+          protocol: TCP
+        - port: 5432
+          protocol: TCP
+        - port: 6379
+          protocol: TCP
+
+---
+# Allow DNS resolution
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: ${OSMO_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# Allow egress to AWS services (via VPC endpoints)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-aws-services
+  namespace: ${OSMO_NAMESPACE}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: osmo
+  policyTypes:
+    - Egress
+  egress:
+    # Allow HTTPS to AWS endpoints
+    - ports:
+        - port: 443
+          protocol: TCP
+    # Allow PostgreSQL to RDS
+    - ports:
+        - port: 5432
+          protocol: TCP
+    # Allow Redis to ElastiCache
+    - ports:
+        - port: 6379
+          protocol: TCP
+
+---
+# Network Policy for backend namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: ${OSMO_BACKEND_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+# Allow workflow task pods to reach AWS STS + S3 over HTTPS.
+# Required for IRSA: osmo-ctrl exchanges the projected web-identity token at
+# sts.<region>.amazonaws.com (443) and then reads/writes datasets on S3 (443).
+# Without this egress, dataset I/O via the osmo-workflow IRSA SA would fail.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workflow-aws-egress
+  namespace: ${OSMO_BACKEND_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # AWS STS (IRSA token exchange) + S3 (dataset I/O) over HTTPS.
+    - ports:
+        - port: 443
+          protocol: TCP
+    # DNS resolution for the AWS endpoints.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+
+---
+# Allow workflow task pods to reach the in-cluster VLM/LLM NIM endpoints.
+# The VDA augmentation worker calls qwen3-vl / qwen25-14b in the osmo-nims
+# namespace on port 8000. The other workflow egress policies only permit 443 +
+# DNS, so without this rule those OpenAI-compatible calls would be dropped.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-workflow-to-nims
+  namespace: ${OSMO_BACKEND_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: osmo-nims
+      ports:
+        - port: 8000
+          protocol: TCP
+
+---
+# Allow backend operator to communicate with control plane
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-control-plane
+  namespace: ${OSMO_BACKEND_NAMESPACE}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow communication to OSMO service
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ${OSMO_NAMESPACE}
+      ports:
+        - port: 80
+          protocol: TCP
+        - port: 443
+          protocol: TCP
+    # Allow DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - port: 53
+          protocol: UDP
+    # Allow HTTPS for external services
+    - ports:
+        - port: 443
+          protocol: TCP

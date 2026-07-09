@@ -1,0 +1,28 @@
+{
+  "workflow_data": {
+    "credential": {
+      "endpoint": "s3://${S3_WORKFLOWS_BUCKET}/osmo_workflow_data",
+      "access_key_id": "${S3_ACCESS_KEY_ID}",
+      "access_key": "${S3_SECRET_ACCESS_KEY}",
+      "region": "${AWS_REGION}"
+    },
+    "base_url": "s3://${S3_WORKFLOWS_BUCKET}"
+  },
+  "workflow_log": {
+    "credential": {
+      "endpoint": "s3://${S3_WORKFLOWS_BUCKET}/osmo_workflow_log",
+      "access_key_id": "${S3_ACCESS_KEY_ID}",
+      "access_key": "${S3_SECRET_ACCESS_KEY}",
+      "region": "${AWS_REGION}"
+    }
+  },
+  "credential_config": {
+    "disable_registry_validation": [
+      "nvcr.io",
+      "${ECR_REGISTRY}"
+    ],
+    "disable_data_validation": [
+      "s3"
+    ]
+  }
+}

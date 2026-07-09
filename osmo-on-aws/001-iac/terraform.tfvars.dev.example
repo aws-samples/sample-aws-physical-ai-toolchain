@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Development preset - Cost optimized for development/testing
+# Copy this file to terraform.tfvars
+
+#------------------------------------------------------------------------------
+# Core Configuration
+#------------------------------------------------------------------------------
+
+aws_region      = "eu-west-1"
+cluster_name   = "osmo-on-aws"
+environment    = "dev"
+resource_suffix = "osm01"   # REQUIRED: Set a unique suffix per deployment (e.g. osm01, dev02) to avoid resource name collisions
+project_name   = "osmo"
+owner          = "dev-team"
+
+#------------------------------------------------------------------------------
+# Deployment Mode
+#------------------------------------------------------------------------------
+
+deployment_mode   = "full"
+route53_zone_id   = "ZXXXXXXXXXXXXXXXXXXXXX"
+route53_zone_name = "dev.example.com"
+
+# Keycloak/OSMO admin username (created in Keycloak, bootstrapped into OSMO). Default: admin.
+keycloak_admin_username = "admin"
+
+#------------------------------------------------------------------------------
+# VPC Configuration (Cost optimized)
+#------------------------------------------------------------------------------
+
+vpc_cidr                 = "10.0.0.0/16"
+availability_zones_count = 2          # Use 2 AZs to reduce costs
+single_nat_gateway       = true       # Single NAT gateway for cost savings
+
+#------------------------------------------------------------------------------
+# EKS Configuration
+#------------------------------------------------------------------------------
+
+kubernetes_version              = "1.35"
+cluster_endpoint_public_access  = true
+cluster_endpoint_private_access = true
+
+#------------------------------------------------------------------------------
+# System Node Group (Minimal)
+#------------------------------------------------------------------------------
+
+system_node_instance_types = ["m6i.xlarge"]  # 4 vCPU each
+system_node_min_size       = 1
+system_node_max_size       = 4
+system_node_desired_size   = 3               # ~3x m6i.xlarge fits control plane + backend operator
+
+#------------------------------------------------------------------------------
+# GPU Node Group (On-demand scaling)
+#------------------------------------------------------------------------------
+
+should_deploy_gpu_nodes = true
+gpu_node_instance_types = ["g5.xlarge"]     # A10G GPU instance
+gpu_node_min_size       = 1                 # Keep one GPU node warm (set 0 to scale to zero)
+gpu_node_max_size       = 2
+gpu_node_desired_size   = 1
+gpu_node_capacity_type  = "ON_DEMAND"
+gpu_node_volume_size    = 500 # Root EBS (GiB); 500+ for Isaac Sim / Cosmos workflows
+# REQUIRED: Canonical Ubuntu EKS AMI for your region + Kubernetes version.
+# Look it up at https://cloud-images.ubuntu.com/docs/aws/eks/ (example below is us-west-2, Noble 24.04, k8s 1.35, amd64).
+gpu_ami_id              = "ami-0d10cbd3200341288"
+
+#------------------------------------------------------------------------------
+# RDS PostgreSQL (Minimal)
+#------------------------------------------------------------------------------
+
+should_deploy_postgresql    = true
+rds_instance_class          = "db.t3.small"
+rds_engine_version          = "15.17"
+rds_allocated_storage       = 20
+rds_max_allocated_storage   = 50
+rds_db_name                 = "osmo"
+rds_username                = "osmo_admin"
+rds_multi_az                = false          # Single AZ for dev
+rds_backup_retention_period = 1              # Minimal backups
+rds_deletion_protection     = false          # Allow easy cleanup
+
+#------------------------------------------------------------------------------
+# ElastiCache Redis (Minimal)
+#------------------------------------------------------------------------------
+
+should_deploy_redis              = true
+redis_node_type                  = "cache.t3.micro"
+redis_engine_version             = "7.1"
+redis_num_cache_clusters         = 1
+redis_automatic_failover_enabled = false
+redis_multi_az_enabled           = false
+redis_snapshot_retention_limit   = 0         # No snapshots for dev
+
+#------------------------------------------------------------------------------
+# S3 Configuration
+#------------------------------------------------------------------------------
+
+s3_force_destroy      = true                 # Allow easy cleanup
+s3_versioning_enabled = false                # Disable versioning for dev
+
+#------------------------------------------------------------------------------
+# KMS Configuration
+#------------------------------------------------------------------------------
+
+kms_key_deletion_window_days = 7
+kms_enable_key_rotation      = false         # Disable rotation for dev
+
+#------------------------------------------------------------------------------
+# Secrets Manager
+#------------------------------------------------------------------------------
+
+secrets_recovery_window_days = 0             # Immediate deletion for dev
+
+#------------------------------------------------------------------------------
+# ALB Access Restriction (optional)
+#------------------------------------------------------------------------------
+
+# Restrict ALB to your IP only during development
+# alb_allowed_cidrs = ["203.0.113.10/32"]

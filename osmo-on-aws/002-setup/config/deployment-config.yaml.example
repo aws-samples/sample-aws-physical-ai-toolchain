@@ -1,0 +1,80 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# =============================================================================
+# OSMO on AWS — Central Deployment Configuration
+#
+# Versions, dependencies, namespaces, and feature flags for the deploy scripts.
+#
+# NOTE: AWS region, cluster name, resource_suffix, hostnames, and the Keycloak
+# admin username are NOT configured here — they are set in 001-iac/terraform.tfvars
+# and read by the deploy scripts via Terraform outputs.
+#
+# Usage:
+#   1. Copy this file to deployment-config.yaml
+#      cp deployment-config.yaml.example deployment-config.yaml
+#   2. Adjust versions/namespaces/features only if you need to (defaults work)
+#   3. Run the deployment scripts in order (01 through 05)
+#
+# Scripts read this file via the read_config() helper in lib/common.sh.
+# =============================================================================
+
+# --- OSMO Versions -----------------------------------------------------------
+osmo:
+  version: "6.3.1"
+  chart_version: "1.3.1"
+  image_location: "nvcr.io/nvidia/osmo"
+  helm_repo_url: "https://helm.ngc.nvidia.com/nvidia/osmo"
+  chart_base_url: "https://helm.ngc.nvidia.com/nvidia/osmo/charts"
+
+# --- Dependency Versions -----------------------------------------------------
+dependencies:
+  gpu_operator_version: "v24.9.0"
+  kai_scheduler_version: "v0.12.4"
+  aws_lb_controller_version: "1.7.1"
+  cluster_autoscaler_version: "9.35.0"
+  external_secrets_version: "0.9.13"
+  external_dns_version: "1.14.3"
+  envoy_image: "envoyproxy/envoy:v1.38.1"
+  oauth2_proxy_image: "quay.io/oauth2-proxy/oauth2-proxy:v7.14.2"
+
+# --- Helm Repositories -------------------------------------------------------
+helm_repos:
+  osmo: "https://helm.ngc.nvidia.com/nvidia/osmo"
+  nvidia: "https://helm.ngc.nvidia.com/nvidia"
+  aws_eks: "https://aws.github.io/eks-charts"
+  external_secrets: "https://charts.external-secrets.io"
+  autoscaler: "https://kubernetes.github.io/autoscaler"
+  external_dns: "https://kubernetes-sigs.github.io/external-dns/"
+  bitnami: "https://charts.bitnami.com/bitnami"
+
+# --- AWS / DNS / Hostnames ---------------------------------------------------
+# Managed in 001-iac/terraform.tfvars and consumed via Terraform outputs.
+# Region, cluster_name, resource_suffix, osmo_hostname, osmo_auth_hostname,
+# route53 zone, and the oauth2-proxy cookie domain are all derived there —
+# setting them here has no effect.
+
+# --- Keycloak IdP Configuration ----------------------------------------------
+# Fully managed by Terraform + 03-deploy-keycloak.sh: the admin username comes
+# from the keycloak_admin_username Terraform variable/output, the realm ("osmo")
+# and client IDs (osmo-browser-flow, osmo-device) are fixed by the script, and
+# hostnames come from Terraform outputs. Nothing to configure here.
+
+# --- Kubernetes Namespaces ---------------------------------------------------
+namespaces:
+  osmo: "osmo"
+  osmo_operator: "osmo-operator"
+  osmo_workflows: "osmo-workflows"
+  gpu_operator: "gpu-operator"
+  kai_scheduler: "kai-scheduler"
+  external_secrets: "external-secrets"
+
+# --- Timeouts ----------------------------------------------------------------
+timeouts:
+  helm: "600s"
+  kubectl: "300s"
+
+# --- Feature Flags -----------------------------------------------------------
+features:
+  enable_cloudwatch_logs: false
+  enable_prometheus_metrics: true
+  enable_external_secrets: true

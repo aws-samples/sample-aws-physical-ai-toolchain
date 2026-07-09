@@ -1,0 +1,12 @@
+# KAI Scheduler Helm Values
+# GPU-aware scheduler for OSMO
+# https://nvidia.github.io/OSMO/main/deployment_guide/install_backend/dependencies/dependencies.html
+
+global:
+  nodeSelector: {}
+  tolerations: []
+
+scheduler:
+  additionalArgs:
+    - --default-staleness-grace-period=-1s
+    - --update-pod-eviction-condition=true

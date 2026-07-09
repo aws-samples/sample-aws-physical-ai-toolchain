@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Helm values for AWS Load Balancer Controller
+
+# Cluster name - set dynamically
+clusterName: ""
+
+# Service account
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+    # eks.amazonaws.com/role-arn: set dynamically
+
+# Region - set dynamically
+region: ""
+
+# VPC ID - set dynamically
+vpcId: ""
+
+# Replicas
+replicaCount: 2
+
+# Resources
+resources:
+  requests:
+    cpu: "100m"
+    memory: "128Mi"
+  limits:
+    cpu: "200m"
+    memory: "256Mi"
+
+# Pod disruption budget
+podDisruptionBudget:
+  minAvailable: 1
+
+# Topology spread
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app.kubernetes.io/name: aws-load-balancer-controller
+
+# Enable WAF integration (set to true in production)
+# WAF Web ACL ARN is applied via Ingress annotations
+enableWaf: false
+enableWafv2: true   # Enable WAFv2 support
+enableShield: false # Enable for DDoS protection (requires Shield Advanced)
+
+# Default tags for AWS resources
+defaultTags: {}
+
+# Ingress class
+ingressClass: alb
+createIngressClassResource: true
+
+# Webhook
+webhookTLS:
+  caCert: ""
+  cert: ""
+  key: ""
+
+# Logging
+logLevel: info
+
+# Enable cert-manager for webhook certs
+enableCertManager: false

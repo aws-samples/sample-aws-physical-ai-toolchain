@@ -1,0 +1,10 @@
+{
+  "backend": "${BACKEND_NAME}",
+  "description": "Default pool for ${CLUSTER_NAME}",
+  "common_default_variables": {
+    "USER_CPU": 1,
+    "USER_GPU": 0,
+    "USER_MEMORY": "2Gi",
+    "USER_STORAGE": "1Gi"
+  }
+}

@@ -1,0 +1,173 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Cosmos Transfer2.5 Synthetic Data Generation Workflow
+# ------------------------------------------------------
+# Two-stage pipeline that produces realistic synthetic training data:
+#
+#   Stage 1 (isaac-sim-sdg) : NVIDIA Isaac Sim renders a warehouse scene
+#                             and exports RGB + depth + segmentation videos.
+#   Stage 2 (cosmos-transfer): Cosmos Transfer2.5 augments the Isaac Sim
+#                              videos with realistic appearance using the
+#                              depth / segmentation / edge / visual controls
+#                              from Stage 1 as conditioning signals.
+#
+# Adapted from upstream OSMO cookbook for this AWS deployment, which only
+# exposes the `l40s` platform (see services.configs in 002-setup/values/osmo-control-plane.yaml). Both
+# tasks therefore target the same `l40s` platform. An L40S (48 GB) is
+# sufficient for Cosmos Transfer2.5 inference, but will be slower than the
+# H100 reference platform used upstream.
+#
+# Prerequisites
+# -------------
+# A Hugging Face token with access to the NVIDIA Cosmos models must be
+# registered as an OSMO credential before submitting this workflow:
+#
+#   osmo credential set huggingface_token --type GENERIC \
+#       --payload token=<your-hf-token>
+#
+# You must also accept the Cosmos model terms on Hugging Face:
+#   https://huggingface.co/nvidia/Cosmos-Predict2-2B-Video2World
+#
+# Submit with:
+#   osmo workflow submit 003-workflows/cosmos_transfer.yaml
+#
+# Outputs:
+#   - Dataset `isaac-sim-cosmos-warehouse-sample` : raw Isaac Sim renders
+#   - Dataset `cosmos-transfer-sample`            : Cosmos-augmented videos
+#
+# Reference: https://github.com/NVIDIA/OSMO/blob/main/cookbook/cosmos/transfer/cosmos_transfer.yaml
+
+workflow:
+  name: isaac-sim-cosmos-transfer
+  # NOTE on storage / ephemeral-storage
+  # -----------------------------------
+  # `storage` reserves the pod's *writable* ephemeral-storage. It does NOT
+  # reserve disk for container-image extraction — images live under
+  # /var/lib/containerd on the node's root volume. The GPU node group must
+  # therefore have a large enough root EBS volume to cache the Isaac Sim
+  # (~30 GB) and Cosmos Predict2 (~25 GB) images alongside the GPU operator
+  # drivers; see `gpu_node_volume_size` in osmo-on-aws/001-iac/terraform.tfvars
+  # (set to 500 GiB).
+  resources:
+    sim:
+      platform: l40s
+      cpu: 4
+      gpu: 1
+      memory: 32Gi
+      storage: 40Gi
+    cosmos:
+      platform: l40s
+      cpu: 16
+      gpu: 1
+      memory: 64Gi
+      storage: 80Gi
+  tasks:
+
+  ##############################################################
+  # Stage 1: Isaac Sim synthetic data generation
+  #   Renders a warehouse scene with the Cosmos writer and
+  #   publishes RGB / depth / segmentation clips as a dataset.
+  ##############################################################
+  - name: isaac-sim-sdg
+    image: nvcr.io/nvidia/isaac-sim:5.1.0
+    command: ["bash"]
+    args: ["/tmp/entry.sh"]
+    resource: sim
+    environment:
+      ACCEPT_EULA: "Y"
+      NO_NUCLEUS: "Y"
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -e
+        /isaac-sim/python.sh \
+          /isaac-sim/standalone_examples/api/isaacsim.replicator.examples/cosmos_writer_warehouse.py \
+          --config /tmp/config.json
+        cp -r /isaac-sim/_out_cosmos_warehouse/. {{output}}
+    - path: /tmp/config.json
+      contents: |
+        {
+            "launch_config": {
+                "headless": true
+            }
+        }
+    outputs:
+    - dataset:
+        name: isaac-sim-cosmos-warehouse-sample
+
+  ##############################################################
+  # Stage 2: Cosmos Transfer2.5 augmentation
+  #   Consumes the Isaac Sim dataset, installs the Cosmos
+  #   Transfer2.5 repository, authenticates with Hugging Face,
+  #   and produces realistic variants of each clip.
+  ##############################################################
+  - name: cosmos-transfer
+    image: nvcr.io/nvidia/cosmos/cosmos-predict2-container:1.2
+    command: ["bash"]
+    args: ["/tmp/entry.sh"]
+    resource: cosmos
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    inputs:
+    - task: isaac-sim-sdg
+    - dataset:
+        name: isaac-sim-cosmos-warehouse-sample
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euxo pipefail
+
+        # Pin to the same Cosmos Transfer2.5 commit used upstream.
+        git clone https://github.com/nvidia-cosmos/cosmos-transfer2.5.git
+        cd cosmos-transfer2.5
+        git checkout 0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b
+
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        source "$HOME/.local/bin/env"
+
+        uv sync --extra=cu128
+        source .venv/bin/activate
+
+        git config --global credential.helper store
+        huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+
+        pip3 install tyro
+
+        python3 ./examples/inference.py -i /params.json -o {{output}}/depth
+    - path: /params.json
+      contents: |
+        {
+            "name": "cosmos-transfer-sample",
+            "prompt": "High-quality warehouse simulation with realistic lighting, materials and textures.",
+            "video_path": "{{input:1}}/isaac-sim-cosmos-warehouse-sample/clip_0000/rgb.mp4",
+            "vis":   {"control_weight": 0.25},
+            "edge":  {"control_weight": 0.25},
+            "depth": {
+                "input_control": "{{input:1}}/isaac-sim-cosmos-warehouse-sample/clip_0000/depth.mp4",
+                "control_weight": 0.25
+            },
+            "seg": {
+                "input_control": "{{input:1}}/isaac-sim-cosmos-warehouse-sample/clip_0000/segmentation.mp4",
+                "control_weight": 0.25
+            }
+        }
+    outputs:
+    - dataset:
+        name: cosmos-transfer-sample
+
+  timeout:
+    exec_timeout: 4h

@@ -1,0 +1,46 @@
+name: pick-and-place-pipeline          # Workflow identifier
+
+resources:                              # Compute profiles for tasks
+  sdg-gpu:                              # Profile for data generation
+    cpu: 16                             # CPU cores allocated
+    memory: 64Gi                        # RAM allocated
+    gpu: 4                              # GPU count required
+    node_selector:                      # Kubernetes node targeting
+      nvidia.com/gpu.product: NVIDIA-L40S          # GPU type filter
+      eks.amazonaws.com/nodegroup: g6e-sdg-pool    # EKS node group
+  training-gpu:                         # Profile for model training
+    ...
+  sim-gpu:                              # Profile for simulation
+    ...
+  export-cpu:                           # Profile for model export
+    ...
+
+tasks:
+  # ─── Stage 1: Synthetic Data Generation with NVIDIA Cosmos ───────────────────
+  - name: synthetic-data-gen            # Unique task identifier
+    image: nvcr.io/nvidia/cosmos/cosmos-transfer1-7b:1.0  # Container image to run
+    resource: sdg-gpu                   # Compute profile reference
+    environment:                        # Runtime environment variables
+    command:                            # Entrypoint script/command
+    outputs:                            # Data published after completion
+
+  # ─── Stage 2: Pick-and-Place Policy Training with Isaac Lab ──────────────────
+  - name: policy-training               # RL training task
+    image: ...                          # Isaac Lab container
+    resource: training-gpu              # Multi-GPU training profile
+    inputs:                             # Data consumed (creates dependency)
+    outputs:                            # Trained policy checkpoints
+
+  # ─── Stage 3: Sim Evaluation with Isaac Sim ──────────────────────────────────
+  - name: sim-evaluation                # Validation in simulation
+    image: ...                          # Isaac Sim container
+    resource: sim-gpu                   # Single-GPU headless profile
+    inputs:                             # Trained policy from Stage 2
+    outputs:                            # Metrics and failure logs
+
+  # ─── Stage 4: Model Export & Packaging for Jetson Deployment ─────────────────
+  - name: model-export                  # TensorRT optimization task
+    image: ...                          # TensorRT container
+    resource: export-cpu                # Export/packaging profile
+    inputs:                             # Policy + eval results
+    outputs:                            # Deployable Jetson artifact

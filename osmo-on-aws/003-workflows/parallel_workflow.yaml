@@ -1,0 +1,104 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Parallel Workflow Example
+# Demonstrates a grouped workflow where tasks run simultaneously and
+# communicate over the network using {{host:task-name}}.
+#
+# Pattern: A coordinator distributes work to two workers via TCP,
+#          collects their results, and prints a summary.
+#
+# Submit with:
+#   osmo workflow submit 003-workflows/parallel_workflow.yaml
+
+workflow:
+  name: parallel-group
+  resources:
+    gpu-resource:
+      platform: l40s
+      gpu: 1
+      memory: 4Gi
+      cpu: 1
+  groups:
+  - name: distributed-processing
+    tasks:
+
+    ##############################
+    # Leader: distributes work
+    ##############################
+    - name: leader
+      lead: true
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Leader: Starting ==="
+          echo "Waiting for worker to come online..."
+          sleep 5
+
+          echo "Sending work to worker at {{host:worker}}..."
+          echo "COMPUTE_PRIMES 5001 10000" | nc -w 30 {{host:worker}} 9000 > /tmp/result_worker.txt
+
+          echo "Computing local range 1-5000..."
+          count=0
+          for (( n=2; n<=5000; n++ )); do
+            is_prime=1
+            for (( d=2; d*d<=n; d++ )); do
+              if (( n % d == 0 )); then is_prime=0; break; fi
+            done
+            if [ "$is_prime" -eq 1 ]; then count=$((count+1)); fi
+          done
+          local_result="${count} primes in range 1-5000"
+          echo "Local result: ${local_result}"
+
+          echo ""
+          echo "=== Summary ==="
+          echo "Leader  (1-5000):     ${local_result}"
+          echo "Worker  (5001-10000): $(cat /tmp/result_worker.txt)"
+
+          count_w=$(cat /tmp/result_worker.txt | grep -oP '\d+' | head -1)
+          total=$(( count + count_w ))
+          echo "Total primes in 1-10000: ${total}"
+          echo "=== Leader: Complete ==="
+
+    ##############################
+    # Worker: receives work
+    ##############################
+    - name: worker
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Worker: Listening on port 9000 ==="
+
+          nc -l -p 9000 | while read -r cmd lo hi; do
+            echo "Worker: Received ${cmd} range ${lo}-${hi}" >&2
+            count=0
+            for (( n=lo; n<=hi; n++ )); do
+              if [ "$n" -lt 2 ]; then continue; fi
+              is_prime=1
+              for (( d=2; d*d<=n; d++ )); do
+                if (( n % d == 0 )); then is_prime=0; break; fi
+              done
+              if [ "$is_prime" -eq 1 ]; then count=$((count+1)); fi
+            done
+            echo "${count} primes in range ${lo}-${hi}"
+          done
+
+          echo "=== Worker: Done ==="

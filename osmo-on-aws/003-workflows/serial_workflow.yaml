@@ -1,0 +1,127 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Serial Workflow Example
+# Demonstrates a three-stage pipeline where tasks execute sequentially,
+# passing data from one stage to the next via {{output}} / {{input:N}}.
+#
+# Pipeline: generate-data -> transform-data -> summarize
+#
+# Submit with:
+#   osmo workflow submit 003-workflows/serial_workflow.yaml
+
+workflow:
+  name: serial-pipeline
+  tasks:
+
+  ##############################
+  # Stage 1: Generate data
+  ##############################
+  - name: generate-data
+    image: ubuntu:22.04
+    command: [bash]
+    args: [/tmp/run.sh]
+    files:
+    - path: /tmp/run.sh
+      contents: |
+        echo "=== Stage 1: Generating data ==="
+        mkdir -p {{output}}
+
+        for i in $(seq 1 5); do
+          echo "sensor_${i},$(shuf -i 20-40 -n 1),$(date -Iseconds)" >> {{output}}/readings.csv
+        done
+
+        echo "host=$(hostname)" > {{output}}/metadata.txt
+        echo "generated_at=$(date -Iseconds)" >> {{output}}/metadata.txt
+        echo "record_count=5" >> {{output}}/metadata.txt
+
+        echo "Generated $(wc -l < {{output}}/readings.csv) records"
+        cat {{output}}/readings.csv
+
+  ##############################
+  # Stage 2: Transform data
+  # (depends on Stage 1)
+  ##############################
+  - name: transform-data
+    image: ubuntu:22.04
+    command: [bash]
+    args: [/tmp/run.sh]
+    inputs:
+    - task: generate-data
+    files:
+    - path: /tmp/run.sh
+      contents: |
+        echo "=== Stage 2: Transforming data ==="
+        echo "Reading raw data from Stage 1..."
+        cat {{input:0}}/readings.csv
+
+        echo ""
+        echo "Applying transformation (Celsius -> Fahrenheit)..."
+
+        echo "sensor,temp_f,timestamp" > {{output}}/transformed.csv
+        while IFS=',' read -r sensor temp timestamp; do
+          temp_f=$(( temp * 9 / 5 + 32 ))
+          echo "${sensor},${temp_f},${timestamp}" >> {{output}}/transformed.csv
+        done < {{input:0}}/readings.csv
+
+        cp {{input:0}}/metadata.txt {{output}}/metadata.txt
+        echo "transformed_at=$(date -Iseconds)" >> {{output}}/metadata.txt
+
+        echo "Transformed output:"
+        cat {{output}}/transformed.csv
+
+  ##############################
+  # Stage 3: Summarize results
+  # (depends on Stage 1 + 2)
+  ##############################
+  - name: summarize
+    image: ubuntu:22.04
+    command: [bash]
+    args: [/tmp/run.sh]
+    inputs:
+    - task: generate-data
+    - task: transform-data
+    files:
+    - path: /tmp/run.sh
+      contents: |
+        echo "=== Stage 3: Summary ==="
+        echo ""
+        echo "--- Pipeline Metadata ---"
+        cat {{input:1}}/metadata.txt
+        echo ""
+
+        echo "--- Raw Data (from Stage 1) ---"
+        cat {{input:0}}/readings.csv
+        echo ""
+
+        echo "--- Transformed Data (from Stage 2) ---"
+        cat {{input:1}}/transformed.csv
+        echo ""
+
+        raw_count=$(wc -l < {{input:0}}/readings.csv)
+        transformed_count=$(( $(wc -l < {{input:1}}/transformed.csv) - 1 ))
+        echo "--- Validation ---"
+        echo "Raw records:         ${raw_count}"
+        echo "Transformed records: ${transformed_count}"
+
+        if [ "${raw_count}" -eq "${transformed_count}" ]; then
+          echo "PASS: Record counts match"
+        else
+          echo "FAIL: Record count mismatch"
+          exit 1
+        fi
+
+        echo ""
+        echo "=== Pipeline Complete ==="

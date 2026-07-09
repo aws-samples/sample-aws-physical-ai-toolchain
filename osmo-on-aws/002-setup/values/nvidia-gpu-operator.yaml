@@ -1,0 +1,17 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Helm values for NVIDIA GPU Operator on AWS EKS (Ubuntu AMI)
+# All other settings use chart defaults.
+
+driver:
+  enabled: true
+  version: "580.126.16"
+
+# DCGM exporter ships GPU metrics (utilization, memory, temperature, power).
+# The pod carries prometheus.io/scrape annotations on port 9400, so the AWS
+# managed AMP scraper (see 001-iac/observability.tf) picks them up without a
+# ServiceMonitor/Prometheus Operator.
+dcgmExporter:
+  enabled: true
+  serviceMonitor:
+    enabled: false # AMP managed scraper uses pod annotations, not ServiceMonitors

@@ -1,0 +1,84 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Pre-commit hooks for OSMO on AWS
+# Install: pip install pre-commit && pre-commit install
+# Run manually: pre-commit run --all-files
+
+repos:
+  # Checkov - Infrastructure as Code security scanner
+  - repo: https://github.com/bridgecrewio/checkov
+    rev: 3.2.255
+    hooks:
+      - id: checkov
+        name: Checkov - Terraform Security Scan
+        entry: checkov
+        args:
+          - --directory=001-iac
+          - --framework=terraform
+          - --config-file=.checkov.yaml
+          - --soft-fail  # Don't block commits, warn only (remove for strict mode)
+        language: python
+        files: \.tf$
+        pass_filenames: false
+
+  # Terraform formatting
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1
+    hooks:
+      - id: terraform_fmt
+        name: Terraform Format
+        args:
+          - --args=-recursive
+
+      # Validate only root 001-iac so provider aws.us_east_1 is in scope (submodules receive it from root).
+      - id: terraform_validate
+        name: Terraform Validate
+        entry: bash -c 'cd 001-iac && terraform init -backend=false -input=false && terraform validate -no-color'
+        language: system
+        files: ^001-iac/.*\.tf$
+        pass_filenames: false
+
+      - id: terraform_docs
+        name: Terraform Docs
+        args:
+          - --args=--config=.terraform-docs.yaml
+
+      - id: terraform_tflint
+        name: TFLint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: \.md$
+      - id: end-of-file-fixer
+        exclude: \.md$
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+        exclude: \.template\.json$
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: ShellCheck
+        args: [-x]  # Follow sourced files
+
+  # Secret detection
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        name: Gitleaks - Secret Detection

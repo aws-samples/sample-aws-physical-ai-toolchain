@@ -1,0 +1,14 @@
+{
+  "buckets": {
+    "default": {
+      "dataset_path": "s3://${S3_DATASETS_BUCKET}/osmo-datasets",
+      "credential": {
+        "endpoint": "s3://${S3_DATASETS_BUCKET}",
+        "access_key_id": "${S3_ACCESS_KEY_ID}",
+        "access_key": "${S3_SECRET_ACCESS_KEY}",
+        "region": "${AWS_REGION}"
+      }
+    }
+  },
+  "default_bucket": "default"
+}

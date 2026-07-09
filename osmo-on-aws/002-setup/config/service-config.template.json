@@ -1,0 +1,35 @@
+{
+  "database": {
+    "host": "${RDS_ENDPOINT}",
+    "port": ${RDS_PORT},
+    "database": "${RDS_DATABASE}",
+    "username": "${RDS_USERNAME}",
+    "ssl_mode": "require"
+  },
+  "redis": {
+    "host": "${REDIS_ENDPOINT}",
+    "port": ${REDIS_PORT},
+    "ssl": true
+  },
+  "storage": {
+    "type": "s3",
+    "region": "${AWS_REGION}",
+    "workflows_bucket": "${S3_WORKFLOWS_BUCKET}",
+    "datasets_bucket": "${S3_DATASETS_BUCKET}"
+  },
+  "auth": {
+    "enabled": false,
+    "device_endpoint": "",
+    "browser_endpoint": "",
+    "token_endpoint": ""
+  },
+  "logging": {
+    "level": "${LOG_LEVEL}",
+    "format": "json",
+    "cloudwatch": {
+      "enabled": ${ENABLE_CLOUDWATCH},
+      "region": "${AWS_REGION}",
+      "log_group": "/aws/osmo/${CLUSTER_NAME}"
+    }
+  }
+}

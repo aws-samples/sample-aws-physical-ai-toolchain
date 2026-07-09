@@ -1,0 +1,44 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Example GitLab-managed Terraform HTTP backend configuration
+# Copy this file to backend.tf and update the values
+#
+# GitLab provides a built-in HTTP backend for Terraform state management.
+# No additional infrastructure (S3 buckets, DynamoDB tables) is required.
+
+terraform {
+  backend "http" {
+    # GitLab project-level Terraform state API
+    # Replace <GITLAB_PROJECT_ID> with your numeric project ID
+    address        = "https://gitlab.example.com/api/v4/projects/<GITLAB_PROJECT_ID>/terraform/state/osmo-on-aws"
+    lock_address   = "https://gitlab.example.com/api/v4/projects/<GITLAB_PROJECT_ID>/terraform/state/osmo-on-aws/lock"
+    unlock_address = "https://gitlab.example.com/api/v4/projects/<GITLAB_PROJECT_ID>/terraform/state/osmo-on-aws/lock"
+    lock_method    = "POST"
+    unlock_method  = "DELETE"
+    retry_wait_min = 5
+  }
+}
+
+# Usage:
+#
+# Option 1: CI/CD pipeline (recommended)
+#   GitLab CI automatically injects TF_HTTP_USERNAME and TF_HTTP_PASSWORD
+#   when using the "terraform" CI template. No manual auth setup needed.
+#
+#   Example .gitlab-ci.yml snippet:
+#     include:
+#       - template: Terraform.latest.gitlab-ci.yml
+#     variables:
+#       TF_STATE_NAME: osmo-on-aws
+#
+# Option 2: Local development
+#   Export credentials before running terraform init:
+#
+#   export TF_HTTP_USERNAME="your-gitlab-username"
+#   export TF_HTTP_PASSWORD="your-gitlab-personal-access-token"  # scope: api
+#   terraform init
+#
+# To find your GitLab project ID:
+#   - Go to your project page on GitLab
+#   - The ID is shown below the project name, or
+#   - Run: curl --header "PRIVATE-TOKEN: $GITLAB_TOKEN" "https://gitlab.example.com/api/v4/projects?search=osmo-on-aws"

@@ -1,0 +1,67 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Basic configuration example
+# Copy this file to terraform.tfvars and customize for your environment
+
+#------------------------------------------------------------------------------
+# Required Variables
+#------------------------------------------------------------------------------
+
+aws_region      = "us-west-2"
+cluster_name   = "osmo-cluster"
+environment    = "dev"
+resource_suffix = "osm01"   # REQUIRED: Set a unique suffix per deployment (e.g. osm01, dev02) to avoid resource name collisions
+
+#------------------------------------------------------------------------------
+# Deployment Mode
+#------------------------------------------------------------------------------
+
+# Options: "full", "control-plane-only", "backend-only"
+deployment_mode   = "full"
+route53_zone_id   = "ZXXXXXXXXXXXXXXXXXXXXX"
+route53_zone_name = "example.com"
+
+# Keycloak/OSMO admin username (created in Keycloak, bootstrapped into OSMO). Default: admin.
+keycloak_admin_username = "admin"
+
+# REQUIRED: Canonical Ubuntu EKS AMI for your region + Kubernetes version
+# Look it up at https://cloud-images.ubuntu.com/docs/aws/eks/
+gpu_ami_id        = "ami-xxxxxxxxxxxxxxxxx"
+
+# Required only for backend-only mode
+# external_service_url = "https://osmo-control-plane.example.com"
+
+#------------------------------------------------------------------------------
+# Optional: EKS Admin Access
+#------------------------------------------------------------------------------
+
+# Add IAM principal ARNs that should have admin access to the cluster
+eks_admin_principal_arns = [
+  # "arn:aws:iam::123456789012:user/admin",
+  # "arn:aws:iam::123456789012:role/AdminRole",
+]
+
+#------------------------------------------------------------------------------
+# Optional: Node Group Sizing
+#------------------------------------------------------------------------------
+
+# System nodes (runs OSMO control plane)
+# system_node_instance_types = ["m6i.xlarge"]
+# system_node_min_size       = 2
+# system_node_max_size       = 6
+# system_node_desired_size   = 3
+
+# GPU nodes (runs OSMO workloads)
+# gpu_node_instance_types = ["g5.2xlarge"]
+# gpu_node_min_size       = 1
+# gpu_node_max_size       = 10
+# gpu_node_desired_size   = 1
+# gpu_node_capacity_type  = "ON_DEMAND"  # or "SPOT" for cost savings
+# gpu_node_volume_size    = 500          # Root EBS (GiB). 500+ recommended for Isaac Sim / Cosmos images.
+
+#------------------------------------------------------------------------------
+# ALB Access Restriction (optional)
+#------------------------------------------------------------------------------
+
+# Restrict ALB access to specific IPs (leave empty or omit for open access)
+# alb_allowed_cidrs = ["203.0.113.10/32"]

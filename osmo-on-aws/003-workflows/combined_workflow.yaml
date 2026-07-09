@@ -1,0 +1,182 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Combined Workflow Example
+# Demonstrates serial execution BETWEEN groups and parallel execution
+# WITHIN groups. Data flows from Group 1 into Group 2 via task inputs.
+#
+# Group 1 (prepare):  generate-data + validate-data  (run in parallel)
+# Group 2 (analyse):  analyse-stats + analyse-sort   (run in parallel,
+#                      after Group 1 completes)
+# Group 3 (report):   report                         (depends on both
+#                      analyse tasks via task inputs)
+#
+# Submit with:
+#   osmo workflow submit 003-workflows/combined_workflow.yaml
+
+workflow:
+  name: combined-pipeline
+  resources:
+    gpu-resource:
+      platform: l40s
+      gpu: 1
+      memory: 4Gi
+      cpu: 1
+  groups:
+
+  ##################################################
+  # Group 1: Prepare — generate and validate data
+  #           (both tasks run in parallel)
+  ##################################################
+  - name: prepare
+    tasks:
+    - name: generate-data
+      lead: true
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Generate Data: Starting ==="
+          mkdir -p {{output}}/data
+
+          echo "name,score,region" > {{output}}/data/results.csv
+          for i in $(seq 1 20); do
+            region=$(shuf -e us eu ap -n 1)
+            score=$(shuf -i 50-100 -n 1)
+            echo "entry_${i},${score},${region}" >> {{output}}/data/results.csv
+          done
+
+          wc -l {{output}}/data/results.csv
+          echo "=== Generate Data: Complete ==="
+
+    - name: validate-data
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Validate Data: Starting ==="
+          echo "Running schema checks..."
+          sleep 3
+          echo "All checks passed."
+          echo "=== Validate Data: Complete ==="
+
+  ##################################################
+  # Group 2: Analyse — two parallel analyses then
+  #           a final report that merges both
+  ##################################################
+  - name: analyse
+    tasks:
+    - name: analyse-stats
+      lead: true
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      inputs:
+      - task: generate-data
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Analyse Stats: Starting ==="
+          mkdir -p {{output}}
+
+          tail -n +2 {{input:0}}/data/results.csv | while IFS=',' read -r name score region; do
+            echo "$score"
+          done > /tmp/scores.txt
+
+          total=0; count=0
+          while read -r s; do
+            total=$((total + s))
+            count=$((count + 1))
+          done < /tmp/scores.txt
+          avg=$((total / count))
+          min=$(sort -n /tmp/scores.txt | head -1)
+          max=$(sort -n /tmp/scores.txt | tail -1)
+
+          echo "count=${count}" > {{output}}/stats.txt
+          echo "average=${avg}" >> {{output}}/stats.txt
+          echo "min=${min}" >> {{output}}/stats.txt
+          echo "max=${max}" >> {{output}}/stats.txt
+
+          cat {{output}}/stats.txt
+
+          sleep 15
+          echo "=== Analyse Stats: Complete ==="
+
+    - name: analyse-sort
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      inputs:
+      - task: generate-data
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "=== Analyse Sort: Starting ==="
+          mkdir -p {{output}}
+
+          echo "--- Top 5 scores ---"
+          head -1 {{input:0}}/data/results.csv > {{output}}/top5.csv
+          tail -n +2 {{input:0}}/data/results.csv \
+            | sort -t',' -k2 -nr \
+            | head -5 >> {{output}}/top5.csv
+
+          cat {{output}}/top5.csv
+
+          echo ""
+          echo "--- Counts by region ---"
+          tail -n +2 {{input:0}}/data/results.csv \
+            | cut -d',' -f3 | sort | uniq -c | sort -rn \
+            > {{output}}/region_counts.txt
+
+          cat {{output}}/region_counts.txt
+          echo "=== Analyse Sort: Complete ==="
+
+  ##################################################
+  # Group 3: Report — merge results from Group 2
+  #           (runs after Group 2 completes)
+  ##################################################
+  - name: summarize
+    tasks:
+    - name: report
+      lead: true
+      image: ubuntu:22.04
+      command: [bash, /tmp/run.sh]
+      resource: gpu-resource
+      inputs:
+      - task: analyse-stats
+      - task: analyse-sort
+      files:
+      - path: /tmp/run.sh
+        contents: |
+          echo "========================================="
+          echo "         COMBINED PIPELINE REPORT        "
+          echo "========================================="
+          echo ""
+          echo "--- Statistics ---"
+          cat {{input:0}}/stats.txt
+          echo ""
+          echo "--- Top 5 Entries ---"
+          cat {{input:1}}/top5.csv
+          echo ""
+          echo "--- Region Distribution ---"
+          cat {{input:1}}/region_counts.txt
+          echo ""
+          echo "========================================="
+          echo "           PIPELINE COMPLETE             "
+          echo "========================================="

@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+# Checkov configuration for OSMO on AWS
+# Documentation: https://www.checkov.io/2.Basics/CLI%20Configuration.html
+
+# Directories to scan
+directory:
+  - 001-iac
+
+# Framework to use
+framework:
+  - terraform
+
+# Output format
+output:
+  - cli
+  - json
+
+# Output file for JSON results
+output-file-path: checkov-results
+
+# Compact output
+compact: true
+
+# Download external modules
+download-external-modules: false
+
+# Skip specific checks (with justification)
+skip-check:
+  # CKV_AWS_144: S3 cross-region replication - Not required for this deployment
+  - CKV_AWS_144
+  # CKV_AWS_145: S3 KMS encryption - We use SSE-KMS which satisfies this
+  - CKV_AWS_145
+  # CKV2_AWS_62: S3 event notifications - Not required for this use case
+  - CKV2_AWS_62
+  # CKV_AWS_18: S3 access logging - Tracked as improvement, can enable later
+  # - CKV_AWS_18  # Uncomment to skip
+  # CKV_AWS_337: RDS CA certificate - Using default RDS CA
+  - CKV_AWS_337
+  # CKV_AWS_354: RDS Performance Insights KMS - We do enable this
+  - CKV_AWS_354
+
+# Severity threshold (comment out to see all)
+# check-severity:
+#   - HIGH
+#   - CRITICAL
+
+# Evaluate variables
+evaluate-variables: true
+
+# Enable secrets scanning
+enable-secret-scan-all-files: false
+
+# External checks directory (for custom policies)
+# external-checks-dir:
+#   - ./checkov-policies

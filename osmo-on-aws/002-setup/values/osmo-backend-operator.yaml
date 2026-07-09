@@ -1,0 +1,38 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Helm values for OSMO Backend Operator on AWS
+# See: https://nvidia.github.io/OSMO/release/6.3/deployment_guide/bring_your_own_compute/deploy_backend.html
+
+global:
+  osmoImageLocation: nvcr.io/nvidia/osmo
+  osmoImageTag: "6.3.1" # overridden via --set global.osmoImageTag
+
+  # Set dynamically via --set in deploy script
+  serviceUrl: ""
+  agentNamespace: osmo-operator
+  backendNamespace: osmo-workflows
+  backendName: aws-backend
+
+  accountTokenSecret: osmo-operator-token
+  accountTokenSecretKey: token
+  loginMethod: token
+
+services:
+  backendListener:
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        memory: "1Gi"
+  backendWorker:
+    resources:
+      requests:
+        cpu: "1"
+        memory: "1Gi"
+      limits:
+        memory: "1Gi"
+
+serviceAccount:
+  create: true
+  annotations: {}

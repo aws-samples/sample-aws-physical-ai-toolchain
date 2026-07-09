@@ -1,0 +1,157 @@
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Cosmos Transfer 2.5 — Simple Prompt-Driven Video Augmentation
+# -------------------------------------------------------------
+# Single-task workflow that re-renders ONE input video with a new appearance
+# (weather / lighting / style) using Cosmos Transfer 2.5. The augmentation is
+# driven entirely by a PLAIN-TEXT PROMPT defined in this file (see `prompt`
+# under default-values) — NO VLM and NO LLM are involved. Structure is preserved
+# via edge + visual controls auto-derived from the input video.
+#
+# This mirrors the direct-inference path in cosmos_transfer.yaml (examples/
+# inference.py + params.json), adapted to take an arbitrary input video and an
+# editable prompt instead of Isaac Sim renders + auto-captioning.
+#
+# Prerequisites
+# -------------
+# 1. A Hugging Face token with access to the gated NVIDIA Cosmos models,
+#    registered as an OSMO credential named `huggingface_token`:
+#       osmo credential set huggingface_token --type GENERIC --payload token=<hf-token>
+#    Accept terms at https://huggingface.co/nvidia/Cosmos-Transfer2.5-2B
+# 2. Input video uploaded to:  {{storage_url}}/datasets/{{dataset}}/{{video}}.mp4
+#
+# Submit (defaults below target this cluster; override any with --set-string):
+#   osmo workflow submit 003-workflows/cosmos_transfer_augmentation.yaml
+#
+#   # or point at a different video / change the prompt inline:
+#   osmo workflow submit 003-workflows/cosmos_transfer_augmentation.yaml \
+#     --set-string video=my_clip prompt='A snowy winter street at dusk, ...'
+#
+# Output (the augmented video):
+#   {{storage_url}}/datasets/{{dataset}}-outputs/{{video}}_aug/
+
+workflow:
+  name: cosmos-transfer-augmentation
+  timeout:
+    exec_timeout: 4h
+
+  resources:
+    cosmos:
+      platform: l40s
+      cpu: 16
+      gpu: 1
+      memory: 64Gi
+      storage: 80Gi
+
+  tasks:
+
+  ##############################################################
+  # Cosmos Transfer 2.5 augmentation
+  #   Downloads the input video, clones + builds Cosmos
+  #   Transfer 2.5, writes a params.json carrying the plain-text
+  #   prompt, and renders the augmented video to {{output}}.
+  ##############################################################
+  - name: cosmos-transfer-augment
+    image: nvcr.io/nvidia/cosmos/cosmos-predict2-container:1.2
+    command: ["bash"]
+    args: ["/tmp/entry.sh"]
+    resource: cosmos
+    credentials:
+      huggingface_token:
+        HF_TOKEN: token
+    environment:
+      # The augmentation prompt + control weights are injected from the
+      # editable default-values below (overridable via --set-string).
+      PROMPT: "{{prompt}}"
+      EDGE_WEIGHT: "{{edge_control_weight}}"
+      VIS_WEIGHT: "{{vis_control_weight}}"
+    inputs:
+    - url: "{{storage_url}}/datasets/{{dataset}}/{{video}}.mp4"
+    outputs:
+    - url: "{{storage_url}}/datasets/{{dataset}}-outputs/{{video}}_aug"
+    files:
+    - path: /tmp/entry.sh
+      contents: |
+        set -euxo pipefail
+
+        # --- Build Cosmos Transfer 2.5 (pinned to the cosmos_transfer.yaml commit) ---
+        git clone https://github.com/nvidia-cosmos/cosmos-transfer2.5.git
+        cd cosmos-transfer2.5
+        git checkout 0033b77a9e41e74f9d8d0b9cf80e0ecf94b3533b
+
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        source "$HOME/.local/bin/env"
+        uv sync --extra=cu128
+        source .venv/bin/activate
+
+        git config --global credential.helper store
+        huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential
+        pip3 install tyro
+
+        # --- Locate the downloaded input video ({{input:0}} may be a file or dir) ---
+        VIDEO="{{input:0}}"
+        if [ -d "$VIDEO" ]; then
+          VIDEO="$(find "{{input:0}}" -name '*.mp4' | head -n1)"
+        fi
+        if [ -z "$VIDEO" ] || [ ! -f "$VIDEO" ]; then
+          echo "ERROR: no input .mp4 found under {{input:0}}" >&2
+          exit 1
+        fi
+        echo "Augmenting video: $VIDEO"
+
+        # --- Write params.json. The plain-text PROMPT is JSON-encoded safely so
+        #     it may contain spaces/punctuation. edge + vis controls are derived
+        #     from the input RGB to preserve scene structure during the re-render. ---
+        python3 - "$VIDEO" > /params.json <<'PY'
+        import json, os, sys
+        json.dump({
+            "name": "augmented",
+            "prompt": os.environ["PROMPT"],
+            "video_path": sys.argv[1],
+            "edge": {"control_weight": float(os.environ.get("EDGE_WEIGHT", "0.5"))},
+            "vis":  {"control_weight": float(os.environ.get("VIS_WEIGHT", "0.5"))},
+        }, sys.stdout, indent=2)
+        PY
+        echo "=== params.json ===" && cat /params.json
+
+        # --- Render ---
+        python3 ./examples/inference.py -i /params.json -o {{output}}
+        echo "=== Augmented video written to {{output}} ==="
+
+default-values:
+
+  # ===========================================================================
+  # EDIT THIS PROMPT to change the augmentation. Plain text — describe the
+  # target appearance (weather, time of day, lighting, style). The scene layout
+  # and motion are preserved by the edge/vis controls below.
+  # Folded scalar (>-) keeps it readable here but passes a single-line string.
+  # ===========================================================================
+  prompt: >-
+    A photorealistic rainy day with overcast sky and wet, reflective road
+    surfaces. Cloudy diffuse lighting, puddles on the pavement, raindrops in the
+    air. Preserve the original camera viewpoint, scene layout, and vehicle and
+    pedestrian motion. Cinematic, ultra high quality, realistic physics.
+
+  # Control weights (0.0-1.0) auto-derived from the input video. Higher edge =
+  # stronger structure preservation; higher vis = closer to original appearance.
+  edge_control_weight: "0.5"
+  vis_control_weight: "0.5"
+
+  # Input/output location. Defaults target this cluster's datasets bucket; the
+  # input video must exist at {{storage_url}}/datasets/{{dataset}}/{{video}}.mp4
+  storage_url: "s3://osmo-prod-osm03-datasets"
+  dataset: "vda-demo"
+  video: "12007917-hd_1920_1080_25fps"

@@ -1,0 +1,166 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Production preset - High availability, security, and reliability
+# Copy this file to terraform.tfvars
+
+#------------------------------------------------------------------------------
+# Core Configuration
+#------------------------------------------------------------------------------
+
+aws_region      = "us-west-2"
+cluster_name   = "osmo-prod"
+environment    = "prod"
+resource_suffix = "osm01"   # REQUIRED: Set a unique suffix per deployment (e.g. osm01, prod02) to avoid resource name collisions
+project_name   = "osmo"
+owner          = "platform-team"
+
+#------------------------------------------------------------------------------
+# Deployment Mode
+#------------------------------------------------------------------------------
+
+deployment_mode   = "full"
+route53_zone_id   = "ZXXXXXXXXXXXXXXXXXXXXX"
+route53_zone_name = "prod.example.com"
+
+# Keycloak/OSMO admin username (created in Keycloak, bootstrapped into OSMO). Default: admin.
+keycloak_admin_username = "admin"
+
+#------------------------------------------------------------------------------
+# VPC Configuration (HA)
+#------------------------------------------------------------------------------
+
+vpc_cidr                 = "10.0.0.0/16"
+availability_zones_count = 3              # Use 3 AZs for HA
+single_nat_gateway       = false          # NAT gateway per AZ for HA
+
+#------------------------------------------------------------------------------
+# EKS Configuration
+#------------------------------------------------------------------------------
+
+kubernetes_version              = "1.35"
+cluster_endpoint_public_access  = false   # Private only - requires VPN
+cluster_endpoint_private_access = true
+
+eks_admin_principal_arns = [
+  # Add your admin IAM roles/users here
+  # "arn:aws:iam::123456789012:role/PlatformAdminRole",
+]
+
+#------------------------------------------------------------------------------
+# System Node Group (Production)
+#------------------------------------------------------------------------------
+
+system_node_instance_types = ["m6i.xlarge", "m6i.2xlarge"]
+system_node_min_size       = 3
+system_node_max_size       = 10
+system_node_desired_size   = 3
+
+#------------------------------------------------------------------------------
+# GPU Node Group (Production)
+#------------------------------------------------------------------------------
+
+should_deploy_gpu_nodes = true
+gpu_node_instance_types = ["g5.2xlarge", "g5.4xlarge"]
+gpu_node_min_size       = 2               # Keep minimum nodes warm
+gpu_node_max_size       = 20
+gpu_node_desired_size   = 2
+gpu_node_capacity_type  = "ON_DEMAND"     # On-demand for reliability
+gpu_node_volume_size    = 500             # Root EBS (GiB); 500+ for Isaac Sim / Cosmos workflows
+# REQUIRED: Canonical Ubuntu EKS AMI for your region + Kubernetes version (https://cloud-images.ubuntu.com/docs/aws/eks/)
+gpu_ami_id              = "ami-xxxxxxxxxxxxxxxxx"  # replace with the AMI for your region/k8s version
+
+#------------------------------------------------------------------------------
+# RDS PostgreSQL (Production HA)
+#------------------------------------------------------------------------------
+
+should_deploy_postgresql    = true
+rds_instance_class          = "db.r6g.large"
+rds_engine_version          = "15.17"
+rds_allocated_storage       = 100
+rds_max_allocated_storage   = 500
+rds_db_name                 = "osmo"
+rds_username                = "osmo_admin"
+rds_multi_az                = true        # Multi-AZ for HA
+rds_backup_retention_period = 30          # 30 days retention
+rds_deletion_protection     = true        # Prevent accidental deletion
+
+#------------------------------------------------------------------------------
+# ElastiCache Redis (Production HA)
+#------------------------------------------------------------------------------
+
+should_deploy_redis              = true
+redis_node_type                  = "cache.r6g.large"
+redis_engine_version             = "7.1"
+redis_num_cache_clusters         = 2      # Primary + replica
+redis_automatic_failover_enabled = true   # Enable failover
+redis_multi_az_enabled           = true   # Multi-AZ for HA
+redis_snapshot_retention_limit   = 7      # 7 days of snapshots
+
+#------------------------------------------------------------------------------
+# S3 Configuration
+#------------------------------------------------------------------------------
+
+s3_force_destroy      = false             # Protect against accidental deletion
+s3_versioning_enabled = true              # Enable versioning
+
+# Restrict CORS to specific domains (replace with your actual domain)
+s3_allowed_origins = [
+  "https://osmo.example.com",
+  "https://osmo-ui.example.com"
+]
+
+#------------------------------------------------------------------------------
+# KMS Configuration
+#------------------------------------------------------------------------------
+
+kms_key_deletion_window_days = 30         # Longer deletion window
+kms_enable_key_rotation      = true       # Enable key rotation
+
+#------------------------------------------------------------------------------
+# Secrets Manager
+#------------------------------------------------------------------------------
+
+secrets_recovery_window_days = 30         # 30 day recovery window
+
+#------------------------------------------------------------------------------
+# WAF Configuration (Production Security)
+#------------------------------------------------------------------------------
+
+enable_waf     = true                     # Enable AWS WAF for ALB protection
+waf_rate_limit = 2000                     # Requests per 5-min per IP
+waf_block_mode = "BLOCK"                  # BLOCK or COUNT (monitor mode)
+
+# Restrict access to specific IP ranges (optional)
+# Uncomment and customize for IP-based access control
+# waf_allowed_ip_cidrs = [
+#   "203.0.113.0/24",                     # Corporate VPN
+#   "198.51.100.0/24"                     # Office network
+# ]
+
+#------------------------------------------------------------------------------
+# Enhanced Security (Production)
+#------------------------------------------------------------------------------
+
+# VPC Flow Logs for network traffic analysis
+enable_flow_logs         = true
+flow_logs_retention_days = 90             # 90 days retention for compliance
+
+# AWS GuardDuty for threat detection
+enable_guardduty = true
+
+# AWS Security Hub for security posture management
+enable_security_hub = true
+
+# Restrict database access to EKS pods only (no VPC CIDR access)
+restrict_rds_to_eks_only   = true
+restrict_redis_to_eks_only = true
+
+#------------------------------------------------------------------------------
+# ALB Access Restriction (optional)
+#------------------------------------------------------------------------------
+
+# Restrict ALB to corporate networks via security group
+# alb_allowed_cidrs = [
+#   "203.0.113.0/24",                     # Corporate VPN
+#   "198.51.100.0/24"                     # Office network
+# ]

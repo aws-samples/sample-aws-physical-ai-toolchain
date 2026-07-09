@@ -1,0 +1,258 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# Helm values for OSMO Control Plane (consolidated `service` chart, v6.3.x) on AWS.
+#
+# 6.3 notes:
+#   - router + web-ui are now part of this single `service` chart (ui.enabled).
+#   - the gateway (Envoy + oauth2-proxy) replaces the old `sidecars.*` layout.
+#   - ConfigMap config mode (services.configs.enabled: true) is the source of
+#     truth for pools/platforms/pod templates/roles/backends/dataset/workflow.
+#     CLI/API config writes return HTTP 409 in this mode (credentials still
+#     work — they are not part of ConfigMap config).
+#
+# Dynamic, environment-specific values (hostname, DB/Redis endpoints, IdP URLs,
+# ACM cert, ALB security group, IRSA role ARN, and the dynamic parts of the
+# configs block — bucket paths, workflow storage URLs, ECR registry) are layered
+# on top of this file via a generated overlay (-f) and --set in
+# 04-deploy-osmo-control-plane.sh.
+
+global:
+  osmoImageLocation: nvcr.io/nvidia/osmo
+  osmoImageTag: "6.3.1" # overridden via --set global.osmoImageTag
+  # Align with the IRSA trust policy (osmo:osmo-service). All core services
+  # fall back to this SA when their per-component serviceAccountName is empty.
+  serviceAccountName: osmo-service
+  hostname: "" # set via --set global.hostname
+  logs:
+    enabled: true
+    logLevel: INFO
+    k8sLogLevel: WARNING
+    # Emit single-line JSON logs so Fluent Bit ships structured records to
+    # CloudWatch Logs (queryable in Logs Insights without a parser stage).
+    logFormat: json
+
+# Chart-managed ServiceAccount carrying the IRSA role-arn annotation.
+# annotations.eks.amazonaws.com/role-arn is injected via --set in the deploy script.
+serviceAccount:
+  create: true
+  name: osmo-service
+  annotations: {}
+
+services:
+  # configFile.enabled wires the MEK file (--mek_file, mounted from the
+  # mek-config ConfigMap) and the DB/Redis password env (secretKeyRef on
+  # db-secret/redis-secret). It is INDEPENDENT of configs.enabled (ConfigMap
+  # config mode) — both must be true. Disabling it drops OSMO_POSTGRES_PASSWORD
+  # and the services crash-loop with "No value provided for config postgres_password".
+  configFile:
+    enabled: true
+    path: /opt/osmo/config.yaml
+
+  # DB migrations run on API service startup (extended startupProbe in 6.3).
+  migration:
+    enabled: false
+
+  postgres:
+    enabled: false
+    passwordSecretName: db-secret
+    passwordSecretKey: db-password
+
+  redis:
+    enabled: false
+    tlsEnabled: true
+
+  localstackS3:
+    enabled: false
+
+  defaultAdmin:
+    enabled: false
+
+  # UI is now part of the service chart (replaces the standalone web-ui chart).
+  ui:
+    enabled: true
+    replicas: 1
+    # The chart hardcodes the UI default SA to "osmo" (unlike other components
+    # which fall back to global.serviceAccountName). Pin it to the SA we create
+    # so the UI pods can schedule (otherwise: "serviceaccount 'osmo' not found").
+    serviceAccountName: osmo-service
+
+  service:
+    scaling:
+      minReplicas: 1
+      maxReplicas: 3
+    hostname: "" # set via --set services.service.hostname
+    auth:
+      enabled: true # IdP endpoints/clients set via --set
+    extraEnv:
+      - name: METRICS_OTEL_ENABLE
+        value: "false"
+
+  # Router is now part of the service chart (replaces the standalone router chart).
+  router:
+    replicas: 1
+
+  worker:
+    scaling:
+      minReplicas: 1
+      maxReplicas: 3
+    extraEnv:
+      - name: METRICS_OTEL_ENABLE
+        value: "false"
+
+  logger:
+    scaling:
+      minReplicas: 1
+      maxReplicas: 3
+    extraEnv:
+      - name: METRICS_OTEL_ENABLE
+        value: "false"
+
+  agent:
+    scaling:
+      minReplicas: 1
+      maxReplicas: 1
+    extraEnv:
+      - name: METRICS_OTEL_ENABLE
+        value: "false"
+
+  delayedJobMonitor:
+    replicas: 1
+    extraEnv:
+      - name: METRICS_OTEL_ENABLE
+        value: "false"
+
+  # ---------------------------------------------------------------------------
+  # ConfigMap-based configuration (GitOps). This block is the source of truth.
+  # Static config lives here; dynamic config (dataset bucket path, workflow
+  # storage base_urls, ECR registry) is layered via the generated overlay.
+  # ---------------------------------------------------------------------------
+  configs:
+    enabled: true
+
+    # Workflow limits/timeouts. workflow_data/workflow_log base_urls and
+    # credential_config (registry validation skips) come from the overlay.
+    # No credential is set on workflow_data/workflow_log → the core service
+    # uses its IRSA role (boto3 default chain) for workflow scratch + logs.
+    workflow:
+      max_num_tasks: 100
+      default_exec_timeout: "7d"
+      max_exec_timeout: "30d"
+
+    # Pod templates merged onto workflow task pods. default_ctrl/default_user
+    # come from chart defaults; we add gpu_tolerations for the l40s platform.
+    # gpu_tolerations also pins the workflow IRSA ServiceAccount so osmo-ctrl
+    # authenticates to S3 via the web-identity token (no static dataset keys).
+    podTemplates:
+      gpu_tolerations:
+        spec:
+          serviceAccountName: osmo-workflow
+          automountServiceAccountToken: true
+          tolerations:
+            - key: nvidia.com/gpu
+              operator: Exists
+              effect: NoSchedule
+          nodeSelector:
+            nvidia.com/gpu.present: "true"
+
+    # Backend scheduler settings (KAI co-scheduling). Applied declaratively here (no separate configure step).
+    backends:
+      default:
+        description: "Default backend (AWS EKS)"
+        scheduler_settings:
+          scheduler_type: kai
+          scheduler_name: kai-scheduler
+          scheduler_timeout: 30
+
+    # Pool + platform definitions. Replaces 05's pool/platform API calls.
+    # The l40s platform mirrors the former config/gpu-platform.json and applies
+    # the gpu_tolerations pod template.
+    pools:
+      default:
+        description: "Default pool (AWS EKS)"
+        backend: default
+        default_platform: l40s
+        common_default_variables:
+          USER_CPU: 1
+          USER_GPU: 0
+          USER_MEMORY: "2Gi"
+          USER_STORAGE: "1Gi"
+        platforms:
+          default: {}
+          l40s:
+            description: "L40S GPU platform"
+            host_network_allowed: false
+            privileged_allowed: false
+            default_variables:
+              USER_GPU: 1
+            override_pod_template:
+              - gpu_tolerations
+
+    # IdP role mapping (external_roles). Applied declaratively here (no separate configure step).
+    # Policies are product defaults; we only map Keycloak groups 1:1.
+    roles:
+      osmo-admin:
+        external_roles: [osmo-admin]
+      osmo-user:
+        external_roles: [osmo-user]
+      osmo-ctrl:
+        external_roles: [osmo-ctrl]
+      osmo-backend:
+        external_roles: [osmo-backend]
+
+# -----------------------------------------------------------------------------
+# Gateway (Envoy + oauth2-proxy) — replaces the 6.2 `sidecars.*` block.
+# ALB exposure (4A): ClusterIP service + ALB Ingress. Dynamic values
+# (hostname, ACM cert ARN, ALB SG, IdP issuer/jwks/clients) set via --set.
+# -----------------------------------------------------------------------------
+gateway:
+  name: osmo-gateway
+  envoy:
+    enabled: true
+    hostname: "" # set via --set gateway.envoy.hostname
+
+    # ALB-shared exposure: ClusterIP behind an ALB Ingress (4A).
+    service:
+      type: ClusterIP
+
+    ingress:
+      enabled: true
+      ingressClass: alb
+      sslEnabled: false # ACM cert terminates TLS at the ALB
+      albAnnotations:
+        enabled: true
+        groupName: osmo
+        # sslCertArn set via --set
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/success-codes: "200,302"
+        # Stickiness so the same pod handles /oauth2/start and /oauth2/callback.
+        alb.ingress.kubernetes.io/target-group-attributes: stickiness.enabled=true,stickiness.lb_cookie.duration_seconds=3600
+
+    # Note: gateway.envoy.skipAuthPaths chart defaults already cover the
+    # login/version/keys/router endpoints; no override needed here.
+    # JWT providers (gateway.envoy.jwt.providers) and idp.host are injected
+    # via --set in the deploy script from the Keycloak endpoints.
+
+  # oauth2-proxy — oidcIssuerUrl, clientId, cookieDomain set via --set.
+  oauth2Proxy:
+    enabled: true
+    provider: oidc
+    scope: "openid email profile"
+    useKubernetesSecrets: true
+    secretName: oauth2-proxy-secrets
+    clientSecretKey: client_secret
+    cookieSecretKey: cookie_secret
+    # 6.3 defaults to a Redis session store. ElastiCache requires AUTH, so pass
+    # the auth token via OAUTH2_PROXY_REDIS_PASSWORD from the redis-secret
+    # (created by 03). redis.serviceName/port are injected via --set.
+    redisSessionStore: true
+    redis:
+      tlsEnabled: true
+    extraEnv:
+      - name: OAUTH2_PROXY_REDIS_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: redis-secret
+            key: redis-password
+    extraArgs:
+      - --insecure-oidc-allow-unverified-email=true

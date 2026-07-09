@@ -1,0 +1,229 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+#------------------------------------------------------------------------------
+# Terraform
+#------------------------------------------------------------------------------
+
+# Local .terraform directories
+**/.terraform/*
+
+# Terraform state files
+*.tfstate
+*.tfstate.*
+
+# Crash log files
+crash.log
+crash.*.log
+
+# Terraform lock files (uncomment if not using consistent provider versions)
+# .terraform.lock.hcl
+
+# Override files
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform variable files containing secrets
+# Keep .example files, ignore actual tfvars
+*.tfvars
+!*.tfvars.example
+!*.tfvars.*.example
+
+# Terraform plan files
+*.tfplan
+tfplan
+plan.out
+
+# Terraform backend configuration (may contain sensitive info)
+backend.tf
+!backend.tf.example
+
+#------------------------------------------------------------------------------
+# AWS
+#------------------------------------------------------------------------------
+
+# AWS credentials and config
+.aws/
+aws-credentials
+.aws-credentials
+
+#------------------------------------------------------------------------------
+# Kubernetes
+#------------------------------------------------------------------------------
+
+# Kubeconfig files
+kubeconfig
+kubeconfig.*
+.kube/
+
+# Helm
+charts/*.tgz
+*.tgz
+
+#------------------------------------------------------------------------------
+# Secrets and Credentials
+#------------------------------------------------------------------------------
+
+# Private keys
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Certificate files (keep examples)
+*.crt
+*.cer
+!*.example.crt
+
+# Secret files
+*secret*
+!*secret*.example
+!*secret*.yaml
+!*secret*.tf
+
+# Environment files with secrets
+.env
+.env.*
+!.env.example
+
+# NGC credentials
+.ngc/
+ngc-api-key
+ngc-api-key.txt
+
+# Password files
+*password*
+!*password*.tf
+!*password*.example
+
+#------------------------------------------------------------------------------
+# IDE and Editors
+#------------------------------------------------------------------------------
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# JetBrains (IntelliJ, PyCharm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+\#*\#
+.#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+#------------------------------------------------------------------------------
+# OS Files
+#------------------------------------------------------------------------------
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+#------------------------------------------------------------------------------
+# Logs and Temporary Files
+#------------------------------------------------------------------------------
+
+# Logs
+*.log
+logs/
+log/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.backup
+
+# Cache
+.cache/
+__pycache__/
+*.pyc
+
+#------------------------------------------------------------------------------
+# Build and Output
+#------------------------------------------------------------------------------
+
+# Build directories
+build/
+dist/
+out/
+target/
+
+# Binary files
+*.exe
+*.dll
+*.so
+*.dylib
+
+#------------------------------------------------------------------------------
+# Security Scanning and Linting
+#------------------------------------------------------------------------------
+
+# Checkov output
+checkov-results/
+checkov-results.json
+checkov-results.xml
+.checkov/
+
+# TFLint
+.tflint.hcl.lock
+.tflint/
+
+# Gitleaks
+gitleaks-report.json
+
+# Pre-commit
+.pre-commit-cache/
+
+#------------------------------------------------------------------------------
+# Project Specific
+#------------------------------------------------------------------------------
+
+# Deployment config (contains secrets like Cognito client secret)
+002-setup/config/deployment-config.yaml
+!002-setup/config/deployment-config.yaml.example
+
+# Generated configuration files (keep templates)
+002-setup/config/*.json
+!002-setup/config/*.template.json
+
+# Processed manifests
+002-setup/manifests/*.processed.yaml
+
+# Terraform outputs (may contain sensitive data)
+terraform-outputs.json
+outputs.json
+
+# Script generated files
+*.generated
+*.auto.tfvars
+
+# Local development overrides
+local.tf
+local.*.tf

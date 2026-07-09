@@ -1,0 +1,36 @@
+# SPDX-License-Identifier: Apache-2.0
+
+# GP3 Storage Class for OSMO workloads
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+  # IOPS and throughput can be adjusted based on needs
+  # iops: "3000"
+  # throughput: "125"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+---
+# GP3 Storage Class for high-performance workloads
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp3-high-perf
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  fsType: ext4
+  encrypted: "true"
+  iops: "16000"
+  throughput: "1000"
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
