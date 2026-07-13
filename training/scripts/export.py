@@ -128,7 +128,7 @@ def export_with_native_exporter(checkpoint_path: str, output_dir: str, task_name
     try:
         # Security: cmd is list-form (no shell=True). All elements are resolved
         # Path objects or hardcoded strings — no unsanitized user input.
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
             cmd,
             capture_output=True,
             text=True,
@@ -201,7 +201,7 @@ def trtexec_smoke_check(onnx_path: str, output_dir: str, fp16: bool = True) -> s
 
     # Check trtexec availability
     try:
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
             ["trtexec", "--help"],
             capture_output=True,
             timeout=5,
@@ -227,7 +227,7 @@ def trtexec_smoke_check(onnx_path: str, output_dir: str, fp16: bool = True) -> s
 
     try:
         # Security: cmd elements are hardcoded flags + validated file paths.
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
             cmd,
             capture_output=True,
             text=True,

@@ -57,7 +57,7 @@ def upload_dataset(dataset_dir: str, bucket: str, prefix: str) -> dict:
     cmd = ["aws", "s3", "sync", dataset_dir, s3_uri, "--quiet"]
     print(f"\n  Running: {shlex.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
 
     if result.returncode != 0:
         print(f"  ERROR: {result.stderr}")

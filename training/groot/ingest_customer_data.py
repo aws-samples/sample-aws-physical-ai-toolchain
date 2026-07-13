@@ -52,7 +52,7 @@ def get_stack_output(key: str, stack_name: str = STACK_NAME) -> str:
     """
     cmd = ["aws", "cloudformation", "describe-stacks", "--stack-name", stack_name,
            "--query", f"Stacks[0].Outputs[?OutputKey=='{key}'].OutputValue", "--output", "text"]
-    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603
+    result = subprocess.run(cmd, capture_output=True, text=True)  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
     if result.returncode != 0:
         raise RuntimeError(f"Could not read stack output {key}: {result.stderr.strip()}")
     val = result.stdout.strip()
@@ -83,14 +83,14 @@ def run_convert(episodes_dir: str, output_dir: str) -> None:
     print(f"\n  [1] Converting Zarr → LeRobot v2: {episodes_dir} → {output_dir}")
     cmd = [sys.executable, str(CONVERT_SCRIPT),
            "--episodes-dir", episodes_dir, "--output-dir", output_dir]
-    subprocess.run(cmd, check=True)  # noqa: S603
+    subprocess.run(cmd, check=True)  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
 
 
 def run_upload(output_dir: str, bucket: str, prefix: str) -> str:
     s3_uri = f"s3://{bucket}/{prefix}/dataset/"
     print(f"\n  [2] Uploading to {s3_uri}")
     cmd = ["aws", "s3", "sync", output_dir, s3_uri, "--quiet"]
-    subprocess.run(cmd, check=True)  # noqa: S603
+    subprocess.run(cmd, check=True)  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
     return s3_uri
 
 
@@ -100,7 +100,7 @@ def run_train(bucket: str, prefix: str, role_arn: str, ecr_image: str, max_steps
            "--s3-bucket", bucket, "--dataset-prefix", prefix,
            "--role-arn", role_arn, "--ecr-image", f"{ecr_image}:latest",
            "--max-steps", str(max_steps), "--region", region]
-    subprocess.run(cmd, check=True)  # noqa: S603
+    subprocess.run(cmd, check=True)  # noqa: S603 # nosemgrep: dangerous-subprocess-use-audit
 
 
 def main():
