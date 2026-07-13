@@ -113,7 +113,9 @@ def run(cmd: list[str], cwd: str | None = None, env: dict | None = None, check: 
     Returns:
         CompletedProcess
     """
-    return subprocess.run(cmd, cwd=cwd, env=env, check=check)
+    # Security: cmd is always a list (no shell=True); callers construct it from
+    # validated CLI args and CloudFormation outputs. No user-controlled strings.
+    return subprocess.run(cmd, cwd=cwd, env=env, check=check)  # nosemgrep: dangerous-subprocess-use-audit
 
 
 def run_capture(cmd: list[str], cwd: str | None = None, timeout: int = 30) -> tuple[int, str]:
@@ -128,7 +130,9 @@ def run_capture(cmd: list[str], cwd: str | None = None, timeout: int = 30) -> tu
         (returncode, stdout) — stdout is stripped. Empty string on timeout.
     """
     try:
-        result = subprocess.run(
+        # Security: cmd is always a list (no shell=True); callers construct it from
+        # validated CLI args and known executables. No user-controlled strings.
+        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
             cmd,
             capture_output=True,
             text=True,

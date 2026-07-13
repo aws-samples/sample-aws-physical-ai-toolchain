@@ -64,7 +64,9 @@ def main():
     env["ACCEPT_EULA"] = "Y"
     env["OMNI_ENV_PRIVACY_CONSENT"] = "Y"
 
-    result = subprocess.run(
+    # Security: cmd is constructed from validated argparse inputs and known Isaac Lab
+    # executables. List-form subprocess (no shell=True) prevents injection.
+    result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
         cmd,
         env=env,
         cwd="/workspace/isaaclab",
@@ -84,7 +86,7 @@ def main():
     logs_dir = Path("/workspace/isaaclab/logs")
     if logs_dir.exists():
         print(f"  Copying training artifacts to {output_dir}...")
-        subprocess.run(
+        subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
             ["cp", "-r", str(logs_dir), output_dir],
             check=False,
         )

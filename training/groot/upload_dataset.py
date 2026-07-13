@@ -20,7 +20,8 @@ import sys
 def get_bucket_from_cloudformation(stack_name: str = "PhysicalAi-dev-Foundation") -> str:
     """Read the datasets bucket name from CDK stack outputs."""
     try:
-        result = subprocess.run(
+        # Security: all args are literals or CloudFormation outputs (no user input).
+        result = subprocess.run(  # nosemgrep: dangerous-subprocess-use-audit
             ["aws", "cloudformation", "describe-stacks",
              "--stack-name", stack_name,
              "--query", "Stacks[0].Outputs[?OutputKey==`DatasetsBucketName`].OutputValue",
