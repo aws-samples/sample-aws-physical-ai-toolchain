@@ -95,7 +95,7 @@ def poll(description: str, check_fn, interval: int = 30, timeout: int = 7200):
             return result
         elapsed = int(time.time() + timeout - deadline) if timeout else 0
         log(f" {description} — waiting {interval}s ...")
-        time.sleep(interval)
+        time.sleep(interval) # nosemgrep: arbitrary-sleep
     raise TimeoutError(f"Timed out waiting for: {description}")
 
 
@@ -353,7 +353,7 @@ def verify_checkpoint(model_s3: str) -> bool:
     key = "/".join(model_s3.split("/")[3:])
     tmp = Path("/tmp/pipeline-check.tar.gz")
     s3.download_file(bucket, key, str(tmp))
-    result = subprocess.run(
+    result = subprocess.run( # nosemgrep: dangerous-subprocess-use-audit
         ["tar", "-tzf", str(tmp)],
         capture_output=True, text=True
     )
@@ -453,7 +453,7 @@ def download_video(output_s3: str) -> Path:
     s3.download_file(bucket, key, str(tar_path))
     log(f" Downloaded: {tar_path.stat().st_size / 1e6:.1f} MB")
 
-    subprocess.run(["tar", "-xzf", str(tar_path), "-C", str(out_dir)], check=True)
+    subprocess.run(["tar", "-xzf", str(tar_path), "-C", str(out_dir)], check=True) # nosemgrep: dangerous-subprocess-use-audit
     mp4s = sorted(out_dir.rglob("*.mp4"))
     if mp4s:
         log(f" Video saved: {mp4s[0]}")

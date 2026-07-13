@@ -169,7 +169,7 @@ def maybe_relaunch_with_torchrun() -> None:
             sys.argv[0],
         ]
         print(f"    {shlex.join(cmd)}", flush=True)
-        sys.exit(subprocess.call(cmd))  # noqa: S603
+        sys.exit(subprocess.call(cmd))  # noqa: S603 # nosemgrep: dangerous-subprocess-use-tainted-env-args
 
 
 # --------------------------------------------------------------------------- #

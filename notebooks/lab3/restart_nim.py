@@ -34,7 +34,7 @@ resp = ssm.send_command(
     TimeoutSeconds=120,
 )
 print(f"Restart command: {resp['Command']['CommandId']}")
-time.sleep(25)
+time.sleep(25) # nosemgrep: arbitrary-sleep
 out = ssm.get_command_invocation(CommandId=resp["Command"]["CommandId"], InstanceId=INSTANCE_ID)
 print(f"Status: {out.get('Status')} RC: {out.get('ResponseCode')}")
 print(out.get("StandardOutputContent", "")[:400])

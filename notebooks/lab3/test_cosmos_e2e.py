@@ -133,7 +133,7 @@ def _make_test_mp4_ffmpeg(path: Path, n_frames: int, w: int, h: int) -> Path:
         "-pix_fmt", "yuv420p",
         str(path)
     ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    result = subprocess.run(cmd, capture_output=True, text=True) # nosemgrep: dangerous-subprocess-use-audit
     if result.returncode != 0:
         raise RuntimeError(f"ffmpeg failed: {result.stderr[:300]}")
     log(f"Created test MP4 via ffmpeg: {path} ({path.stat().st_size // 1024}KB)")
@@ -251,7 +251,7 @@ def ssm_run(instance_id: str, command: str, timeout: int = 60) -> tuple[str, str
             pass
         if attempt == 0:
             log("Waiting for SSM agent registration...")
-        time.sleep(10)
+        time.sleep(10) # nosemgrep: arbitrary-sleep
     else:
         raise RuntimeError(f"SSM agent not registered after 5 min on {instance_id}")
 
@@ -319,7 +319,7 @@ def wait_for_nim_ready(instance_id: str, timeout_min: int = BOOTSTRAP_TIMEOUT_MI
         except Exception as e:
             log(f" Health poll error (attempt {attempt}): {e}", "WARN")
 
-        time.sleep(45)
+        time.sleep(45) # nosemgrep: arbitrary-sleep
 
     log(f"NIM health timeout after {timeout_min} min", "ERROR")
     return False

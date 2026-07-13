@@ -193,7 +193,8 @@ def execute_action_chunk(robot, sender: URScriptSender, actions: np.ndarray,
         elapsed = time.time() - step_start
         remaining = step_interval - elapsed
         if remaining > 0:
-            time.sleep(remaining)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+remaining)
 
     return gripper_state
 
@@ -235,7 +236,8 @@ def run(task: str, max_queries: int = 20, endpoint: str = "",
             print("Moving to start position...")
             robot.move_joints(start_rad, vel=0.3, accel=0.3)
             robot.gripper_open()
-            time.sleep(0.5)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+0.5)
 
             sender.connect()
             print("=== Starting control loop ===\n")

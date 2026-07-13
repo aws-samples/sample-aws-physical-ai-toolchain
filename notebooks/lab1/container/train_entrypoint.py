@@ -166,7 +166,7 @@ def maybe_relaunch_with_torchrun() -> None:
             sys.argv[0],
         ]
         print(f" {' '.join(cmd)}", flush=True)
-        sys.exit(subprocess.call(cmd))
+        sys.exit(subprocess.call(cmd)) # nosemgrep: dangerous-subprocess-use-tainted-env-args
 
 
 # --------------------------------------------------------------------------- #

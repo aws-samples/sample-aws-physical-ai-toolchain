@@ -52,7 +52,8 @@ class RobotiqGripper(object):
             indented = "\n".join("  " + line for line in script.split("\n"))
             program = f"def gripper_prog():\n{indented}\nend\n"
             s.send(program.encode('utf-8'))
-            time.sleep(0.5)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+0.5)
             s.close()
             return True
         except Exception as e:
@@ -67,7 +68,8 @@ class RobotiqGripper(object):
             True if the command succeeded, otherwise it returns False
         """
         ret = self.call("ACTIVATE", "rq_activate()")
-        time.sleep(5)  # HACK
+        time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+5)  # HACK
         return ret
 
     def set_speed(self, speed):

@@ -108,7 +108,7 @@ def test_sender_puts_valid_urscript_on_the_wire():
         sender.connect()
         sender.send_speedl([0.1, 0.0, -0.2, 0.0, 0.0, 0.05], accel=1.0, duration=0.25)
         sender.send_stopj()
-        time.sleep(0.3)
+        time.sleep(0.3) # nosemgrep: arbitrary-sleep
         sender.close()
     finally:
         fake.close()

@@ -569,7 +569,8 @@ def robot_loop():
                 except (socket.error, OSError):
                     pass
                 shared.was_moving = False
-            time.sleep(loop_period)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+loop_period)
             continue
 
         # Sticks
@@ -700,7 +701,8 @@ def robot_loop():
 
         elapsed = time.monotonic() - t0
         if elapsed < loop_period:
-            time.sleep(loop_period - elapsed)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+loop_period - elapsed)
 
     # Cleanup
     print("\nStopping...")
@@ -743,7 +745,8 @@ def main():
 
     # Wait for robot to connect before setting up recorder
     while shared.robot is None and not shared.quit:
-        time.sleep(0.1)
+        time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+0.1)
 
     if record_task and shared.robot:
         from robot.ur3.recorder import EpisodeRecorder

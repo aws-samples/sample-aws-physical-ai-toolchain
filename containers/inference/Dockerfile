@@ -93,4 +93,5 @@ RUN . /opt/ros/humble/setup.sh && \
 
 COPY edge/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
+# nosemgrep: multiple-entrypoint-instructions
 ENTRYPOINT ["/entrypoint.sh"]

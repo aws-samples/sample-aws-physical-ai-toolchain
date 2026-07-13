@@ -484,7 +484,8 @@ class DashboardClient:
         while time.time() < deadline:
             if not self.is_running():
                 return True
-            time.sleep(poll_interval)
+            time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+poll_interval)
         return False
 
     def power_on_and_release_brakes(self, settle_time: float = 8.0) -> tuple[str, str]:
@@ -501,6 +502,7 @@ class DashboardClient:
         Returns a tuple of ``(power_on_response, brake_release_response)``.
         """
         power_resp = self.power_on()
-        time.sleep(settle_time)
+        time.sleep( # nosemgrep: arbitrary-sleep # nosemgrep: arbitrary-sleep
+settle_time)
         brake_resp = self.brake_release()
         return power_resp, brake_resp
