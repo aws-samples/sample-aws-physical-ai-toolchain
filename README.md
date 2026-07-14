@@ -55,7 +55,16 @@ aws cloudformation deploy --template-file workshop/bootstrap.cfn.yaml \
 cd workshop/ && cat README.md
 ```
 
-No prior robotics experience required. The [workshop introduction](workshop/README.md) covers how robots learn, key terminology, and what each lab teaches.
+This repo is both an **accelerator framework** and a **hands-on learning experience**. Each lab includes:
+
+- Step-by-step instructions with exact CLI commands and expected outputs
+- Cost and time estimates so you know what you're spending before you run anything
+- "Under the hood" sections that explain what each command does and why
+- Troubleshooting tables for common issues
+
+While some AWS cloud experience is assumed, no prior robotics experience is required. The [workshop introduction](workshop/README.md) covers foundational concepts — how robots learn from demonstrations vs. simulation, what a policy is, why sim-to-real transfer is hard, and a full terminology glossary.
+
+The workshop format is modular: run all labs in a day as an instructor-led session, work through them self-paced over a week, or jump directly to the lab that matches your immediate need.
 
 ---
 
@@ -151,21 +160,6 @@ git lfs pull && unzip training/data/ur3_episodes_001_027.zip -d training/data/ep
 pai groot convert && pai groot upload
 pai groot launch --max-steps 100                        # smoke test (~15 min, ~$2)
 ```
-
----
-
-## Not Just a Toolkit — Also a Workshop
-
-This repo is both an **accelerator framework** and a **hands-on learning experience**. Each lab includes:
-
-- Step-by-step instructions with exact CLI commands and expected outputs
-- Cost and time estimates so you know what you're spending before you run anything
-- "Under the hood" sections that explain what each command does and why
-- Troubleshooting tables for common issues
-
-While some AWS cloud experience is assumed, no prior robotics experience is required. The [workshop introduction](workshop/README.md) covers foundational concepts — how robots learn from demonstrations vs. simulation, what a policy is, why sim-to-real transfer is hard, and a full terminology glossary.
-
-The workshop format is modular: run all labs in a day as an instructor-led session, work through them self-paced over a week, or jump directly to the lab that matches your immediate need.
 
 ---
 
