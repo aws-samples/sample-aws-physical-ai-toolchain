@@ -1,11 +1,11 @@
 output "cosmos_transfer_ecr_uri" {
   description = "ECR URI for the Cosmos Transfer 2.5 container"
-  value       = aws_ecr_repository.cosmos_transfer.repository_url
+  value       = data.aws_ssm_parameter.cosmos_transfer_ecr.value
 }
 
 output "cosmos3_ecr_uri" {
   description = "ECR URI for the Cosmos 3 container"
-  value       = aws_ecr_repository.cosmos3.repository_url
+  value       = data.aws_ssm_parameter.cosmos3_ecr.value
 }
 
 output "codebuild_transfer_project" {

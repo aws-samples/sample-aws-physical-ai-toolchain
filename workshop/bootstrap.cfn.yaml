@@ -278,6 +278,41 @@ Resources:
       Type: String
       Value: !Ref CosmosInstanceProfile
 
+  GrootTrainingEcrParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/ecr/groot-training'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-training'
+
+  GrootInferenceEcrParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/ecr/groot-inference'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-inference'
+
+  IsaacLabEcrParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/ecr/isaac-lab'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/isaac-lab'
+
+  CosmosTransferEcrParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/ecr/cosmos-transfer'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/cosmos-transfer'
+
+  Cosmos3EcrParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/ecr/cosmos3'
+      Type: String
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/cosmos3'
+
 Outputs:
   DatasetsBucketName:
     Description: S3 bucket for training datasets

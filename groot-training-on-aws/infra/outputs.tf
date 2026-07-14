@@ -1,11 +1,13 @@
 output "groot_training_ecr_uri" {
   description = "ECR URI for the GR00T training container"
-  value       = aws_ecr_repository.groot_training.repository_url
+  value       = data.aws_ssm_parameter.groot_training_ecr.value
+  sensitive   = true
 }
 
 output "groot_inference_ecr_uri" {
   description = "ECR URI for the GR00T inference container"
-  value       = aws_ecr_repository.groot_inference.repository_url
+  value       = data.aws_ssm_parameter.groot_inference_ecr.value
+  sensitive   = true
 }
 
 output "codebuild_training_project" {

@@ -115,7 +115,7 @@ resource "aws_iam_role_policy" "batch_s3_ecr" {
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchGetImage"
         ]
-        Resource = [aws_ecr_repository.isaac_lab.arn]
+        Resource = ["arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/isaac-lab"]
       },
       {
         Effect = "Allow"

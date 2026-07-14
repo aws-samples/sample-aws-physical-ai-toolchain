@@ -1,6 +1,6 @@
 output "isaac_lab_ecr_uri" {
   description = "ECR URI for the Isaac Lab training container"
-  value       = aws_ecr_repository.isaac_lab.repository_url
+  value       = data.aws_ssm_parameter.isaac_lab_ecr.value
 }
 
 output "codebuild_project" {

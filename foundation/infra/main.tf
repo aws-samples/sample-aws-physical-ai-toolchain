@@ -275,3 +275,68 @@ resource "aws_ssm_parameter" "cosmos_instance_profile" {
   type  = "String"
   value = aws_iam_instance_profile.cosmos.name
 }
+
+# =============================================================================
+# ECR REPOSITORIES (shared — created once, used by per-component CodeBuild)
+# =============================================================================
+
+resource "aws_ecr_repository" "groot_training" {
+  name                 = "${var.project_name}/groot-training"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ecr_repository" "groot_inference" {
+  name                 = "${var.project_name}/groot-inference"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ecr_repository" "isaac_lab" {
+  name                 = "${var.project_name}/isaac-lab"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ecr_repository" "cosmos_transfer" {
+  name                 = "${var.project_name}/cosmos-transfer"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ecr_repository" "cosmos3" {
+  name                 = "${var.project_name}/cosmos3"
+  image_tag_mutability = "MUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+# ECR URIs in SSM (so component CodeBuild projects can discover them)
+resource "aws_ssm_parameter" "groot_training_ecr" {
+  name  = "/${var.project_name}/ecr/groot-training"
+  type  = "String"
+  value = aws_ecr_repository.groot_training.repository_url
+}
+
+resource "aws_ssm_parameter" "groot_inference_ecr" {
+  name  = "/${var.project_name}/ecr/groot-inference"
+  type  = "String"
+  value = aws_ecr_repository.groot_inference.repository_url
+}
+
+resource "aws_ssm_parameter" "isaac_lab_ecr" {
+  name  = "/${var.project_name}/ecr/isaac-lab"
+  type  = "String"
+  value = aws_ecr_repository.isaac_lab.repository_url
+}
+
+resource "aws_ssm_parameter" "cosmos_transfer_ecr" {
+  name  = "/${var.project_name}/ecr/cosmos-transfer"
+  type  = "String"
+  value = aws_ecr_repository.cosmos_transfer.repository_url
+}
+
+resource "aws_ssm_parameter" "cosmos3_ecr" {
+  name  = "/${var.project_name}/ecr/cosmos3"
+  type  = "String"
+  value = aws_ecr_repository.cosmos3.repository_url
+}

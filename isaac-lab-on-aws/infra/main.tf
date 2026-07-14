@@ -1,5 +1,4 @@
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
@@ -12,40 +11,8 @@ data "aws_ssm_parameter" "sagemaker_role_arn" {
   name = "/${var.project_name}/sagemaker-role-arn"
 }
 
-# =============================================================================
-# ECR REPOSITORY
-# =============================================================================
-
-resource "aws_ecr_repository" "isaac_lab" {
-  name                 = "${var.project_name}/isaac-lab"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Component   = "isaac-lab"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "isaac_lab" {
-  repository = aws_ecr_repository.isaac_lab.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 5
-      }
-      action = { type = "expire" }
-    }]
-  })
+data "aws_ssm_parameter" "isaac_lab_ecr" {
+  name = "/${var.project_name}/ecr/isaac-lab"
 }
 
 # =============================================================================
@@ -69,7 +36,7 @@ resource "aws_codebuild_project" "isaac_lab" {
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = aws_ecr_repository.isaac_lab.repository_url
+      value = data.aws_ssm_parameter.isaac_lab_ecr.value
     }
 
     environment_variable {
@@ -80,16 +47,6 @@ resource "aws_codebuild_project" "isaac_lab" {
     environment_variable {
       name  = "AWS_DEFAULT_REGION"
       value = local.region
-    }
-
-    # NGC API key for pulling nvcr.io/nvidia/isaac-lab base image
-    dynamic "environment_variable" {
-      for_each = var.ngc_secret_arn != "" ? [1] : []
-      content {
-        name  = "NGC_API_KEY"
-        value = var.ngc_secret_arn
-        type  = "SECRETS_MANAGER"
-      }
     }
   }
 
@@ -147,7 +104,7 @@ resource "aws_iam_role_policy" "codebuild" {
           "ecr:UploadLayerPart",
           "ecr:CompleteLayerUpload"
         ]
-        Resource = [aws_ecr_repository.isaac_lab.arn]
+        Resource = ["arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/isaac-lab"]
       },
       {
         Effect = "Allow"

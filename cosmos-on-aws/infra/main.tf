@@ -1,5 +1,4 @@
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
@@ -8,76 +7,16 @@ locals {
 }
 
 # Read shared resources from foundation
+data "aws_ssm_parameter" "cosmos_transfer_ecr" {
+  name = "/${var.project_name}/ecr/cosmos-transfer"
+}
+
+data "aws_ssm_parameter" "cosmos3_ecr" {
+  name = "/${var.project_name}/ecr/cosmos3"
+}
+
 data "aws_ssm_parameter" "cosmos_instance_profile" {
   name = "/${var.project_name}/cosmos-instance-profile"
-}
-
-# =============================================================================
-# ECR REPOSITORIES
-# =============================================================================
-
-resource "aws_ecr_repository" "cosmos_transfer" {
-  name                 = "${var.project_name}/cosmos-transfer"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Component   = "cosmos-transfer"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "cosmos_transfer" {
-  repository = aws_ecr_repository.cosmos_transfer.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 3 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 3
-      }
-      action = { type = "expire" }
-    }]
-  })
-}
-
-resource "aws_ecr_repository" "cosmos3" {
-  name                 = "${var.project_name}/cosmos3"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Component   = "cosmos3"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "cosmos3" {
-  repository = aws_ecr_repository.cosmos3.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 3 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 3
-      }
-      action = { type = "expire" }
-    }]
-  })
 }
 
 # =============================================================================
@@ -101,7 +40,7 @@ resource "aws_codebuild_project" "cosmos_transfer" {
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = aws_ecr_repository.cosmos_transfer.repository_url
+      value = data.aws_ssm_parameter.cosmos_transfer_ecr.value
     }
 
     environment_variable {
@@ -160,7 +99,7 @@ resource "aws_codebuild_project" "cosmos3" {
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = aws_ecr_repository.cosmos3.repository_url
+      value = data.aws_ssm_parameter.cosmos3_ecr.value
     }
 
     environment_variable {
@@ -239,8 +178,8 @@ resource "aws_iam_role_policy" "codebuild" {
           "ecr:CompleteLayerUpload"
         ]
         Resource = [
-          aws_ecr_repository.cosmos_transfer.arn,
-          aws_ecr_repository.cosmos3.arn,
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/cosmos-transfer",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/cosmos3",
         ]
       },
       {

@@ -1,5 +1,4 @@
 data "aws_caller_identity" "current" {}
-data "aws_region" "current" {}
 
 locals {
   account_id = data.aws_caller_identity.current.account_id
@@ -16,72 +15,12 @@ data "aws_ssm_parameter" "sagemaker_role_arn" {
   name = "/${var.project_name}/sagemaker-role-arn"
 }
 
-# =============================================================================
-# ECR REPOSITORIES
-# =============================================================================
-
-resource "aws_ecr_repository" "groot_training" {
-  name                 = "${var.project_name}/groot-training"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Component   = "groot-training"
-  }
+data "aws_ssm_parameter" "groot_training_ecr" {
+  name = "/${var.project_name}/ecr/groot-training"
 }
 
-resource "aws_ecr_lifecycle_policy" "groot_training" {
-  repository = aws_ecr_repository.groot_training.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 5
-      }
-      action = { type = "expire" }
-    }]
-  })
-}
-
-resource "aws_ecr_repository" "groot_inference" {
-  name                 = "${var.project_name}/groot-inference"
-  image_tag_mutability = "MUTABLE"
-
-  image_scanning_configuration {
-    scan_on_push = true
-  }
-
-  tags = {
-    Project     = var.project_name
-    Environment = var.environment
-    Component   = "groot-inference"
-  }
-}
-
-resource "aws_ecr_lifecycle_policy" "groot_inference" {
-  repository = aws_ecr_repository.groot_inference.name
-
-  policy = jsonencode({
-    rules = [{
-      rulePriority = 1
-      description  = "Keep last 5 images"
-      selection = {
-        tagStatus   = "any"
-        countType   = "imageCountMoreThan"
-        countNumber = 5
-      }
-      action = { type = "expire" }
-    }]
-  })
+data "aws_ssm_parameter" "groot_inference_ecr" {
+  name = "/${var.project_name}/ecr/groot-inference"
 }
 
 # =============================================================================
@@ -105,7 +44,7 @@ resource "aws_codebuild_project" "groot_training" {
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = aws_ecr_repository.groot_training.repository_url
+      value = data.aws_ssm_parameter.groot_training_ecr.value
     }
 
     environment_variable {
@@ -154,7 +93,7 @@ resource "aws_codebuild_project" "groot_inference" {
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = aws_ecr_repository.groot_inference.repository_url
+      value = data.aws_ssm_parameter.groot_inference_ecr.value
     }
 
     environment_variable {
@@ -207,10 +146,8 @@ resource "aws_iam_role_policy" "codebuild" {
     Version = "2012-10-17"
     Statement = [
       {
-        Effect = "Allow"
-        Action = [
-          "ecr:GetAuthorizationToken"
-        ]
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
         Resource = ["*"]
       },
       {
@@ -225,8 +162,8 @@ resource "aws_iam_role_policy" "codebuild" {
           "ecr:CompleteLayerUpload"
         ]
         Resource = [
-          aws_ecr_repository.groot_training.arn,
-          aws_ecr_repository.groot_inference.arn,
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-training",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-inference",
         ]
       },
       {
@@ -239,11 +176,8 @@ resource "aws_iam_role_policy" "codebuild" {
         Resource = ["*"]
       },
       {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:GetBucketLocation"
-        ]
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetBucketLocation"]
         Resource = ["*"]
       }
     ]
