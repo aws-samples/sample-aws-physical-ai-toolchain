@@ -23,8 +23,6 @@ A Physical AI pipeline with:
 
 **No robot hardware required.** Labs 0-6 run entirely in the cloud on the bundled demonstrations. Lab 1 also includes an optional bring-your-own-robot track — teams with a physical UR3 can record their own demonstrations and run the trained policy on the arm, completing the full teleop → train → deploy → autonomous-control loop.
 
-→ **New to Physical AI?** Read the [Workshop Introduction](workshop/README.md) for background on how robots learn, key terminology, and what each lab teaches.
-
 ---
 
 ## Two Ways to Use This Toolkit
@@ -80,6 +78,7 @@ The workshop format is modular: run all labs in a day as an instructor-led sessi
 | **Foundation** | Shared S3 buckets, ECR repos, IAM roles, SSM parameters | `foundation/infra/` | [Lab 0](workshop/lab-0-prerequisites.md) | Available |
 | *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | — | Planned |
 | *Agentic Layer* | AI orchestration with Strands Agents SDK + Amazon Bedrock AgentCore | Planned | — | Planned |
+| *Data Foundations* | Data catalog, curation pipelines, and marketplace integration for robot datasets | Planned | — | Planned |
 
 ---
 
@@ -93,6 +92,19 @@ The workshop format is modular: run all labs in a day as an instructor-led sessi
 3. **World Generation** — Generate new synthetic demos with Cosmos 3 Predict, or restyle existing video with Cosmos Transfer 2.5
 4. **Train (Reinforcement Learning)** — Train a policy from scratch in Isaac Lab (4096 parallel environments on one GPU)
 5. **Deploy** — Export to TensorRT, deploy to robot fleet via Greengrass
+
+---
+## Modular by Design
+
+This is a **modular framework** — use the pieces you need. Each component is an independent building block: imitation learning (GR00T), simulation (Isaac Sim, Isaac Lab), synthetic data generation (Cosmos), and orchestration (OSMO) can be adopted individually or combined. The foundation provides the shared infrastructure that all other components build on.
+
+---
+
+## Pick and Place Example Use Case Included
+
+The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the most common industrial robot task (bin picking, kitting, palletizing).
+
+The example uses a **UR3 arm** (a popular collaborative robot in the industry) with its standard **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline stays the same regardless of embodiment or task.
 
 ---
 
@@ -124,36 +136,6 @@ Physical AI development follows a continuous improvement cycle. Each stage feeds
 
 ---
 
-## Workshop Labs
-
-| # | Lab | What You Build | Time | Cost |
-|---|-----|---------------|------|------|
-| 0 | [Prerequisites](workshop/lab-0-prerequisites.md) | Deploy foundation infrastructure | 30 min | Free |
-| 1 | [Train from Demos](workshop/lab-1-train-groot.md) | GR00T fine-tuning on SageMaker | 2 hrs | ~$2-79 |
-| 2 | [Isaac Sim Workstation](workshop/lab-2-isaac-workstation.md) | GPU remote desktop for visual dev | 30 min | ~$1.86/hr |
-| 3 | [Cosmos World Generation](workshop/lab-3-cosmos-world-generation.md) | Generate synthetic demos (Cosmos 3 Predict) | 1-2 hrs | ~$37/hr |
-| 4 | [Cosmos Transfer](workshop/lab-4-cosmos-transfer.md) | Restyle data preserving actions (Transfer 2.5) | 1-2 hrs | ~$8/hr |
-| 5 | [RL Policy Training](workshop/lab-5-rl-refinement-with-isaac.md) | Isaac Lab RL in simulation (4096 envs) | 3 hrs | ~$10-30 |
-| 6 | [OSMO Orchestration](workshop/lab-6-osmo-orchestration.md) | Production pipeline on EKS | 2-3 hrs | ~$5/hr |
-
-**No robot hardware required.** Labs 0-5 run entirely in the cloud.
-
----
-
-## Modular by Design
-
-This is a **modular framework** — use the pieces you need. Each component is an independent building block: imitation learning (GR00T), simulation (Isaac Sim, Isaac Lab), synthetic data generation (Cosmos), and orchestration (OSMO) can be adopted individually or combined. The foundation provides the shared infrastructure that all other components build on.
-
----
-
-## Pick and Place Example Use Case Included
-
-The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the most common industrial robot task (bin picking, kitting, palletizing).
-
-The example uses a **UR3 arm** (a popular collaborative robot in the industry) with its standard **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline stays the same regardless of embodiment or task.
-
----
-
 ## Estimated Costs
 
 | Component | Cost | Notes |
@@ -179,18 +161,6 @@ All resources tear down with `terraform destroy` or `aws cloudformation delete-s
 - **Production path:** Terraform >= 1.5
 - **Workshop path:** No Terraform needed
 - No Docker required locally — containers build in AWS CodeBuild
-
----
-
-## When to Use OSMO vs. Individual Components
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| Greenfield Physical AI platform | Start with **osmo-on-aws** — orchestration + compute for all stages |
-| Existing pipeline, need SDG only | Deploy **cosmos-on-aws** standalone, call from your orchestrator |
-| Existing pipeline, need training | Deploy **groot-training-on-aws**, submit jobs via your scheduler |
-| Existing pipeline, need RL sim | Deploy **isaac-lab-on-aws** standalone |
-| Migrating to managed orchestration | Start with **osmo-on-aws**, then migrate stages incrementally |
 
 ---
 
@@ -228,8 +198,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and development notes.
 Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Authors
-
-- **Ignacio Salvar** — Solutions Architect, AWS
-- **Adam** — Solutions Architect, AWS
+- **Steven DeVries** - Principal Solutions Architect, AWS
 - **Abhishek Srivastav** — Principal Solutions Architect, AWS
+- **Ignacio Salvar** — Solutions Architect, AWS
+- **Adam Weber** — Senior Solutions Architect, AWS
+- **Gopi Krishnamurthy** - Senior Solutions Architect, AWS
 - **Jathavan Sriram** — Senior Solutions Architect, NVIDIA
