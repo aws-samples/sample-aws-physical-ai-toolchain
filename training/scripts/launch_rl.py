@@ -43,22 +43,38 @@ def _account() -> str:
     return boto3.client("sts", region_name=REGION).get_caller_identity()["Account"]
 
 
+def _ssm_get(name: str) -> str | None:
+    """Try to read an SSM parameter. Returns None if not found."""
+    try:
+        ssm = boto3.client("ssm", region_name=REGION)
+        return ssm.get_parameter(Name=name)["Parameter"]["Value"]
+    except Exception:
+        return None
+
+
 def _role_arn() -> str:
     return os.environ.get(
         "SAGEMAKER_ROLE_ARN",
-        f"arn:aws:iam::{_account()}:role/{PROJECT_NAME}-{ENVIRONMENT}-sagemaker-role",
+        _ssm_get(f"/{PROJECT_NAME}/sagemaker-role-arn")
+        or f"arn:aws:iam::{_account()}:role/{PROJECT_NAME}-{ENVIRONMENT}-sagemaker-role",
     )
 
 
 def _isaac_lab_image() -> str:
-    return os.environ.get(
-        "ISAAC_LAB_IMAGE",
-        f"{_account()}.dkr.ecr.{REGION}.amazonaws.com/{PROJECT_NAME}/isaac-lab:latest",
-    )
+    if os.environ.get("ISAAC_LAB_IMAGE"):
+        return os.environ["ISAAC_LAB_IMAGE"]
+    ecr_uri = _ssm_get(f"/{PROJECT_NAME}/ecr/isaac-lab")
+    if ecr_uri:
+        return f"{ecr_uri}:latest" if ":latest" not in ecr_uri else ecr_uri
+    return f"{_account()}.dkr.ecr.{REGION}.amazonaws.com/{PROJECT_NAME}/isaac-lab:latest"
 
 
 def _bucket() -> str:
-    return os.environ.get("DATASETS_BUCKET", f"{PROJECT_NAME}-{ENVIRONMENT}-datasets-{_account()}")
+    return os.environ.get(
+        "DATASETS_BUCKET",
+        _ssm_get(f"/{PROJECT_NAME}/datasets-bucket")
+        or f"{PROJECT_NAME}-{ENVIRONMENT}-datasets-{_account()}",
+    )
 
 
 def launch(task: str, num_envs: int, max_iterations: int, framework: str,
