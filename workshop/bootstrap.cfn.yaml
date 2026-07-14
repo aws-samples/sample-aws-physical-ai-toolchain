@@ -1,0 +1,324 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Physical AI Toolkit — Workshop Bootstrap.
+  Creates the shared foundation resources (S3, ECR, IAM, SSM Parameters)
+  needed by all labs. Use this template with AWS Workshop Studio for
+  participant account provisioning, or deploy manually via:
+    aws cloudformation deploy --template-file bootstrap.cfn.yaml --stack-name physical-ai-foundation --capabilities CAPABILITY_NAMED_IAM
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: physical-ai
+    Description: Project name prefix for all resources
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+
+Resources:
+  # ===========================================================================
+  # S3 BUCKETS
+  # ===========================================================================
+
+  DatasetsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-datasets-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  ModelsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-models-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  CheckpointsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-${Environment}-checkpoints-${AWS::AccountId}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: expire-checkpoints
+            Status: Enabled
+            ExpirationInDays: 14
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===========================================================================
+  # ECR REPOSITORIES
+  # ===========================================================================
+
+  GrootTrainingRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/groot-training'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}
+
+  GrootInferenceRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/groot-inference'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}
+
+  IsaacLabRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/isaac-lab'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 5","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":5},"action":{"type":"expire"}}]}
+
+  CosmosTransferRepo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/cosmos-transfer'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 3","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},"action":{"type":"expire"}}]}
+
+  Cosmos3Repo:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${ProjectName}/cosmos3'
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {"rules":[{"rulePriority":1,"description":"Keep last 3","selection":{"tagStatus":"any","countType":"imageCountMoreThan","countNumber":3},"action":{"type":"expire"}}]}
+
+  # ===========================================================================
+  # IAM: SAGEMAKER EXECUTION ROLE
+  # ===========================================================================
+
+  SageMakerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-sagemaker-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: sagemaker.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DatasetsBucket.Arn
+                  - !Sub '${DatasetsBucket.Arn}/*'
+                  - !GetAtt ModelsBucket.Arn
+                  - !Sub '${ModelsBucket.Arn}/*'
+                  - !GetAtt CheckpointsBucket.Arn
+                  - !Sub '${CheckpointsBucket.Arn}/*'
+        - PolicyName: ECRAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ===========================================================================
+  # IAM: COSMOS EC2 ROLE + INSTANCE PROFILE
+  # ===========================================================================
+
+  CosmosRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${ProjectName}-${Environment}-cosmos-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Policies:
+        - PolicyName: SecretsAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/ngc-api-key*'
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/hf-token*'
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${ProjectName}/nim-api-key*'
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt DatasetsBucket.Arn
+                  - !Sub '${DatasetsBucket.Arn}/*'
+                  - !GetAtt ModelsBucket.Arn
+                  - !Sub '${ModelsBucket.Arn}/*'
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+
+  CosmosInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${ProjectName}-${Environment}-cosmos-profile'
+      Roles:
+        - !Ref CosmosRole
+
+  # ===========================================================================
+  # SSM PARAMETERS (shared outputs for scripts to reference)
+  # ===========================================================================
+
+  DatasetsBucketParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/datasets-bucket'
+      Type: String
+      Value: !Ref DatasetsBucket
+
+  ModelsBucketParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/models-bucket'
+      Type: String
+      Value: !Ref ModelsBucket
+
+  CheckpointsBucketParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/checkpoints-bucket'
+      Type: String
+      Value: !Ref CheckpointsBucket
+
+  SageMakerRoleArnParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/sagemaker-role-arn'
+      Type: String
+      Value: !GetAtt SageMakerRole.Arn
+
+  CosmosInstanceProfileParam:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '/${ProjectName}/cosmos-instance-profile'
+      Type: String
+      Value: !Ref CosmosInstanceProfile
+
+Outputs:
+  DatasetsBucketName:
+    Description: S3 bucket for training datasets
+    Value: !Ref DatasetsBucket
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-datasets-bucket'
+
+  ModelsBucketName:
+    Description: S3 bucket for trained models
+    Value: !Ref ModelsBucket
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-models-bucket'
+
+  SageMakerRoleArn:
+    Description: SageMaker execution role ARN
+    Value: !GetAtt SageMakerRole.Arn
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-sagemaker-role-arn'
+
+  CosmosInstanceProfileName:
+    Description: Instance profile for Cosmos EC2 instances
+    Value: !Ref CosmosInstanceProfile
+    Export:
+      Name: !Sub '${ProjectName}-${Environment}-cosmos-instance-profile'
+
+  GrootTrainingRepoUri:
+    Description: ECR URI for GR00T training container
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-training'
+
+  GrootInferenceRepoUri:
+    Description: ECR URI for GR00T inference container
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-inference'
+
+  IsaacLabRepoUri:
+    Description: ECR URI for Isaac Lab container
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/isaac-lab'
+
+  CosmosTransferRepoUri:
+    Description: ECR URI for Cosmos Transfer container
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/cosmos-transfer'
+
+  Cosmos3RepoUri:
+    Description: ECR URI for Cosmos 3 container
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/cosmos3'
