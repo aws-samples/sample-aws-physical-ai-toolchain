@@ -30,8 +30,8 @@ set -euo pipefail
 
 REGIONS="${COSMOS_REGIONS:-us-east-1 us-east-2 us-west-2}"
 INSTANCE_TYPE="p5.48xlarge"
-ROLE_NAME="cosmos-test-role"
-PROFILE_NAME="cosmos-test-profile"
+ROLE_NAME="physical-ai-dev-cosmos-role"
+PROFILE_NAME="physical-ai-dev-cosmos-profile"
 SG_NAME="cosmos-test-sg"
 NGC_SECRET="physical-ai/ngc-api-key"
 HF_SECRET="physical-ai/hf-token"
@@ -67,19 +67,15 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
-# --- Step 1: IAM (idempotent) ---
+# --- Step 1: Verify IAM (managed by Terraform in foundation/infra/) ---
 echo ""
-echo "Step 1: IAM role + instance profile..."
-aws iam create-role --role-name "$ROLE_NAME" \
-  --assume-role-policy-document '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}' \
-  2>/dev/null || true
-aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore 2>/dev/null || true
-aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly 2>/dev/null || true
-aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/AmazonS3FullAccess 2>/dev/null || true
-aws iam attach-role-policy --role-name "$ROLE_NAME" --policy-arn arn:aws:iam::aws:policy/SecretsManagerReadWrite 2>/dev/null || true
-aws iam create-instance-profile --instance-profile-name "$PROFILE_NAME" 2>/dev/null || true
-aws iam add-role-to-instance-profile --instance-profile-name "$PROFILE_NAME" --role-name "$ROLE_NAME" 2>/dev/null || true
-echo "  ✓ IAM ready"
+echo "Step 1: Verifying IAM role + instance profile..."
+if ! aws iam get-instance-profile --instance-profile-name "$PROFILE_NAME" > /dev/null 2>&1; then
+  echo "  ERROR: Instance profile '$PROFILE_NAME' not found."
+  echo "  Deploy foundation first: cd foundation/infra && terraform apply"
+  exit 1
+fi
+echo "  ✓ IAM ready (managed by Terraform)"
 
 # --- Step 2: Scan for Capacity Blocks ---
 echo ""
