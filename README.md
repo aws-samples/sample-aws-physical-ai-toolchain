@@ -140,29 +140,6 @@ Physical AI development follows a continuous improvement cycle. Each stage feeds
 
 ---
 
-## Quick Start (Workshop Path)
-
-```bash
-git clone <REPO_URL> && cd aws-nvidia-physical-ai-toolchain
-
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .                                        # installs the `pai` CLI
-
-pai config set aws.region us-east-2
-pai doctor                                              # verify credentials + region
-
-# Deploy foundation (S3 + ECR + IAM)
-aws cloudformation deploy --template-file workshop/bootstrap.cfn.yaml \
-  --stack-name physical-ai-foundation --capabilities CAPABILITY_NAMED_IAM
-
-# Start Lab 1: GR00T training
-git lfs pull && unzip training/data/ur3_episodes_001_027.zip -d training/data/episodes
-pai groot convert && pai groot upload
-pai groot launch --max-steps 100                        # smoke test (~15 min, ~$2)
-```
-
----
-
 ## Modular by Design
 
 This is a **modular framework** — use the pieces you need. Each component is an independent building block: imitation learning (GR00T), simulation (Isaac Sim, Isaac Lab), synthetic data generation (Cosmos), and orchestration (OSMO) can be adopted individually or combined. The foundation provides the shared infrastructure that all other components build on.
