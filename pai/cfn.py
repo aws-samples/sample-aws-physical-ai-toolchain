@@ -66,46 +66,51 @@ def stack_status(stack_name: str, region: str | None = None) -> str | None:
 
 
 def bucket(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None) -> str:
-    """Return the DatasetsBucketName output from the Foundation stack.
+    """Return the datasets bucket name.
 
-    Args:
-        stack_name: Foundation stack name
-        region: AWS region (defaults to resolve_region())
-
-    Returns:
-        Bucket name (empty string if not found)
+    Tries SSM parameter first (set by Terraform/CFN bootstrap), falls back to
+    CloudFormation stack outputs for backward compatibility.
     """
+    region = region or resolve_region()
+    # Try SSM first (new path: Terraform / CFN bootstrap)
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        resp = ssm.get_parameter(Name="/physical-ai/datasets-bucket")
+        return resp["Parameter"]["Value"]
+    except Exception:
+        pass
+    # Fall back to CFN stack outputs (legacy CDK path)
     outputs = stack_outputs(stack_name, region)
     return outputs.get("DatasetsBucketName", "")
 
 
 def role_arn(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None) -> str:
-    """Return the SageMakerRoleArn output from the Foundation stack.
+    """Return the SageMaker execution role ARN.
 
-    Args:
-        stack_name: Foundation stack name
-        region: AWS region (defaults to resolve_region())
-
-    Returns:
-        Role ARN (empty string if not found)
+    Tries SSM parameter first, falls back to CloudFormation stack outputs.
     """
+    region = region or resolve_region()
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        resp = ssm.get_parameter(Name="/physical-ai/sagemaker-role-arn")
+        return resp["Parameter"]["Value"]
+    except Exception:
+        pass
     outputs = stack_outputs(stack_name, region)
     return outputs.get("SageMakerRoleArn", "")
 
 
-def ecr_uri(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None) -> str:
-    """Return the ECR repository URI output from the Foundation stack.
+def ecr_uri(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None, repo: str = "groot-training") -> str:
+    """Return the ECR repository URI.
 
-    The key is "ECR" in the Foundation stack (maps to the isaac-lab or groot-training
-    repo depending on context). Callers construct the full image URI by appending
-    :tag to this base.
-
-    Args:
-        stack_name: Foundation stack name
-        region: AWS region (defaults to resolve_region())
-
-    Returns:
-        ECR repository URI (empty string if not found)
+    Tries SSM parameter first, falls back to CloudFormation stack outputs.
     """
+    region = region or resolve_region()
+    try:
+        ssm = boto3.client("ssm", region_name=region)
+        resp = ssm.get_parameter(Name=f"/physical-ai/ecr/{repo}")
+        return resp["Parameter"]["Value"]
+    except Exception:
+        pass
     outputs = stack_outputs(stack_name, region)
-    return outputs.get("ECR", "")
+    return outputs.get("GrootTrainingRepoUri", "")

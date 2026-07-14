@@ -184,17 +184,19 @@ def launch(dataset_prefix, max_steps, batch_size, instance_type, dry_run):
 
     helpers.heading("GR00T Fine-Tuning Pipeline (SageMaker)")
 
-    helpers.info("[1/2] Reading Foundation stack outputs...")
-    outputs = cfn.stack_outputs(STACK_NAME, region)
-    bucket = outputs.get("DatasetsBucketName", "")
-    role_arn = outputs.get("SageMakerRoleArn", "")
-    ecr_uri = outputs.get("GrootTrainingRepoUri", "")
+    helpers.info("[1/2] Reading infrastructure outputs...")
+    # Try SSM parameters first (Terraform/CFN bootstrap), fall back to CDK stack
+    bucket = cfn.bucket(STACK_NAME, region)
+    role_arn = cfn.role_arn(STACK_NAME, region)
+    ecr_uri = cfn.ecr_uri(STACK_NAME, region, repo="groot-training")
     if not (bucket and role_arn and ecr_uri):
-        helpers.error("Failed to read Foundation stack outputs. Is the stack deployed?")
+        helpers.error("Failed to read infrastructure outputs. Is the foundation deployed?")
         helpers.info(f"  Bucket:   {bucket or 'MISSING'}")
         helpers.info(f"  Role:     {role_arn or 'MISSING'}")
         helpers.info(f"  ECR:      {ecr_uri or 'MISSING'}")
-        helpers.info("\nDeploy it first: pai deploy foundation")
+        helpers.info("\nDeploy foundation first:")
+        helpers.info("  aws cloudformation deploy --template-file workshop/bootstrap.cfn.yaml \\")
+        helpers.info("    --stack-name physical-ai-foundation --capabilities CAPABILITY_NAMED_IAM")
         raise click.Abort()
 
     image = f"{ecr_uri}:latest"
