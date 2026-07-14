@@ -6,6 +6,27 @@ The toolkit is **robot-agnostic and task-agnostic**. Bring your own URDF, your o
 
 ---
 
+## What You'll Build
+
+```
+Teleop Data      Imitation Learning      World Generation      Data Augmentation     RL Training         Export .onnx
+                 (GR00T on               (Cosmos Predict V2V)  (Cosmos Transfer)     (Isaac Lab on       (ready for
+                  SageMaker)                                                          SageMaker)          deployment)
+```
+
+A Physical AI pipeline with:
+
+- **Infrastructure as Code** — everything deploys via `terraform apply` or `aws cloudformation deploy`. Reproducible, versionable, teardown-able.
+- **Open-source toolchain** — GR00T, Isaac Sim, Isaac Lab, Cosmos, LeRobot, Hugging Face, ROS 2, PyTorch
+- **AWS services** — SageMaker (training), S3 (data), ECR (containers), CodeBuild (CI), EC2 (Cosmos generation)
+- **GPU-accelerated** — NVIDIA GPUs for parallel simulation (4096 robots simultaneously) and photorealistic world generation (Cosmos 3 on H100)
+
+**No robot hardware required.** Labs 0-6 run entirely in the cloud on the bundled demonstrations. Lab 1 also includes an optional bring-your-own-robot track — teams with a physical UR3 can record their own demonstrations and run the trained policy on the arm, completing the full teleop → train → deploy → autonomous-control loop.
+
+→ **New to Physical AI?** Read the [Workshop Introduction](workshop/README.md) for background on how robots learn, key terminology, and what each lab teaches.
+
+---
+
 ## Two Ways to Use This Toolkit
 
 ### Path A: Deploy Components (Terraform)
@@ -130,6 +151,35 @@ git lfs pull && unzip training/data/ur3_episodes_001_027.zip -d training/data/ep
 pai groot convert && pai groot upload
 pai groot launch --max-steps 100                        # smoke test (~15 min, ~$2)
 ```
+
+---
+
+## Not Just a Toolkit — Also a Workshop
+
+This repo is both an **accelerator framework** and a **hands-on learning experience**. Each lab includes:
+
+- Step-by-step instructions with exact CLI commands and expected outputs
+- Cost and time estimates so you know what you're spending before you run anything
+- "Under the hood" sections that explain what each command does and why
+- Troubleshooting tables for common issues
+
+While some AWS cloud experience is assumed, no prior robotics experience is required. The [workshop introduction](workshop/README.md) covers foundational concepts — how robots learn from demonstrations vs. simulation, what a policy is, why sim-to-real transfer is hard, and a full terminology glossary.
+
+The workshop format is modular: run all labs in a day as an instructor-led session, work through them self-paced over a week, or jump directly to the lab that matches your immediate need.
+
+---
+
+## Modular by Design
+
+This is a **modular framework** — use the pieces you need. Each component is an independent building block: imitation learning (GR00T), simulation (Isaac Sim, Isaac Lab), synthetic data generation (Cosmos), and orchestration (OSMO) can be adopted individually or combined. The foundation provides the shared infrastructure that all other components build on.
+
+---
+
+## Pick and Place Example Use Case Included
+
+The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the most common industrial robot task (bin picking, kitting, palletizing).
+
+The example uses a **UR3 arm** (a popular collaborative robot in the industry) with its standard **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline stays the same regardless of embodiment or task.
 
 ---
 
