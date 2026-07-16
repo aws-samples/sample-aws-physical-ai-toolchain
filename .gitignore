@@ -67,3 +67,6 @@ docs/ROADMAP.md
 notebooks/lab1/.env
 notebooks/lab4/.env
 
+
+# Notebook checkpoints (can contain secrets from cell execution)
+.ipynb_checkpoints/
