@@ -1,169 +1,206 @@
-# AWS Physical AI Toolchain
+# AWS NVIDIA Physical AI Toolchain
 
-A curated collection of reference architectures, Infrastructure as Code, and deployment automation for running the Physical AI stack on Amazon Web Services.
+A framework for training and deploying robot policies on AWS — any robot, any task, any hardware. Provides infrastructure, scripts, and guided labs for the core pipeline (data ingestion, imitation learning, synthetic data generation, RL refinement, deployment) using [NVIDIA](https://developer.nvidia.com/physical-ai) tools ([GR00T](https://developer.nvidia.com/isaac/gr00t), [Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html), [Isaac Lab](https://developer.nvidia.com/isaac/lab), [Cosmos](https://www.nvidia.com/en-us/ai/cosmos/), [OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html)) on AWS services.
 
-Physical AI systems — humanoid robots, autonomous mobile robots, self-driving vehicles, and smart factories — are moving from research demonstrations to production deployments. Developing these systems requires three classes of compute working in concert:
+The toolkit is **robot-agnostic and task-agnostic**. Bring your own URDF, your own teleoperation data, and your own task definition — the pipeline handles the rest. We include a complete **pick-and-place example** (UR3 arm + Robotiq gripper, 27 real teleoperation demonstrations) so you can see the full system working end-to-end before adapting it to your own use case.
 
-1. **High-bandwidth GPU clusters** for foundation model pre-training and post-training (fine-tuning, alignment)
-2. **Elastic mid-tier GPU capacity** for simulation and software-in-the-loop validation
-3. **Edge GPUs** ([NVIDIA Jetson Thor / AGX](https://developer.nvidia.com/embedded-computing)) inside the robot or at the edge for real-time inference
+---
 
-This toolchain provides AWS sample code for each stage, built on AWS managed services and integrated with the NVIDIA Physical AI software ecosystem.
+## What You'll Build
+
+```
+Teleop Data      Imitation Learning      World Generation      Data Augmentation     RL Training         Export .onnx
+                 (GR00T on               (Cosmos Predict V2V)  (Cosmos Transfer)     (Isaac Lab on       (ready for
+                  SageMaker)                                                          SageMaker)          deployment)
+```
+
+A Physical AI pipeline with:
+
+- **Infrastructure as Code** — everything deploys via `terraform apply` or `aws cloudformation deploy`. Reproducible, versionable, teardown-able.
+- **Open-source toolchain** — GR00T, Isaac Sim, Isaac Lab, Cosmos, LeRobot, Hugging Face, ROS 2, PyTorch
+- **AWS services** — SageMaker (training), S3 (data), ECR (containers), CodeBuild (CI), EC2 (Cosmos generation)
+- **GPU-accelerated** — NVIDIA GPUs for parallel simulation (4096 robots simultaneously) and photorealistic world generation (Cosmos 3 on H100)
+
+**No robot hardware required.** Labs 0-6 run entirely in the cloud on the bundled demonstrations. Lab 1 also includes an optional bring-your-own-robot track — teams with a physical UR3 can record their own demonstrations and run the trained policy on the arm, completing the full teleop → train → deploy → autonomous-control loop.
+
+---
+
+## Two Ways to Use This Toolkit
+
+### Path A: Deploy Components (Terraform)
+
+You want to deploy specific NVIDIA components to your AWS account. Each is independent — deploy what you need:
+
+```bash
+cd foundation/infra && terraform apply                    # Shared base (S3, ECR, IAM)
+cd groot-training-on-aws/infra && terraform apply         # GR00T fine-tuning infra
+cd cosmos-on-aws/infra && terraform apply                 # Cosmos generation infra
+cd isaac-sim-on-aws/infra && terraform apply              # Isaac Sim workstation
+cd isaac-lab-on-aws/infra && terraform apply              # Isaac Lab RL training infra
+cd osmo-on-aws/001-iac && terraform apply                 # OSMO orchestration platform
+```
+
+### Path B: Learn via Workshop (CloudFormation + CLI)
+
+You want a guided, step-by-step learning experience. No Terraform needed:
+
+```bash
+# 1. Bootstrap infrastructure (one command)
+aws cloudformation deploy --template-file workshop/bootstrap.cfn.yaml \
+  --stack-name physical-ai-foundation --capabilities CAPABILITY_NAMED_IAM
+
+# 2. Follow the labs in order
+cd workshop/ && cat README.md
+```
+
+This repo is both an **accelerator framework** and a **hands-on learning experience**. Each lab includes:
+
+- Step-by-step instructions with exact CLI commands and expected outputs
+- Cost and time estimates so you know what you're spending before you run anything
+- "Under the hood" sections that explain what each command does and why
+- Troubleshooting tables for common issues
+
+While some AWS cloud experience is assumed, no prior robotics experience is required. The [workshop introduction](workshop/README.md) covers foundational concepts — how robots learn from demonstrations vs. simulation, what a policy is, why sim-to-real transfer is hard, and a full terminology glossary.
+
+The workshop format is modular: run all labs in a day as an instructor-led session, work through them self-paced over a week, or jump directly to the lab that matches your immediate need.
+
+---
+
+## Toolchain Components
+
+| Component | Description | Deploy (Terraform) | Learn (Workshop) | Status |
+|-----------|-------------|-------------------|-----------------|--------|
+| [**GR00T Training**](groot-training-on-aws/) | Fine-tune [NVIDIA GR00T](https://developer.nvidia.com/isaac/gr00t) N1.6 VLA model on SageMaker | `groot-training-on-aws/infra/` | [Lab 1](workshop/lab-1-train-groot.md) | Available |
+| [**Cosmos**](cosmos-on-aws/) | [NVIDIA Cosmos](https://www.nvidia.com/en-us/ai/cosmos/) world generation (Predict V2V) + data augmentation (Transfer 2.5) | `cosmos-on-aws/infra/` | [Labs 3-4](workshop/lab-3-cosmos-world-generation.md) | Available |
+| [**Isaac Sim**](isaac-sim-on-aws/) | [NVIDIA Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) GPU workstation for physics simulation | `isaac-sim-on-aws/infra/` | [Lab 2](workshop/lab-2-isaac-workstation.md) | Available |
+| [**Isaac Lab**](isaac-lab-on-aws/) | [NVIDIA Isaac Lab](https://developer.nvidia.com/isaac/lab) RL training (4096 parallel envs) on SageMaker + Batch | `isaac-lab-on-aws/infra/` | [Lab 5](workshop/lab-5-rl-refinement-with-isaac.md) | Available |
+| [**OSMO**](osmo-on-aws/) | [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) 6.3 orchestration on EKS — control plane, compute, GPU scheduling | `osmo-on-aws/001-iac/` | [Lab 6](workshop/lab-6-osmo-orchestration.md) | Available |
+| **Foundation** | Shared S3 buckets, ECR repos, IAM roles, SSM parameters | `foundation/infra/` | [Lab 0](workshop/lab-0-prerequisites.md) | Available |
+| *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | — | Planned |
+| *Agentic Layer* | AI orchestration with Strands Agents SDK + Amazon Bedrock AgentCore | Planned | — | Planned |
+| *Data Foundations* | Data catalog, curation pipelines, and marketplace integration for robot datasets | Planned | — | Planned |
+
+---
+
+## Architecture
+
+![AWS Physical AI Toolkit Architecture](arch-diagram.png)
+
+**Pipeline stages:**
+1. **Ingest** — Convert teleoperation recordings (Zarr, ROS bags, CSV) to LeRobot v2 format and store in S3
+2. **Train (Imitation Learning)** — Fine-tune GR00T on demonstrations via SageMaker
+3. **World Generation** — Generate new synthetic demos with Cosmos 3 Predict, or restyle existing video with Cosmos Transfer 2.5
+4. **Train (Reinforcement Learning)** — Train a policy from scratch in Isaac Lab (4096 parallel environments on one GPU)
+5. **Deploy** — Export to TensorRT, deploy to robot fleet via Greengrass
+
+---
+## Modular by Design
+
+This is a **modular framework** — use the pieces you need. Each component is an independent building block: imitation learning (GR00T), simulation (Isaac Sim, Isaac Lab), synthetic data generation (Cosmos), and orchestration (OSMO) can be adopted individually or combined. The foundation provides the shared infrastructure that all other components build on.
+
+---
+
+## Pick and Place Example Use Case Included
+
+The toolkit is generic infrastructure for any robot, any task, any hardware. To demonstrate it working end-to-end, we provide a complete **pick-and-place** example — the most common industrial robot task (bin picking, kitting, palletizing).
+
+The example uses a **UR3 arm** (a popular collaborative robot in the industry) with its standard **Robotiq 2F-85 gripper** and includes 27 real teleoperation episodes. You can swap in any robot by providing your own URDF and teleop data — the pipeline stays the same regardless of embodiment or task.
+
+---
 
 ## Physical AI Development Flywheel
 
 Physical AI development follows a continuous improvement cycle. Each stage feeds the next, accelerating model quality with every iteration:
 
-<p align="center">
-  <img src="flywheel.png" alt="Physical AI Development Flywheel" width="700"/>
-</p>
+**Data → Train → Validate → Deploy → Feedback → Generate**
 
-The flywheel consists of four pillars with an **Agentic AI Orchestration Layer** at the center:
+| Pillar 1 | Pillar 2 | Pillar 3 | Pillar 4 |
+|----------|----------|----------|----------|
+| **Synthetic Data Generation** | **Model Training** | **SIL Simulation** | **Sim-to-Real / HIL** |
+| Scene composition, domain randomization, curriculum-aware augmentation | Distributed training, RL, hyperparameter search, checkpoint promotion | Physics-accurate validation, adversarial scenarios, regression gating | Domain adaptation, safety monitoring, digital twin sync, deployment scoring |
+| *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) + [Cosmos](https://www.nvidia.com/en-us/ai/cosmos/)* | *[GR00T](https://developer.nvidia.com/isaac/gr00t), [Isaac Lab](https://developer.nvidia.com/isaac/lab)* | *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html)* | *[Jetson](https://developer.nvidia.com/embedded-computing) / RTX* |
 
-<table>
-<tr>
-<th align="left">Pillar 1</th>
-<th align="left">Pillar 2</th>
-<th align="left">Pillar 3</th>
-<th align="left">Pillar 4</th>
-</tr>
-<tr>
-<td align="left"><b>Synthetic Data Generation</b></td>
-<td align="left"><b>Model Training</b></td>
-<td align="left"><b>SIL Simulation</b></td>
-<td align="left"><b>Sim-to-Real / HIL</b></td>
-</tr>
-<tr>
-<td align="left">Scene composition, domain randomization, curriculum-aware augmentation</td>
-<td align="left">Distributed training, RL, hyperparameter search, checkpoint promotion</td>
-<td align="left">Physics-accurate validation, adversarial scenarios, regression gating</td>
-<td align="left">Domain adaptation, safety monitoring, digital twin sync, deployment scoring</td>
-</tr>
-<tr>
-<td align="left"><i><a href="https://docs.isaacsim.omniverse.nvidia.com/latest/index.html">Isaac Sim</a> + <a href="https://www.nvidia.com/en-us/ai/cosmos/">Cosmos</a></i></td>
-<td align="left"><i><a href="https://developer.nvidia.com/isaac/gr00t">GR00T</a>, <a href="https://isaac-sim.github.io/IsaacLab/main/index.html">Isaac Lab</a></i></td>
-<td align="left"><i><a href="https://docs.isaacsim.omniverse.nvidia.com/latest/index.html">Isaac Sim</a></i></td>
-<td align="left"><i><a href="https://developer.nvidia.com/embedded-computing">Jetson</a> / <a href="https://www.nvidia.com/en-us/products/workstations/professional-desktop-gpus/rtx-pro-6000-family/">RTX</a></i></td>
-</tr>
-</table>
+**Orchestration** spans the entire cycle — [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) coordinates task scheduling, data flow, dependency resolution, and resource allocation across heterogeneous compute.
 
-<p align="center"><b>Data → Train → Validate → Deploy → Feedback → Generate</b> — a closed loop of continuous model improvement</p>
-
-**Orchestration** spans the entire cycle — [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) coordinates task scheduling, data flow, dependency resolution, and resource allocation across heterogeneous compute — training GPUs, simulation hardware, and edge devices — from a single declarative pipeline definition.
-
-## Toolchain Components
-
-<table>
-<tr>
-<th width="220">Component</th>
-<th width="500">Description</th>
-<th width="100">Status</th>
-</tr>
-<tr>
-<td><a href="osmo-on-aws/"><b>osmo-on-aws</b></a></td>
-<td><a href="https://nvidia.github.io/OSMO/main/user_guide/index.html">NVIDIA OSMO</a> 6.3 on Amazon EKS — orchestration control plane, compute plane, GPU scheduling, and example Physical AI workflows</td>
-<td><img src="https://img.shields.io/badge/Available-brightgreen" alt="Available"/></td>
-</tr>
-<tr>
-<td><i>nvidia-cosmos-on-aws</i></td>
-<td><a href="https://www.nvidia.com/en-us/ai/cosmos/">NVIDIA Cosmos</a> world foundation model for synthetic data generation and scene understanding on AWS GPU instances</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>isaac-sim-on-aws</i></td>
-<td><a href="https://docs.isaacsim.omniverse.nvidia.com/latest/index.html">NVIDIA Isaac Sim</a> headless rendering and synthetic data generation pipelines on EC2 GPU instances</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>isaac-lab-on-aws</i></td>
-<td><a href="https://developer.nvidia.com/isaac/lab">NVIDIA Isaac Lab</a> reinforcement learning and simulation validation environments on Amazon EKS with GPU node groups</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>isaaclab-arena-on-aws</i></td>
-<td><a href="https://developer.nvidia.com/isaac/lab-arena">NVIDIA Isaac Lab Arena</a> for Physical AI model evaluation, benchmarking, and regression testing on AWS GPU compute</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>gr00t-training-on-aws</i></td>
-<td><a href="https://developer.nvidia.com/isaac/gr00t">GR00T</a> foundation model fine-tuning with EFA-enabled multi-node distributed training</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>jetson-edge-deployment</i></td>
-<td>Model packaging and deployment to <a href="https://developer.nvidia.com/embedded-computing">Jetson</a> devices via Amazon EKS Hybrid Nodes</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-<tr>
-<td><i>agentic-layer-on-aws</i></td>
-<td>Agentic AI orchestration layer built with Strands Agents SDK and Amazon Bedrock AgentCore for autonomous pipeline coordination</td>
-<td><img src="https://img.shields.io/badge/Planned-blue" alt="Planned"/></td>
-</tr>
-</table>
-
-## When to Use OSMO vs. Individual Tools
-
-This toolchain supports two usage patterns depending on where you are in your Physical AI journey:
-
-**Use OSMO (full orchestration)** when you need an end-to-end platform that manages the entire flywheel — scheduling tasks across heterogeneous compute, resolving data dependencies between stages, and routing workloads from cloud GPUs to edge devices. OSMO is the right choice when:
-
-- You are building a new Physical AI pipeline from scratch
-- You need a single control plane to coordinate SDG, training, simulation, and deployment
-- You want declarative YAML-driven workflows with automatic dependency resolution
-- You need multi-cluster orchestration (cloud + on-premises lab + edge)
-
-**Use individual tools standalone** when you already have an established orchestration pipeline (e.g., Kubeflow, Airflow, Argo Workflows, or a custom CI/CD system) and want to integrate a specific NVIDIA capability into your existing infrastructure. Each tool in this toolchain is self-contained and can be deployed independently:
-
-| Scenario | Recommended Approach |
-|----------|---------------------|
-| Greenfield Physical AI platform | Start with **osmo-on-aws** — it provides orchestration + compute for all stages |
-| Existing pipeline, need SDG only | Deploy **isaac-sim-on-aws** as a standalone service, call it from your orchestrator |
-| Existing pipeline, need distributed training | Deploy **groot-training-on-aws**, submit jobs via your scheduler |
-| Existing pipeline, need edge deployment | Use **jetson-edge-deployment** to package and push models to devices |
-| Migrating from scripts to managed orchestration | Start with **osmo-on-aws**, then migrate stages incrementally |
-
-The tools are designed to be composable — you can start with one standalone component and adopt OSMO later as your orchestration needs grow, or use OSMO from day one and let it manage all stages.
+---
 
 ## How It Maps to AWS
 
-Each stage of the flywheel maps to specific AWS services:
-
 | Flywheel Stage | AWS Compute | Supporting Services |
 |----------------|-------------|---------------------|
-| **Synthetic Data Generation** | Amazon EC2 (G6e / L40S GPUs) on EKS | Amazon S3, Amazon ECR, [NVIDIA NGC](https://catalog.ngc.nvidia.com/) |
-| **Model Training** | Amazon EC2 (P5 / P6 with EFA) on EKS | Amazon S3, Amazon FSx for Lustre |
+| **Synthetic Data Generation** | Amazon EC2 (G6e / L40S, P5 / H100) on EKS | Amazon S3, Amazon ECR, [NVIDIA NGC](https://catalog.ngc.nvidia.com/) |
+| **Model Training** | Amazon SageMaker, AWS Batch (P5 / P6 with EFA) | Amazon S3, Amazon FSx for Lustre |
 | **SIL Simulation** | Amazon EC2 (G6e GPUs) on EKS | Amazon S3, Amazon CloudWatch |
 | **HIL / Edge Deployment** | EKS Hybrid Nodes (Jetson, RTX workstations) | AWS Site-to-Site VPN, AWS Direct Connect |
 | **Orchestration (OSMO)** | Amazon EKS (system nodes) | Amazon RDS, ElastiCache, S3, Secrets Manager, KMS |
 
-## Getting Started
+---
 
-Start with the OSMO orchestration layer — it provides the control plane that coordinates all other stages:
+## Estimated Costs
 
-```bash
-cd osmo-on-aws/
-cat README.md          # Full deployment guide
-```
+| Component | Cost | Notes |
+|-----------|------|-------|
+| GR00T training (smoke test) | ~$2 | ml.g5.12xlarge for 15 min |
+| GR00T training (full) | ~$79 | ml.g5.12xlarge for 11 hrs |
+| Cosmos 3 Predict | ~$37/hr | p5.48xlarge (Capacity Block) |
+| Cosmos Transfer 2.5 | ~$8/hr | g6e.12xlarge (Spot) |
+| Isaac Sim workstation | ~$1.86/hr | g6e.4xlarge (stop when idle) |
+| Isaac Lab RL training | ~$10-30 | ml.g5.xlarge for 2-4 hrs |
+| OSMO (full deployment) | ~$5/hr | EKS + RDS + ElastiCache |
 
-The [osmo-on-aws](osmo-on-aws/) component includes:
-- Terraform IaC for VPC, EKS, RDS, ElastiCache, S3, KMS, and observability
-- Helm-based deployment scripts for OSMO control plane and compute plane
-- Example OSMO workflows for Cosmos Transfer SDG, Isaac Sim rendering, and pick-and-place training
-- Keycloak identity provider integration
-- GPU node groups with NVIDIA GPU Operator and KAI Scheduler
+All resources tear down with `terraform destroy` or `aws cloudformation delete-stack`.
+
+---
 
 ## Prerequisites
 
-- AWS account with permissions to create VPCs, EKS clusters, RDS, and GPU instances
-- NVIDIA NGC API key (for pulling OSMO and Isaac Sim container images)
-- Terraform >= 1.5, kubectl, Helm 3, AWS CLI v2
-- (Optional) Route 53 hosted zone for custom domain names
+- AWS account with GPU quota (SageMaker + EC2)
+- AWS CLI v2, Python 3.11+
+- NVIDIA NGC API key (for container image pulls) — [generate here](https://ngc.nvidia.com/setup/api-key)
+- HuggingFace token (for model weight downloads) — [create here](https://huggingface.co/settings/tokens)
+- **Production path:** Terraform >= 1.5
+- **Workshop path:** No Terraform needed
+- No Docker required locally — containers build in AWS CodeBuild
+
+---
+
+## What's Working
+
+- GR00T fine-tuning on SageMaker (27 real UR3 teleop episodes)
+- Isaac Lab RL training (4096 parallel envs, 60K steps/s)
+- Isaac Sim workstation (g6e.4xlarge, DCV + Isaac Sim pre-baked)
+- Cosmos 3 Super V2V generation (synthetic demos from prompts)
+- Cosmos Transfer 2.5 NIM (geometry-preserving restyle)
+- Real UR3 teleop data (27 episodes, LeRobot v2 format)
+- OSMO 6.3 deployment on EKS (full Terraform + Helm)
+- Per-component Terraform (independently deployable)
+- Workshop CFN bootstrap (single-command setup)
+- `pai` CLI for all workshop operations
+
+---
+
+## Who This Is For
+
+- **Robotics engineers** building manipulation or locomotion policies
+- **ML engineers** moving from cloud training to physical deployment
+- **Solutions architects** designing Physical AI platforms for customers
+- **Platform teams** deploying NVIDIA tools on AWS infrastructure
+- **Anyone curious** about how robots learn from demonstrations and simulation
+
+---
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and development notes.
 
 ## License
 
-Apache License 2.0 — see [osmo-on-aws/LICENSE-2.0.txt](osmo-on-aws/LICENSE-2.0.txt).
+Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Authors
-
+- **Steven DeVries** - Principal Solutions Architect, AWS
 - **Abhishek Srivastav** — Principal Solutions Architect, AWS
+- **Ignacio Salvar** — Solutions Architect, AWS
+- **Adam Weber** — Senior Solutions Architect, AWS
+- **Gopi Krishnamurthy** - Senior Solutions Architect, AWS
 - **Jathavan Sriram** — Senior Solutions Architect, NVIDIA
