@@ -1,0 +1,49 @@
+version: 0.2
+
+# Builds the NVIDIA Cosmos 3 (cosmos-framework) container from source → ECR.
+#
+# Cosmos 3 (github.com/NVIDIA/cosmos-framework) is the actively-developed
+# successor to the 2.5 line. Its inference CLI (cosmos_framework.scripts.inference)
+# runs text2image / text2video / image2video / video2video. NOTE: controlled
+# sim-to-real *transfer* (edge/depth/seg) is not in Cosmos 3 yet — that still
+# requires Cosmos Transfer 2.5 (the cosmos-transfer image).
+#
+# Public CUDA base — no NGC. Model weights + guardrail (nvidia/Cosmos-Guardrail1,
+# nvidia/Cosmos3-*) are gated HuggingFace downloads pulled at *runtime* via
+# HF_TOKEN (after accepting their licenses on HF) — not here. So this build needs
+# no registry credentials.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/cosmos3)
+#   AWS_DEFAULT_REGION  - build region
+#   COSMOS3_REPO        - upstream git repo
+#   COSMOS3_REF         - git ref to build
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - export DOCKER_BUILDKIT=1   # the cosmos-framework Dockerfile uses RUN --mount (BuildKit)
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - echo "Installing git-lfs..."
+      - git lfs install || (apt-get update && apt-get install -y git-lfs && git lfs install)
+  build:
+    commands:
+      - 'echo "Cloning ${COSMOS3_REPO}@${COSMOS3_REF}..."'
+      - git clone --depth 1 --branch "$COSMOS3_REF" "$COSMOS3_REPO" cosmos3-src
+      - cd cosmos3-src
+      - git lfs pull || true
+      # Same gotcha as Transfer 2.5: the repo pins .python-version=3.13 but the
+      # locked CUDA/flash-attn wheels target cp310 (pyproject is just ">=3.10").
+      # Pin uv's interpreter to 3.10 so the wheels resolve.
+      - echo "3.10" > .python-version
+      - echo "Building Cosmos 3 image from source..."
+      - docker build -t cosmos3 .
+      - docker tag cosmos3:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:latest"
+      - 'echo "Done. Image: $ECR_REPO_URI:latest"'
