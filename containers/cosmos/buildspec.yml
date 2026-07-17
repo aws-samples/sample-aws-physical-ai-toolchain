@@ -1,0 +1,47 @@
+version: 0.2
+
+# Builds the NVIDIA Cosmos Transfer 2.5 container from source and pushes to ECR.
+#
+# Cosmos Transfer is distributed as a GitHub repo (nvidia-cosmos/cosmos-transfer2.5),
+# NOT as a prebuilt NGC container. It builds from a PUBLIC CUDA base — no NGC key.
+# Model weights are a gated HuggingFace download (nvidia/Cosmos-Transfer2.5-2B):
+# accept the NVIDIA Open Model License on HF, then they pull at *runtime* via
+# HF_TOKEN. So this build needs no registry credentials at all.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/cosmos-transfer)
+#   AWS_DEFAULT_REGION  - build region
+#   COSMOS_REPO         - upstream git repo (override to pin a fork)
+#   COSMOS_REF          - git tag/commit to build (override to pin a version)
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - export DOCKER_BUILDKIT=1   # the Cosmos Dockerfile uses RUN --mount (BuildKit)
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - echo "Installing git-lfs (Cosmos repo uses LFS)..."
+      - git lfs install || (apt-get update && apt-get install -y git-lfs && git lfs install)
+  build:
+    commands:
+      - 'echo "Cloning ${COSMOS_REPO}@${COSMOS_REF}..."'
+      - git clone --depth 1 --branch "$COSMOS_REF" "$COSMOS_REPO" cosmos-src
+      - cd cosmos-src
+      - git lfs pull || true
+      # The repo pins .python-version=3.13, but its locked flash-attn wheel is
+      # cp310-only (and pyproject requires-python is just ">=3.10"). On the
+      # Ubuntu 24.04 base, uv picks 3.13 → flash-attn won't install. Pin the
+      # interpreter uv uses to 3.10 (the version the locked wheels target).
+      - echo "3.10" > .python-version
+      - echo "Building Cosmos Transfer image from source (Ampere-Hopper Dockerfile, STANDALONE)..."
+      # STANDALONE=true bakes source + deps into the image (vs installing at runtime),
+      # so the pushed image is self-contained for the GPU box / SageMaker.
+      - docker build -f Dockerfile --build-arg STANDALONE=true -t cosmos-transfer .
+      - docker tag cosmos-transfer:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:latest"
+      - 'echo "Done. Image: $ECR_REPO_URI:latest"'
