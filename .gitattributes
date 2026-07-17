@@ -1,0 +1,4 @@
+training/data/*.zip filter=lfs diff=lfs merge=lfs -text
+# Video/media artifacts go through LFS, never committed as raw blobs.
+*.mp4 filter=lfs diff=lfs merge=lfs -text
+*.mov filter=lfs diff=lfs merge=lfs -text
