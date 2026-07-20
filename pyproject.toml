@@ -1,0 +1,34 @@
+[project]
+name = "aws-physical-ai-toolchain"
+version = "0.1.0"
+description = "CLI for the AWS Physical AI Toolchain (GR00T / Isaac Lab / Cosmos)"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8.1",
+    "boto3>=1.34",
+    # Lab 1 data prep: `pai groot convert` / `ingest` convert Zarr teleop
+    # episodes to LeRobot v2. Bundled into the base install so a single
+    # `pip install -e .` runs the whole workshop.
+    # zarr>=3 is REQUIRED: the bundled episodes are zarr v3 format (zarr.json
+    # metadata); zarr 2.x cannot read them and fails with "nothing found at path".
+    "zarr>=3",
+    "numpy>=1.24",
+    "opencv-python>=4.8",
+    "pandas>=2.0",
+    "pyarrow>=14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+]
+
+[project.scripts]
+pai = "pai.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["pai*"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
