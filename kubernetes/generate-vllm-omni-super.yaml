@@ -1,0 +1,90 @@
+# vLLM-Omni Cosmos3-Super V2V generation SERVER (single-node, 8 GPU).
+# Adapted from: github.com/awslabs/awsome-distributed-ai/tree/main/3.test_cases/pytorch/cosmos3
+#
+# Serves POST /v1/videos/sync (input_reference=@clip.mp4) for video-to-video
+# photorealistic restyling. Uses the OFFICIAL vllm/vllm-omni:cosmos3 image.
+#
+# Single-node only: CFG/Ulysses/HSDP parallelism is WITHIN the 8-GPU node.
+# Scale-out = independent server replicas (embarrassingly parallel).
+#
+# This is a long-running server — delete the Job when generation is done.
+#
+# RENDER with the a8m/envsubst variant (NOT GNU gettext's):
+#   curl -L "https://github.com/a8m/envsubst/releases/download/v1.4.3/envsubst-$(uname -s)-$(uname -m)" \
+#     -o /usr/local/bin/envsubst && chmod +x /usr/local/bin/envsubst
+#
+# USAGE:
+#   export NAMESPACE=default IMAGE_URI=<ecr>/vllm-omni:cosmos3 \
+#          INSTANCE_TYPE=p5en.48xlarge GPUS_PER_NODE=8 \
+#          CFG_PARALLEL=2 ULYSSES=4 HSDP_SHARD=8 \
+#          HF_HOME=/fsx/hf-cache OUT=/fsx/results/generate
+#   kubectl create secret generic hf-token -n $NAMESPACE --from-literal=token="$HF_TOKEN"
+#   envsubst < kubernetes/generate-vllm-omni-super.yaml | kubectl apply -f -
+#   kubectl port-forward svc/cosmos3-vllm-omni 8000:8000
+#   curl -F input_reference=@clip.mp4 http://localhost:8000/v1/videos/sync -o out.mp4
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: cosmos3-vllm-omni
+  namespace: ${NAMESPACE}
+spec:
+  parallelism: 1
+  completions: 1
+  backoffLimit: 0
+  template:
+    metadata:
+      labels:
+        app: cosmos3-vllm-omni
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        node.kubernetes.io/instance-type: ${INSTANCE_TYPE}
+      containers:
+        - name: vllm-omni
+          image: ${IMAGE_URI}
+          imagePullPolicy: Always
+          command: ["bash", "-lc"]
+          args:
+            - |
+              set -euo pipefail
+              mkdir -p "$$OUTPUT_DIR"
+              echo "=== vLLM-Omni Super V2V: cfg=${CFG_PARALLEL} uly=${ULYSSES} hsdp=${HSDP_SHARD} ==="
+              exec vllm serve nvidia/Cosmos3-Super --omni \
+                --cfg-parallel-size ${CFG_PARALLEL} \
+                --ulysses-degree ${ULYSSES} \
+                --use-hsdp --hsdp-shard-size ${HSDP_SHARD} \
+                --init-timeout 2400 --stage-init-timeout 1800 \
+                --host 0.0.0.0 --port 8000
+          env:
+            - { name: HF_HOME, value: "${HF_HOME}" }
+            - { name: OUTPUT_DIR, value: "${OUT}" }
+            - name: HF_TOKEN
+              valueFrom:
+                secretKeyRef: { name: hf-token, key: token }
+          ports:
+            - { containerPort: 8000 }
+          resources:
+            requests:
+              nvidia.com/gpu: "${GPUS_PER_NODE}"
+            limits:
+              nvidia.com/gpu: "${GPUS_PER_NODE}"
+          volumeMounts:
+            - { name: workspace, mountPath: /fsx }
+            - { name: shm, mountPath: /dev/shm }
+      volumes:
+        - name: workspace
+          emptyDir:
+            sizeLimit: 400Gi
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cosmos3-vllm-omni
+  namespace: ${NAMESPACE}
+spec:
+  selector: { app: cosmos3-vllm-omni }
+  ports: [{ port: 8000, targetPort: 8000 }]

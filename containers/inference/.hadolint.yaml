@@ -1,0 +1,3 @@
+# Multi-stage build: each stage has its own ENTRYPOINT (built via --target).
+ignored:
+  - DL4000  # multiple ENTRYPOINT instructions
