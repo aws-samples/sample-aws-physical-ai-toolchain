@@ -77,13 +77,21 @@ def _bucket() -> str:
     )
 
 
+def _checkpoints_bucket() -> str:
+    return os.environ.get(
+        "CHECKPOINTS_BUCKET",
+        _ssm_get(f"/{PROJECT_NAME}/checkpoints-bucket")
+        or f"{PROJECT_NAME}-{ENVIRONMENT}-checkpoints-{_account()}",
+    )
+
+
 def launch(task: str, num_envs: int, max_iterations: int, framework: str,
            instance_type: str, runtime_min: int, instance_count: int, dry_run: bool):
     job_name = f"isaac-lab-rl-{int(__import__('time').time())}"
-    bucket = _bucket()
+    bucket = _checkpoints_bucket()
     role = _role_arn()
     image = _isaac_lab_image()
-    output = f"s3://{bucket}/isaac-lab/output/"
+    output = f"s3://{bucket}/isaac-lab/"
 
     hyperparams = {
         "task": task,
