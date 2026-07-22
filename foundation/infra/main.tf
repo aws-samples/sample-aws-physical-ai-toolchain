@@ -17,7 +17,7 @@ resource "aws_s3_bucket" "datasets" {
   tags = {
     Project     = var.project_name
     Environment = var.environment
-    Purpose     = "Training datasets (LeRobot format)"
+    Purpose     = "Training datasets - LeRobot format"
   }
 }
 
@@ -42,7 +42,7 @@ resource "aws_s3_bucket" "models" {
   tags = {
     Project     = var.project_name
     Environment = var.environment
-    Purpose     = "Trained models (ONNX, TensorRT, model.tar.gz)"
+    Purpose     = "Trained models - ONNX TensorRT model.tar.gz"
   }
 }
 
@@ -67,7 +67,7 @@ resource "aws_s3_bucket" "checkpoints" {
   tags = {
     Project     = var.project_name
     Environment = var.environment
-    Purpose     = "Training checkpoints (auto-expire after 14 days)"
+    Purpose     = "Training checkpoints - auto-expire after 14 days"
   }
 }
 

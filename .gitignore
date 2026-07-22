@@ -48,6 +48,13 @@ Thumbs.db
 .env
 *.env.local
 
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfstate.*.backup
+.terraform.lock.hcl
+
 # Docker build cache
 containers/**/build/
 

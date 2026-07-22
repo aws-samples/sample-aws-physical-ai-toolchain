@@ -18,6 +18,8 @@
 #   MAX_ITERATIONS    - Training iterations (default: 100)
 #   PROC_PER_NODE     - Processes (GPUs) per node (default: 4)
 #   FRAMEWORK         - RL framework: skrl | rsl_rl | rl_games (default: rsl_rl)
+#   CHECKPOINT_BUCKET - S3 bucket for persisting checkpoints (default: none)
+#   CHECKPOINT_PREFIX - S3 key prefix (default: checkpoints/<job_id>)
 #
 # NOTE: Multi-node NCCL convergence is UNVALIDATED on hardware. This script
 # wires the topology correctly but has not been run end-to-end on g6 instances.
@@ -87,13 +89,13 @@ esac
 # /efs/models/<job_id> so checkpoints + tensorboard persist beyond the container
 # and are visible from all nodes.
 JOB_ID=${AWS_BATCH_JOB_ID:-local}
-OUTPUT_DIR="/efs/models/${JOB_ID}"
+OUTPUT_DIR="/tmp/checkpoints/${JOB_ID}"
 mkdir -p "$OUTPUT_DIR"
 
-# The RL scripts write logs/rsl_rl/<run> or logs/skrl/<run>. Link that to EFS:
+# The RL scripts write logs/rsl_rl/<run> or logs/skrl/<run>. Link that to local dir:
 cd /workspace/isaaclab
 mkdir -p logs
-# Point the framework's log dir to EFS
+# Point the framework's log dir to output
 FRAMEWORK_LOG_DIR="logs/${FRAMEWORK}"
 if [ ! -L "$FRAMEWORK_LOG_DIR" ]; then
     mkdir -p "$OUTPUT_DIR/$FRAMEWORK"
@@ -127,3 +129,49 @@ fi
     $DIST_FLAG
 
 echo "Training complete. Checkpoints saved to $OUTPUT_DIR"
+
+# --- Upload checkpoints to S3 (using boto3 — aws CLI not installed) ---
+if [ -n "${CHECKPOINT_BUCKET:-}" ]; then
+    S3_PREFIX="${CHECKPOINT_PREFIX:-checkpoints/${JOB_ID}}"
+    echo "Uploading checkpoints to s3://${CHECKPOINT_BUCKET}/${S3_PREFIX}/ ..."
+    python3 -c "
+import os, boto3, pathlib
+
+bucket = os.environ['CHECKPOINT_BUCKET']
+prefix = os.environ.get('CHECKPOINT_PREFIX', f'checkpoints/{os.environ.get(\"AWS_BATCH_JOB_ID\", \"local\")}')
+s3 = boto3.client('s3')
+uploaded = 0
+
+# Search known checkpoint locations
+search_dirs = [
+    os.environ.get('OUTPUT_DIR', '/tmp/checkpoints'),
+    '/workspace/isaaclab/logs',
+    '/efs/models',
+]
+
+for search_dir in search_dirs:
+    base = pathlib.Path(search_dir)
+    if not base.exists():
+        continue
+    for f in base.rglob('*'):
+        if f.is_file():
+            key = f'{prefix}/{f.relative_to(base)}'
+            print(f'  Uploading {f} -> s3://{bucket}/{key}')
+            s3.upload_file(str(f), bucket, key)
+            uploaded += 1
+
+if uploaded == 0:
+    # Fallback: search for model files anywhere
+    import glob
+    for pattern in ['**/*.pt', '**/*.pth', '**/*.onnx', '**/*.csv']:
+        for f in glob.glob(f'/workspace/{pattern}', recursive=True):
+            key = f'{prefix}/{os.path.basename(f)}'
+            print(f'  Uploading {f} -> s3://{bucket}/{key}')
+            s3.upload_file(f, bucket, key)
+            uploaded += 1
+
+print(f'Done. Uploaded {uploaded} files to s3://{bucket}/{prefix}/')
+"
+else
+    echo "WARNING: CHECKPOINT_BUCKET not set. Checkpoints will be lost when container exits."
+fi

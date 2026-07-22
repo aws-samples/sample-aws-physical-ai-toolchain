@@ -52,7 +52,7 @@ resource "aws_codebuild_project" "isaac_lab" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../containers/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/isaac-lab/buildspec.yml")
   }
 
   build_timeout = 120
@@ -88,6 +88,19 @@ resource "aws_iam_role_policy" "codebuild" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:GetObjectVersion",
+          "s3:GetBucketLocation",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::${var.project_name}-${var.environment}-datasets-${local.account_id}",
+          "arn:aws:s3:::${var.project_name}-${var.environment}-datasets-${local.account_id}/*"
+        ]
+      },
       {
         Effect   = "Allow"
         Action   = ["ecr:GetAuthorizationToken"]

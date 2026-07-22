@@ -31,14 +31,16 @@ A Physical AI pipeline with:
 
 You want to deploy specific NVIDIA components to your AWS account. Each is independent — deploy what you need:
 
-```bash
-cd foundation/infra && terraform apply                    # Shared base (S3, ECR, IAM)
-cd groot-training-on-aws/infra && terraform apply         # GR00T fine-tuning infra
-cd cosmos-on-aws/infra && terraform apply                 # Cosmos generation infra
-cd isaac-sim-on-aws/infra && terraform apply              # Isaac Sim workstation
-cd isaac-lab-on-aws/infra && terraform apply              # Isaac Lab RL training infra
-cd osmo-on-aws/001-iac && terraform apply                 # OSMO orchestration platform
-```
+Each component has its own README with deployment options, guides, and detailed instructions:
+
+| Component | Deploy | Guide |
+|-----------|--------|-------|
+| **Foundation** | `cd foundation/infra && terraform apply` | Shared base (S3, ECR, IAM) — deploy first |
+| **[Isaac Lab](isaac-lab-on-aws/)** | `cd isaac-lab-on-aws/infra && terraform apply` | RL training via [SageMaker](isaac-lab-on-aws/sagemaker-rl-training-guide.md) or [AWS Batch](isaac-lab-on-aws/batch-rl-training-guide.md) |
+| **GR00T Training** | `cd groot-training-on-aws/infra && terraform apply` | Imitation learning fine-tuning |
+| **Cosmos** | `cd cosmos-on-aws/infra && terraform apply` | World generation + data augmentation |
+| **Isaac Sim** | `cd isaac-sim-on-aws/infra && terraform apply` | GPU workstation for simulation |
+| **[OSMO](osmo-on-aws/)** | `cd osmo-on-aws/001-iac && terraform apply` | Orchestration platform on EKS |
 
 ### Path B: Learn via Workshop (CloudFormation + CLI)
 

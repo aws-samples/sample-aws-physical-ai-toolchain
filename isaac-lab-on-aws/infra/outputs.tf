@@ -1,6 +1,7 @@
 output "isaac_lab_ecr_uri" {
   description = "ECR URI for the Isaac Lab training container"
   value       = data.aws_ssm_parameter.isaac_lab_ecr.value
+  sensitive   = true
 }
 
 output "codebuild_project" {

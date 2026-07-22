@@ -212,9 +212,14 @@ SageMaker handles inter-node networking and tears the fleet down when the job en
 
 ### Option B — AWS Batch Multi-Node Parallel (the reference architecture)
 
-Batch gives you direct control over the EC2 fleet (g6.12xlarge, 4× L4 each), a shared
-**EFS** filesystem for checkpoints, and a self-managed NCCL security group. It's an
-**opt-in CDK stack**, not deployed by default.
+Batch gives you direct control over the EC2 fleet (g6e.4xlarge, L40S GPU), a shared
+checkpoint pipeline to S3, and a self-managed NCCL security group.
+
+> **Full step-by-step Terraform guide:** For deploying Batch infrastructure from scratch
+> (VPC, compute environment, job queue, container build, job submission, and S3 checkpoint
+> upload), see **[isaac-lab-on-aws/batch-rl-training-guide.md](../isaac-lab-on-aws/batch-rl-training-guide.md)**.
+
+Quick version (if infrastructure is already deployed):
 
 ```bash
 # 1. Deploy the opt-in Batch stack (isaac-lab image must already be in ECR).
@@ -242,16 +247,17 @@ pai rl status --engine batch <job-id>
 > default — request it in Service Quotas first, or the compute env sits at 0 vCPUs and jobs
 > stay `RUNNABLE` forever. Also needs a **default VPC** (same as the Lab 2 workstation).
 
-Checkpoints persist to EFS at `/efs/models/<job-id>` — mount it to a workstation (or SSM
-onto a compute node) to inspect them.
+Checkpoints are uploaded to S3 at `s3://<CHECKPOINT_BUCKET>/checkpoints/<job-id>/` after
+training completes. The container uses boto3 for the upload (AWS CLI is not installed in
+the Isaac Lab image).
 
 | | SageMaker multi-instance | AWS Batch MNP |
 |---|---|---|
-| Setup | none (just `--instance-count N`) | deploy opt-in `PhysicalAi-dev-Batch` stack |
+| Setup | none (just `--instance-count N`) | Terraform deploy (see [Batch guide](../isaac-lab-on-aws/batch-rl-training-guide.md)) |
 | Provisioning | managed by SageMaker | managed EC2 compute env you own |
-| Shared storage | S3 only | EFS (`/efs`) + S3 |
-| Teardown | automatic on job end | job auto-terminates; stack persists until `cdk destroy` |
-| Best for | quick scale-out, least moving parts | full control, EC2-priced fleets, prototyping NCCL |
+| Shared storage | S3 only | S3 (checkpoints uploaded via boto3) |
+| Teardown | automatic on job end | job auto-terminates; infra persists until `terraform destroy` |
+| Best for | quick scale-out, least moving parts | full control, EC2-priced fleets, custom VPC |
 
 ---
 

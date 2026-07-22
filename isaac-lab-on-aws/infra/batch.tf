@@ -14,21 +14,26 @@ variable "enable_batch" {
 }
 
 variable "vpc_id" {
-  description = "VPC ID for Batch compute instances (required if enable_batch = true)"
+  description = "VPC ID for Batch compute instances (uses the isaac-lab VPC if empty)"
   type        = string
   default     = ""
 }
 
 variable "subnet_ids" {
-  description = "Subnet IDs for Batch compute instances (private subnets recommended)"
+  description = "Subnet IDs for Batch compute instances (uses private subnets from isaac-lab VPC if empty)"
   type        = list(string)
   default     = []
+}
+
+locals {
+  batch_vpc_id     = var.vpc_id != "" ? var.vpc_id : aws_vpc.main.id
+  batch_subnet_ids = length(var.subnet_ids) > 0 ? var.subnet_ids : aws_subnet.private[*].id
 }
 
 variable "batch_instance_type" {
   description = "Instance type for Batch compute (GPU required)"
   type        = string
-  default     = "g6.12xlarge"
+  default     = "g6e.4xlarge"
 }
 
 variable "batch_max_vcpus" {
@@ -42,7 +47,7 @@ resource "aws_security_group" "batch" {
   count       = var.enable_batch ? 1 : 0
   name        = "${local.prefix}-batch-rl-sg"
   description = "Batch RL compute: self-referencing for NCCL + EFS"
-  vpc_id      = var.vpc_id
+  vpc_id      = local.batch_vpc_id
 
   # Self-referencing: allow all traffic between compute nodes (NCCL)
   ingress {
@@ -156,6 +161,28 @@ resource "aws_iam_role_policy_attachment" "batch_service" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole"
 }
 
+# Launch template with 512 GiB root volume (Isaac Lab image is ~16 GB)
+resource "aws_launch_template" "batch" {
+  count = var.enable_batch ? 1 : 0
+  name  = "${local.prefix}-batch-rl-lt"
+
+  block_device_mappings {
+    device_name = "/dev/xvda"
+
+    ebs {
+      volume_size           = 512
+      volume_type           = "gp3"
+      delete_on_termination = true
+    }
+  }
+
+  tags = {
+    Name        = "${local.prefix}-batch-rl-lt"
+    Project     = var.project_name
+    Environment = var.environment
+  }
+}
+
 # Compute environment
 resource "aws_batch_compute_environment" "rl" {
   count = var.enable_batch ? 1 : 0
@@ -169,10 +196,15 @@ resource "aws_batch_compute_environment" "rl" {
     instance_role      = aws_iam_instance_profile.batch[0].arn
     instance_type      = [var.batch_instance_type]
     max_vcpus          = var.batch_max_vcpus
-    min_vcpus          = 0
-    desired_vcpus      = 0
+    min_vcpus          = 16
+    desired_vcpus      = 16
     security_group_ids = [aws_security_group.batch[0].id]
-    subnets            = var.subnet_ids
+    subnets            = local.batch_subnet_ids
+
+    launch_template {
+      launch_template_id = aws_launch_template.batch[0].id
+      version            = "$Latest"
+    }
   }
 
   tags = {
