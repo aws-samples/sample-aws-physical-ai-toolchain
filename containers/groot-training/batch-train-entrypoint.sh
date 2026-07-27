@@ -85,29 +85,12 @@ python3 /opt/ml/code/train_entrypoint.py
 
 echo "Training complete."
 
-# --- Upload checkpoints to S3 (using boto3) ---
+# --- Upload checkpoints to S3 ---
 if [ -n "${CHECKPOINT_BUCKET:-}" ]; then
     S3_PREFIX="${CHECKPOINT_PREFIX:-checkpoints/groot/${JOB_ID}}"
     echo "Uploading checkpoints to s3://${CHECKPOINT_BUCKET}/${S3_PREFIX}/ ..."
-    python3 -c "
-import os, boto3, pathlib
-
-bucket = os.environ['CHECKPOINT_BUCKET']
-prefix = os.environ.get('CHECKPOINT_PREFIX', f'checkpoints/groot/{os.environ.get(\"AWS_BATCH_JOB_ID\", \"local\")}')
-s3 = boto3.client('s3')
-uploaded = 0
-
-output_dir = pathlib.Path('${OUTPUT_DIR}')
-if output_dir.exists():
-    for f in output_dir.rglob('*'):
-        if f.is_file():
-            key = f'{prefix}/{f.relative_to(output_dir)}'
-            print(f'  Uploading {f} -> s3://{bucket}/{key}')
-            s3.upload_file(str(f), bucket, key)
-            uploaded += 1
-
-print(f'Done. Uploaded {uploaded} files to s3://{bucket}/{prefix}/')
-"
+    aws s3 sync "$OUTPUT_DIR" "s3://${CHECKPOINT_BUCKET}/${S3_PREFIX}/" --region "${AWS_DEFAULT_REGION:-us-east-2}"
+    echo "Done. Checkpoints uploaded to s3://${CHECKPOINT_BUCKET}/${S3_PREFIX}/"
 else
     echo "WARNING: CHECKPOINT_BUCKET not set. Checkpoints will be lost when container exits."
 fi

@@ -100,7 +100,7 @@ Both paths require:
 
 ### [AWS Batch Guide →](batch-training-guide.md)
 
-Terraform-based Batch deployment: Foundation → VPC → Batch compute → Container build → Job submission → S3 checkpoints. **Validated through dataset loading** — full training pending compatible LeRobot v2.0 dataset.
+Terraform-based Batch deployment: Foundation → VPC → Batch compute → Container build → Job submission → S3 checkpoints. **Fully validated end-to-end** with UR3 teleoperation data.
 
 ---
 

@@ -141,61 +141,62 @@ aws codebuild batch-get-builds \
 
 ## Step 4: Upload Training Data
 
-GR00T expects data in LeRobot v2.0 format in S3. Choose one of the options below.
+GR00T expects data in LeRobot v2.0 format in S3.
 
-### Option A: Use your own teleop data (Lab 1 workflow)
+### Option A: Use the bundled UR3 sample dataset
+
+The repo includes 27 real UR3 pick-and-place teleoperation episodes. Download via Git LFS, convert, and upload:
 
 ```bash
-# Convert demo data to LeRobot v2 format
-pai groot convert
+# 1. Pull the dataset from Git LFS (~1.7 GB)
+git lfs pull --include="training/data/ur3_episodes_001_027.zip"
 
-# Upload to S3
+# 2. Extract the Zarr episodes
+unzip -o training/data/ur3_episodes_001_027.zip -d training/data/episodes
+
+# 3. Install conversion dependencies (if not already installed)
+pip install opencv-python-headless zarr pyarrow pandas
+
+# 4. Convert Zarr episodes to LeRobot v2.0 format
+python3 training/groot/convert_zarr_to_lerobot.py \
+  --episodes-dir training/data/episodes/episodes \
+  --output-dir training/data/ur3_lerobot_dataset
+
+# 5. Upload to S3
 aws s3 sync training/data/ur3_lerobot_dataset/ \
   s3://physical-ai-dev-datasets-<ACCOUNT_ID>/groot-data/ur3/dataset/ \
   --region us-east-2
 ```
 
-### Option B: Download a public dataset from HuggingFace (for testing)
+### Option B: Use your own teleop data
 
-If you don't have your own teleop data, download a compatible LeRobot v2.0 dataset from HuggingFace and upload to S3:
+If you have your own robot teleoperation data in Zarr format, convert and upload using the same pipeline:
 
 ```bash
-# Install huggingface-hub if not already installed
-pip install huggingface-hub
+python3 training/groot/convert_zarr_to_lerobot.py \
+  --episodes-dir /path/to/your/episodes \
+  --output-dir /tmp/my_lerobot_dataset
 
-# Download a LeRobot v2.0 dataset locally
-python3 -c "
-from huggingface_hub import snapshot_download
-snapshot_download(
-    repo_id='<DATASET_ID>',
-    repo_type='dataset',
-    local_dir='/tmp/gr00t_dataset'
-)
-print('Download complete')
-"
-
-# Upload to S3
-aws s3 sync /tmp/gr00t_dataset/ \
-  s3://physical-ai-dev-datasets-<ACCOUNT_ID>/groot-data/test/dataset/ \
-  --exclude ".cache/*" --exclude ".git*" --exclude "README.md" \
+aws s3 sync /tmp/my_lerobot_dataset/ \
+  s3://physical-ai-dev-datasets-<ACCOUNT_ID>/groot-data/custom/dataset/ \
   --region us-east-2
 ```
-
-> **Dataset compatibility:** The GR00T N1.6 SDK requires LeRobot v2.0 format with `meta/episodes.jsonl`. Some newer HuggingFace datasets use v2.1+ format (with `meta/episodes/chunk-000/*.parquet`) which is NOT compatible. Verify your dataset has `meta/episodes.jsonl` before uploading.
 
 ### Required dataset structure (LeRobot v2.0)
 
 ```
 dataset/
-├── data/chunk-000/          # Parquet files (actions, states)
+├── data/chunk-000/                          # Parquet files (actions, states)
 │   ├── episode_000000.parquet
 │   └── ...
 ├── meta/
-│   ├── info.json            # Dataset metadata
-│   ├── episodes.jsonl       # Episode lengths and tasks (REQUIRED)
-│   └── tasks.jsonl          # Task vocabulary
-└── videos/chunk-000/        # Camera video files (MP4)
-    └── observation.images.wrist/
+│   ├── info.json                            # Dataset metadata (robot_type, fps)
+│   ├── episodes.jsonl                       # Episode lengths and tasks (REQUIRED)
+│   ├── modality.json                        # GR00T embodiment config (arm/gripper mapping)
+│   ├── tasks.jsonl                          # Task vocabulary
+│   └── stats.json                           # Dataset statistics
+└── videos/chunk-000/
+    └── observation.images.wrist/            # Wrist camera MP4s (one per episode)
 ```
 
 ---
@@ -365,16 +366,9 @@ The following has been validated end-to-end on AWS Batch (g6e.4xlarge, us-east-2
 | Terraform deploy (Foundation + GR00T infra) | ✅ Validated | VPC, Batch compute, job queue, CodeBuild |
 | Container build (CodeBuild) | ✅ Validated | NGC base + GR00T N1.6 SDK + all deps |
 | GR00T N1.6-3B model loading | ✅ Validated | 3.2B params, Eagle backbone, embodiment config |
-| S3 dataset download (`aws s3 sync`) | ✅ Validated | Data lands at `/opt/ml/input/data/training/` |
-| Stats generation | ✅ Validated | Parquet parsing and stats computation works |
-| Full training loop | ⏳ Pending | Requires LeRobot v2.0 dataset with `meta/episodes.jsonl` |
-| Checkpoint upload to S3 | ⏳ Pending | Will validate once training completes |
-
-**Blocker for full validation:** The publicly available `lerobot/pusht` dataset uses LeRobot v2.1+ format (`meta/episodes/chunk-000/*.parquet`), but the GR00T N1.6 SDK expects the older v2.0 format (`meta/episodes.jsonl`). The real UR3 data from Lab 1 (`pai groot convert`) produces the correct format.
-
-**To complete validation**, use either:
-1. The UR3 dataset from Lab 1 (convert with `pai groot convert`, upload with `pai groot upload`)
-2. A LeRobot v2.0 compatible public dataset (must have `meta/episodes.jsonl`)
+| S3 dataset download (`aws s3 sync`) | ✅ Validated | UR3 LeRobot v2.0 data (27 episodes) |
+| Training (10 steps) | ✅ Validated | Fine-tuning completed successfully |
+| Checkpoint upload to S3 | ✅ Validated | Checkpoints synced to checkpoints bucket |
 
 ---
 
