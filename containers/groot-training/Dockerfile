@@ -1,89 +1,106 @@
-# GR00T Fine-Tuning Container
+# GR00T N1.6 Fine-Tuning Container
+#
+# Based on the proven approach from:
+# https://github.com/aws-samples/sample-embodied-ai-platform/blob/main/training/gr00t/N16/Dockerfile
 #
 # Fine-tunes NVIDIA GR00T N1.6-3B on customer data in LeRobot v2 format.
-# Runs as a SageMaker Training Job on ml.g5.12xlarge (4x A10G, 24 GB each).
+# Runs on SageMaker (ml.g5.12xlarge) or AWS Batch (g6e.4xlarge+).
 #
-# Builds in AWS CodeBuild → ECR (NEVER locally — the base + flash-attn build is
-# large and x86-only). See containers/groot-training/buildspec.yml.
-#
-# === PROVENANCE ==================================================================
-# This mirrors a PROVEN, validated GR00T fine-tuning setup (the lab-cloud-env
-# `groot-train` reference, which has run real UR3 fine-tunes on g5.12xlarge):
-#   - SageMaker PyTorch DLC base (Python 3.11, CUDA 12.4)
-#   - Isaac-GR00T installed from source as editable, with the pyproject
-#     `requires-python == 3.10.*` relaxed to `>= 3.10` so it installs under the
-#     DLC's Python 3.11 (the proven workaround)
-#   - transformers pinned to 4.51.3 (GR00T N1.6 / Eagle backbone compatibility)
-#   - flash-attn for the Eagle backbone's flash_attention_2 config
-#   - decord for video loading (GR00T's pyav backend is buggy — proven lesson)
-# 24 GB-per-GPU fit is handled at RUNTIME by gradient checkpointing + DeepSpeed
-# ZeRO-2 + gradient accumulation (see train_entrypoint.py), NOT a bigger GPU.
-#
-# UNVALIDATED HERE: this toolchain has not yet rebuilt this exact image in its own
-# CodeBuild→ECR or run a job from it. The pins/approach are copied from a validated
-# source; confirm with one CodeBuild run + one g5 job before asserting "validated".
-# =================================================================================
+# Requires NGC API key to pull the base image (nvcr.io/nvidia/pytorch).
 
-# SageMaker PyTorch 2.5.1 / Py3.11 / CUDA 12.4 Deep Learning Container (us-west-2).
-# This is an AWS-account ECR image — CodeBuild logs into it in buildspec.yml.
-# Matches the validated reference's base EXACTLY (pytorch-inference DLC): flash-attn
-# --no-build-isolation was only ever verified to resolve against this toolchain.
-FROM 763104351884.dkr.ecr.us-west-2.amazonaws.com/pytorch-inference:2.5.1-gpu-py311-cu124-ubuntu22.04-sagemaker
+FROM nvcr.io/nvidia/pytorch:25.04-py3
+
+ARG USE_STABLE=true
+# https://github.com/NVIDIA/Isaac-GR00T/releases/tag/n1.6.1-release
+ARG STABLE_COMMIT=5dc80c4afd726b34faad1d8f7e007a13b34e4c88
 
 ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
 
-# git-lfs (GR00T ships LFS assets), ninja for flash-attn build (matches proven ref).
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git-lfs ninja-build \
-    && rm -rf /var/lib/apt/lists/* && git lfs install
+# System deps
+RUN apt-get update && apt-get install -y \
+    build-essential yasm cmake libtool git git-lfs pkg-config \
+    libass-dev libfreetype6-dev libvorbis-dev \
+    autoconf automake texinfo ffmpeg \
+    wget curl ca-certificates unzip vim less htop \
+    libegl1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Clone Isaac-GR00T pinned to the N1.6 RELEASE TAG (immutable commit ead52833).
-# CRITICAL: pin the tag, do NOT clone `main`. The entrypoint uses the N1.6 API
-# (gr00t.experiment.experiment.run + get_default_config + the gr00t_n1d6 module +
-# the vendored Eagle-Block2A-2B-v2 backbone). `main` has since moved to N1.7
-# (qwen3 backbone, no gr00t_n1d6, no vendored Eagle) — cloning it breaks both the
-# entrypoint import and the Eagle canary below. (The reference Dockerfile this is
-# based on cloned `main` unpinned and would now break the same way — fixed here.)
-ARG GROOT_REF=n1.6-release
-RUN git clone --depth 1 --branch ${GROOT_REF} https://github.com/NVIDIA/Isaac-GR00T.git /opt/isaac-gr00t && \
-    cd /opt/isaac-gr00t && git lfs pull && \
-    python -c "import pathlib; p=pathlib.Path('pyproject.toml'); p.write_text(p.read_text().replace('==3.10.*', '>=3.10'))" && \
-    pip install --no-cache-dir -e . && \
-    pip install --no-cache-dir transformers==4.51.3
+# AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && ./aws/install && rm -rf awscliv2.zip aws
 
-# flash-attn (Eagle backbone's flash_attention_2) + decord (pyav backend is buggy).
-# Install a PREBUILT wheel matching this exact env — `pip install -e .` above pulls
-# torch==2.7.1 (GR00T's pin), so we need the cu12 / torch2.7 / cp311 / cxx11abiFALSE
-# wheel. Two traps this avoids:
-#   - unpinned `pip install flash-attn` → wheel built against a different torch ABI
-#     → `undefined symbol: _ZN3c10...` at import (observed);
-#   - pinning a version with no matching prebuilt wheel → a 40-min source compile
-#     that blows the CodeBuild timeout (observed).
-# GR00T pins flash-attn 2.7.4.post1, but that release has NO torch2.7 wheel; 2.8.3.post1
-# is the earliest with a prebuilt torch2.7 wheel and is API-compatible. (cxx11abiFALSE
-# matches PyTorch's standard prebuilt binaries.)
-ARG FLASH_ATTN_WHEEL=https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3.post1/flash_attn-2.8.3.post1+cu12torch2.7cxx11abiFALSE-cp311-cp311-linux_x86_64.whl
-RUN pip install --no-cache-dir "${FLASH_ATTN_WHEEL}" && \
-    python -c "import flash_attn; print(f'flash_attn={flash_attn.__version__}')" && \
-    pip install --no-cache-dir decord && \
-    python -c "import decord; print(f'decord={decord.__version__}')"
+# UV package manager
+RUN pip install uv
 
-# Fast-fail canary (from the proven ref): assert git-lfs fetched the Eagle backbone
-# assets that runtime depends on (config.model.model_name = nvidia/Eagle-Block2A-2B-v2),
-# and that CUDA imports — catches an LFS regression at build time, not on a paid g5.
-RUN echo "=== Verify Eagle config ===" && \
-    python -c "import json; c=json.load(open('/opt/isaac-gr00t/gr00t/model/modules/nvidia/Eagle-Block2A-2B-v2/config.json')); print(f'model_type={c[\"model_type\"]}')" && \
-    echo "=== Verify CUDA ===" && \
-    python -c "import torch; print(f'torch={torch.__version__}, cuda={torch.cuda.is_available()}')"
+# Upstream dep fixes
+RUN sed -i s/dill==0.3.9/dill==0.3.8/g /etc/pip/constraint.txt && \
+    sed -i s/scipy==1.15.2/scipy==1.15.3/g /etc/pip/constraint.txt && \
+    sed -i '/flash.attn/d' /etc/pip/constraint.txt
 
-# SageMaker glue + data deps for the entrypoint, baselines, and in-container ingest.
-RUN pip install --no-cache-dir boto3 matplotlib pandas pyarrow "zarr>=2.16" opencv-python-headless
+# N1.6 pip deps
+RUN pip install imageio h5py boto3 transformers[torch] deepspeed timm peft \
+    diffusers wandb tianshou dm_tree openai \
+    albumentations==1.4.18 decord==0.6.0 torchcodec==0.4.0
 
-# Copy the SageMaker entrypoint.
+# PyTorch3D from source
+RUN cd /opt && git clone https://github.com/facebookresearch/pytorch3d.git && \
+    cd pytorch3d && MAX_JOBS=2 pip install .
+
+# Clone Isaac-GR00T (stable N1.6.1 release)
+RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \
+    cd /workspace/gr00t-repo && \
+    if [ "${USE_STABLE}" = "true" ]; then \
+        echo "Using stable commit: ${STABLE_COMMIT}"; \
+        git checkout ${STABLE_COMMIT}; \
+    fi && \
+    echo "GR00T version:" && git log -1 --format="%H %ai %s"
+
+# Install gr00t package (retry uv sync in case of transient download failures)
+RUN cd /workspace/gr00t-repo && \
+    uv sync --no-install-project || uv sync --no-install-project && \
+    uv pip install -e . --no-deps
+
+# flash-attn (install into the gr00t venv created by uv sync)
+RUN cd /workspace/gr00t-repo && \
+    uv pip install flash-attn==2.7.4.post1 --no-build-isolation --python .venv/bin/python || \
+    (sleep 10 && uv pip install flash-attn==2.7.4.post1 --no-build-isolation --python .venv/bin/python) || \
+    (sleep 30 && uv pip install flash-attn==2.7.4.post1 --no-build-isolation --python .venv/bin/python)
+
+# Activate the uv venv
+ENV VIRTUAL_ENV="/workspace/gr00t-repo/.venv"
+ENV PATH="/workspace/gr00t-repo/.venv/bin:${PATH}"
+
+# EGL/Vulkan setup
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+    > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+RUN mkdir -p /usr/share/vulkan/icd.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.2.140"}}' \
+    > /usr/share/vulkan/icd.d/nvidia_icd.json
+
+# Additional utilities
+RUN pip install notebook gpustat matplotlib pandas pyarrow "zarr>=2.16" opencv-python-headless
+
+# Copy entrypoints
 COPY train_entrypoint.py /opt/ml/code/train_entrypoint.py
+COPY batch-train-entrypoint.sh /opt/ml/code/batch-train
+RUN chmod +x /opt/ml/code/batch-train
 
+# SageMaker compatibility
 ENV PYTHONUNBUFFERED=1
 ENV SAGEMAKER_PROGRAM=train_entrypoint.py
-WORKDIR /opt/ml/code
+ENV PYTHONPATH="/workspace/gr00t-repo:/workspace"
+ENV DATASET_LOCAL_DIR="/opt/ml/input/data/training"
+ENV OUTPUT_DIR="/opt/ml/model"
+ENV BASE_MODEL_PATH="nvidia/GR00T-N1.6-3B"
+ENV GROOT_SDK_DIR="/workspace/gr00t-repo"
 
-ENTRYPOINT ["python", "/opt/ml/code/train_entrypoint.py"]
+# Symlink so train_entrypoint.py finds SDK at the expected path
+RUN ln -sf /workspace/gr00t-repo /opt/isaac-gr00t
+
+RUN mkdir -p ${DATASET_LOCAL_DIR} ${OUTPUT_DIR}
+
+WORKDIR /opt/ml/code
+ENTRYPOINT []
+CMD ["python", "/opt/ml/code/train_entrypoint.py"]

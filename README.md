@@ -37,7 +37,7 @@ Each component has its own README with deployment options, guides, and detailed 
 |-----------|--------|-------|
 | **Foundation** | `cd foundation/infra && terraform apply` | Shared base (S3, ECR, IAM) — deploy first |
 | **[Isaac Lab](isaac-lab-on-aws/)** | `cd isaac-lab-on-aws/infra && terraform apply` | RL training via [SageMaker](isaac-lab-on-aws/sagemaker-rl-training-guide.md) or [AWS Batch](isaac-lab-on-aws/batch-rl-training-guide.md) |
-| **GR00T Training** | `cd groot-training-on-aws/infra && terraform apply` | Imitation learning fine-tuning |
+| **GR00T Training** | `cd gr00t-training-on-aws/infra && terraform apply` | Imitation learning fine-tuning |
 | **Cosmos** | `cd cosmos-on-aws/infra && terraform apply` | World generation + data augmentation |
 | **Isaac Sim** | `cd isaac-sim-on-aws/infra && terraform apply` | GPU workstation for simulation |
 | **[OSMO](osmo-on-aws/)** | `cd osmo-on-aws/001-iac && terraform apply` | Orchestration platform on EKS |

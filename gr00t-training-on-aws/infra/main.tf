@@ -28,7 +28,7 @@ data "aws_ssm_parameter" "groot_inference_ecr" {
 # =============================================================================
 
 resource "aws_codebuild_project" "groot_training" {
-  name         = "${local.prefix}-groot-training-build"
+  name         = "${local.prefix}-gr00t-training-build"
   description  = "Build GR00T fine-tuning container from PyTorch DLC base + Isaac-GR00T"
   service_role = aws_iam_role.codebuild.arn
 
@@ -60,7 +60,7 @@ resource "aws_codebuild_project" "groot_training" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../containers/groot-training/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/groot-training/buildspec.yml")
   }
 
   build_timeout = 60
@@ -77,7 +77,7 @@ resource "aws_codebuild_project" "groot_training" {
 # =============================================================================
 
 resource "aws_codebuild_project" "groot_inference" {
-  name         = "${local.prefix}-groot-inference-build"
+  name         = "${local.prefix}-gr00t-inference-build"
   description  = "Build GR00T inference/serving container"
   service_role = aws_iam_role.codebuild.arn
 
@@ -109,7 +109,7 @@ resource "aws_codebuild_project" "groot_inference" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../containers/groot-inference/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/groot-inference/buildspec.yml")
   }
 
   build_timeout = 60
@@ -126,7 +126,7 @@ resource "aws_codebuild_project" "groot_inference" {
 # =============================================================================
 
 resource "aws_iam_role" "codebuild" {
-  name = "${local.prefix}-groot-codebuild-role"
+  name = "${local.prefix}-gr00t-codebuild-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -139,7 +139,7 @@ resource "aws_iam_role" "codebuild" {
 }
 
 resource "aws_iam_role_policy" "codebuild" {
-  name = "${local.prefix}-groot-codebuild-policy"
+  name = "${local.prefix}-gr00t-codebuild-policy"
   role = aws_iam_role.codebuild.id
 
   policy = jsonencode({
@@ -164,6 +164,7 @@ resource "aws_iam_role_policy" "codebuild" {
         Resource = [
           "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-training",
           "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-inference",
+          "arn:aws:ecr:${local.region}:763104351884:repository/*",
         ]
       },
       {
@@ -177,8 +178,13 @@ resource "aws_iam_role_policy" "codebuild" {
       },
       {
         Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:GetBucketLocation"]
+        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:GetBucketLocation", "s3:ListBucket"]
         Resource = ["*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = ["arn:aws:secretsmanager:*:*:secret:${var.project_name}/ngc-api-key*"]
       }
     ]
   })
