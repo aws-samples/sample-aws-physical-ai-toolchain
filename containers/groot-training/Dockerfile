@@ -102,5 +102,18 @@ RUN ln -sf /workspace/gr00t-repo /opt/isaac-gr00t
 RUN mkdir -p ${DATASET_LOCAL_DIR} ${OUTPUT_DIR}
 
 WORKDIR /opt/ml/code
-ENTRYPOINT []
-CMD ["python", "/opt/ml/code/train_entrypoint.py"]
+
+# Smart entrypoint: supports both SageMaker (default) and Batch (pass "batch-train" as arg)
+# SageMaker: runs with no args -> executes train_entrypoint.py
+# Batch: command=["batch-train"] -> executes batch-train-entrypoint.sh
+COPY <<'EOF' /opt/ml/code/entrypoint.sh
+#!/bin/bash
+if [ "$1" = "batch-train" ]; then
+    exec bash /opt/ml/code/batch-train
+else
+    exec python /opt/ml/code/train_entrypoint.py "$@"
+fi
+EOF
+RUN chmod +x /opt/ml/code/entrypoint.sh
+
+ENTRYPOINT ["/opt/ml/code/entrypoint.sh"]

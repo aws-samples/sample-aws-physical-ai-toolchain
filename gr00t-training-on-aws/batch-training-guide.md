@@ -50,7 +50,7 @@ Fine-tune GR00T N1.6 on AWS Batch with GPU instances. This guide walks through d
 | Terraform >= 1.5 | `terraform --version` |
 | Foundation deployed | `aws ssm get-parameter --name /physical-ai/vpc-id --region us-east-2` |
 | HuggingFace token | Create at https://huggingface.co/settings/tokens |
-| GPU quota for g5.12xlarge | Check EC2 service quotas |
+| EC2 GPU quota for g6e.4xlarge | Check EC2 Service Quotas |
 
 ---
 
