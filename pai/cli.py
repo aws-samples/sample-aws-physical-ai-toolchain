@@ -80,6 +80,12 @@ def main():
     except ImportError:
         pass
 
+    try:
+        from pai.commands import agent
+        agent.register(cli)
+    except ImportError:
+        pass
+
     cli()
 
 
