@@ -139,3 +139,28 @@ Mean episode length: 73.70
 ```
 
 A converged policy typically needs 1000-2000 iterations (20-60 min on a single GPU).
+
+---
+
+## Validate the Trained Policy with an Agent (Strands Agents)
+
+[**strands-robots**](https://github.com/strands-labs/robots) provides the agentic
+orchestration layer that runs an Isaac Lab policy in the loop. It exposes a full
+**Isaac Sim backend** (`strands_robots.simulation.isaac`) alongside MuJoCo, plus RL
+training env wrappers (`strands_robots.training.rl`), so the exported policy can be
+regression-gated in sim and then supervised in natural language:
+
+```python
+from strands import Agent
+from strands_robots import Robot
+
+robot = Robot("anymal_d")                        # MuJoCo twin by default; Isaac Sim backend available
+robot.run_policy(policy_config={"pretrained_name_or_path": "s3://.../policy.pt"})
+Agent(tools=[robot])("walk forward across the rough terrain")
+```
+
+The agent is the **feedback arrow** of the flywheel — it turns a trained `policy.pt`
+into behavior, observes the outcome, and decides whether to refine the reward, add
+domain randomization, or promote the checkpoint. See
+[strands-agents-on-aws](../strands-agents-on-aws/) for the orchestration layer and
+`pai agent sim` to run it from the CLI.

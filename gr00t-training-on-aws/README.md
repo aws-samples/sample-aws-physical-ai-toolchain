@@ -136,3 +136,30 @@ Use `training/groot/convert_zarr_to_lerobot.py` to convert from Zarr/ROS bag for
 | Smoke test (100 steps) | ml.g5.xlarge | ~15 min | ~$2 |
 | Full training (5000 steps) | ml.g5.12xlarge | ~11 hrs | ~$79 |
 | Full training (5000 steps) | g5.12xlarge (Batch) | ~11 hrs | ~$56 (EC2 pricing) |
+
+---
+
+## Drive the Trained Policy with an Agent (Strands Agents)
+
+Once GR00T is fine-tuned, [**strands-robots**](https://github.com/strands-labs/robots)
+turns the checkpoint into closed-loop robot behavior driven by natural language.
+It ships a first-class GR00T policy provider (`strands_robots.policies.groot`), so the
+same `model.tar.gz` this pipeline produces runs on a MuJoCo sim twin (no hardware) or
+a real arm (`mode="real"`) behind one interface:
+
+```python
+from strands import Agent
+from strands_robots import Robot
+
+robot = Robot("so101")                 # MuJoCo sim by default; mode="real" for hardware
+robot.run_policy(                      # roll out the fine-tuned GR00T checkpoint
+    policy_provider="groot",
+    policy_config={"pretrained_name_or_path": "s3://.../output/model.tar.gz"},
+)
+Agent(tools=[robot])("pick up the red cube")   # agent supervises the rollout in NL
+```
+
+strands-robots also **records demos in LeRobot v2** (the exact format this pipeline
+trains on) via teleoperation, closing the data loop. See
+[strands-agents-on-aws](../strands-agents-on-aws/) for the agentic orchestration layer
+and `pai agent sim --policy s3://.../model.tar.gz` to run it from the CLI.
