@@ -152,8 +152,6 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Authors
 - **Abhishek Srivastav** — Principal Solutions Architect, AWS
-- **Jathavan Sriram** — Senior Solutions Architect, NVIDIA
-- **Ali Shahrokni** — Developer Relations Manager, NVIDIA
 - **Steven DeVries** - Principal Solutions Architect, AWS
 - **Ignacio Salvar** — Solutions Architect, AWS
 - **Adam Weber** — Senior Solutions Architect, AWS
