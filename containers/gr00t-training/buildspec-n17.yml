@@ -1,0 +1,37 @@
+version: 0.2
+
+# Builds the NVIDIA GR00T N1.7 training container and pushes to ECR.
+#
+# GR00T N1.7 uses:
+#   - NGC PyTorch base (nvcr.io/nvidia/pytorch:25.04-py3)
+#   - Isaac-GR00T repo installed via `uv sync`
+#   - Cosmos-Reason2-2B backbone (Qwen3-VL)
+#   - 48 GB+ VRAM required (L40S, A100, H100)
+#
+# Env vars (from CodeBuild project):
+#   ECR_REPO_URI        - full ECR repo URI
+#   AWS_ACCOUNT_ID      - account ID
+#   AWS_DEFAULT_REGION  - region
+#   NGC_API_KEY         - NGC key for base image
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - echo "Logging in to ECR..."
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      - echo "Logging in to NGC..."
+      - echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+  build:
+    commands:
+      - echo "Building GR00T N1.7 training container..."
+      - docker build -f containers/gr00t-training/Dockerfile.n17 -t groot-training-n17 .
+      - docker tag groot-training-n17:latest "$ECR_REPO_URI:n17"
+      - docker tag groot-training-n17:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:n17"
+      - docker push "$ECR_REPO_URI:latest"
+      - echo "Done. Image pushed as $ECR_REPO_URI:n17 and $ECR_REPO_URI:latest"

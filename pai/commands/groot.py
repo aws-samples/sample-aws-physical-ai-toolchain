@@ -1,7 +1,7 @@
 """pai groot — Lab 1 GR00T workflow: convert data, train, deploy, serve.
 
 Each subcommand is a thin wrapper over the validated Lab 1 scripts under
-training/groot/ — the CLI resolves Foundation stack outputs and forwards to the
+training/gr00t/ — the CLI resolves Foundation stack outputs and forwards to the
 same code the lab doc runs by hand, so there is one source of truth:
 
     convert   zarr teleop episodes      -> LeRobot v2 dataset  (local)
@@ -35,7 +35,7 @@ def _ensure_repo_on_path():
     """Put the repo root on sys.path so `import training...` resolves.
 
     The training/ tree ships with the repo but is not part of the installed
-    `pai` package, so commands that import training.groot.* must add the repo
+    `pai` package, so commands that import training.gr00t.* must add the repo
     root first (mirrors rl.py, which does the same for training.scripts.*).
     """
     repo = str(config.REPO_ROOT)
@@ -63,8 +63,8 @@ def _require_data_deps():
 
 
 def _groot_script(name: str) -> str:
-    """Absolute path to a training/groot/<name> script."""
-    return str(config.REPO_ROOT / "training" / "groot" / name)
+    """Absolute path to a training/gr00t/<name> script."""
+    return str(config.REPO_ROOT / "training" / "gr00t" / name)
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +222,7 @@ def launch(dataset_prefix, max_steps, batch_size, instance_type, dry_run):
         return
 
     _ensure_repo_on_path()
-    from training.groot import pipeline
+    from training.gr00t import pipeline
 
     helpers.info("\n[2/2] Creating/updating pipeline and starting execution...")
     try:
@@ -259,7 +259,7 @@ def runs():
     region = config.resolve_region()
 
     _ensure_repo_on_path()
-    from training.groot import pipeline
+    from training.gr00t import pipeline
 
     try:
         result = pipeline.list_runs(region=region)
@@ -299,7 +299,7 @@ def deploy(model_s3, endpoint_name, instance_type, dry_run):
     region = config.resolve_region()
 
     _ensure_repo_on_path()
-    from training.groot import deploy_endpoint
+    from training.gr00t import deploy_endpoint
 
     try:
         result = deploy_endpoint.deploy(
@@ -331,7 +331,7 @@ def invoke(endpoint_name, image_path, state, task):
         raise click.Abort()
 
     _ensure_repo_on_path()
-    from training.groot import deploy_endpoint
+    from training.gr00t import deploy_endpoint
 
     try:
         deploy_endpoint.invoke(endpoint_name, image_path, state, task, region)
@@ -352,7 +352,7 @@ def delete(endpoint_name, yes):
             return
 
     _ensure_repo_on_path()
-    from training.groot import deploy_endpoint
+    from training.gr00t import deploy_endpoint
 
     helpers.heading(f"Deleting endpoint {endpoint_name}")
     try:

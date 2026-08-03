@@ -4,7 +4,7 @@
 # Runs as a SageMaker Training Job on ml.g5.12xlarge (4x A10G, 24 GB each).
 #
 # Builds in AWS CodeBuild → ECR (NEVER locally — the base + flash-attn build is
-# large and x86-only). See containers/groot-training/buildspec.yml.
+# large and x86-only). See containers/gr00t-training/buildspec.yml.
 #
 # === PROVENANCE ==================================================================
 # This mirrors a PROVEN, validated GR00T fine-tuning setup (the lab-cloud-env

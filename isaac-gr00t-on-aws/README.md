@@ -1,8 +1,10 @@
 # GR00T Training on AWS
 
-Fine-tune [NVIDIA GR00T N1.6](https://developer.nvidia.com/isaac/gr00t) — a 3B-parameter Vision-Language-Action (VLA) model for humanoid robots — on your own teleoperation data using AWS GPU infrastructure.
+Fine-tune [NVIDIA GR00T](https://developer.nvidia.com/isaac/gr00t) — a 3B-parameter Vision-Language-Action (VLA) model for humanoid robots — on your own teleoperation data using AWS GPU infrastructure. Supports both **N1.6** and **N1.7** (Cosmos-Reason2-2B backbone, structured reasoning).
 
 GR00T learns to predict motor commands from camera images by watching human demonstrations. Fine-tune it on 27+ episodes of your robot performing a task, and it generalizes to new situations.
+
+> **Choosing a version?** N1.7 requires a bigger/more expensive instance (`ml.g6e.12xlarge`, 4 GPUs) than N1.6 (`ml.g6e.4xlarge`, 1 GPU) — see [EC2 / SageMaker Instance Recommendation](n17-sagemaker-training-guide.md#ec2--sagemaker-instance-recommendation) before picking a version.
 
 ---
 
@@ -81,6 +83,8 @@ Both paths require:
 
 ## Training Parameters
 
+### N1.6
+
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `base_model` | `nvidia/GR00T-N1.6-3B` | HuggingFace model name |
@@ -90,28 +94,46 @@ Both paths require:
 | `gradient_accumulation_steps` | `4` | Gradient accumulation |
 | `CHECKPOINT_BUCKET` | — | S3 bucket for checkpoint upload (Batch only) |
 
+### N1.7
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `base_model` | `nvidia/GR00T-N1.7-3B` | HuggingFace model name |
+| `max_steps` | `10000` | Training steps |
+| `batch_size` | `8` | Global batch size (pre-accumulation) |
+| `gradient_accumulation_steps` | `2` | Gradient accumulation |
+| **Instance** | `ml.g6e.12xlarge` (4 GPUs) | **Required** — single-GPU OOMs regardless of batch size |
+
 ---
 
 ## Deployment Guides
 
-### [SageMaker Guide →](sagemaker-training-guide.md)
+### [N1.6 SageMaker Guide →](sagemaker-training-guide.md)
 
-*(Coming soon)* — SageMaker-based deployment with `launch_training.py`.
+SageMaker deployment for N1.6 on `ml.g6e.4xlarge` (single GPU).
+
+### [N1.7 SageMaker Guide →](n17-sagemaker-training-guide.md)
+
+SageMaker deployment for N1.7 on `ml.g6e.12xlarge` (4 GPUs, DeepSpeed ZeRO required). Includes EC2 instance sizing rationale and OOM troubleshooting.
 
 ### [AWS Batch Guide →](batch-training-guide.md)
 
-Terraform-based Batch deployment: Foundation → VPC → Batch compute → Container build → Job submission → S3 checkpoints. **Fully validated end-to-end** with UR3 teleoperation data.
+Terraform-based Batch deployment for N1.6: Foundation → VPC → Batch compute → Container build → Job submission → S3 checkpoints. **Fully validated end-to-end** with UR3 teleoperation data.
 
 ---
 
-## GR00T N1.6 vs N1.6
+## GR00T N1.6 vs N1.7
 
-| | N1.6 | N1.6 |
+| | N1.6 | N1.7 |
 |---|---|---|
-| Backbone | Eagle | Eagle |
-| Base model | `nvidia/GR00T-N1.6-3B` | `nvidia/GR00T-N1.6-3B` |
+| Backbone | Eagle-Block2A-2B | Cosmos-Reason2-2B (Qwen3-VL) |
+| Base model | `nvidia/GR00T-N1.6-3B` | `nvidia/GR00T-N1.7-3B` |
+| **Minimum validated instance** | `ml.g6e.4xlarge` (1× L40S, 48GB) | `ml.g6e.12xlarge` (4× L40S, 192GB) |
 | Reasoning | Basic | Structured (task + subtask level) |
-| Branch | `n1.6-release` | `main` |
+| Training API | `experiment.run(config)` | `launch_finetune.py` CLI |
+| Install | pip + manual venv | Native `uv sync` |
+| Python | 3.11 | 3.12 |
+| Action horizon | Up to 16 | Up to 40 |
 | DROID support | No | Yes (out of box) |
 | Multi-step tasks | Limited | Improved coherence |
 
@@ -125,14 +147,23 @@ GR00T expects data in **LeRobot v2** format (HuggingFace's standard for robot tr
 - **MP4 files** — camera video (wrist cam, overhead cam)
 - **meta/modality.json** — describes the action space and sensor layout
 
-Use `training/groot/convert_zarr_to_lerobot.py` to convert from Zarr/ROS bag format.
+Use `training/gr00t/convert_zarr_to_lerobot.py` to convert from Zarr/ROS bag format.
 
 ---
 
 ## Estimated Costs
+
+### N1.6
 
 | Scenario | Instance | Time | Cost |
 |----------|----------|------|------|
 | Smoke test (100 steps) | ml.g5.xlarge | ~15 min | ~$2 |
 | Full training (5000 steps) | ml.g5.12xlarge | ~11 hrs | ~$79 |
 | Full training (5000 steps) | g5.12xlarge (Batch) | ~11 hrs | ~$56 (EC2 pricing) |
+
+### N1.7
+
+| Scenario | Instance | Time | Cost |
+|----------|----------|------|------|
+| Smoke test (100 steps) | ml.g6e.12xlarge | ~15 min | ~$2 |
+| Full training (10,000 steps) | ml.g6e.12xlarge | ~8-10 hrs (est.) | ~$65-80 |

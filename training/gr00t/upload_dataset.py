@@ -65,7 +65,7 @@ def upload_dataset(dataset_dir: str, bucket: str, prefix: str) -> dict:
 
     print(f"  Upload complete!")
     print(f"\n  Next step: Launch training")
-    print(f"    python training/groot/launch_training.py \\")
+    print(f"    python training/gr00t/launch_training.py \\")
     print(f"      --s3-bucket {bucket} \\")
     print(f"      --dataset-prefix {prefix} \\")
     print(f"      --role-arn <SAGEMAKER_ROLE_ARN> \\")

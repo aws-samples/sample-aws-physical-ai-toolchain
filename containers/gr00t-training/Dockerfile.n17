@@ -1,0 +1,99 @@
+# GR00T N1.7 Fine-Tuning Container
+#
+# Fine-tunes NVIDIA GR00T N1.7-3B on customer data in LeRobot v2 format.
+# Runs on SageMaker (ml.g6e.4xlarge / ml.p4d.24xlarge) or AWS Batch (g6e.4xlarge+).
+#
+# N1.7 requires 48 GB+ VRAM (L40S, A100, H100). A10G (24 GB) is NOT supported.
+#
+# Key differences from N1.6:
+#   - Backbone: Cosmos-Reason2-2B (Qwen3-VL) replaces Eagle-Block2A-2B
+#   - Training API: launch_finetune.py CLI (not experiment.run())
+#   - Install: native uv project (uv sync) instead of pip
+#   - Python: 3.12
+#   - Action horizon: up to 40 steps
+#
+# Requires NGC API key to pull the base image (nvcr.io/nvidia/pytorch).
+
+FROM nvcr.io/nvidia/pytorch:25.04-py3
+
+# N1.7 General Release commit
+ARG GROOT_COMMIT=1a1837f20538b7d7e21f977a11a5aee14f99803c
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_DRIVER_CAPABILITIES=graphics,utility,compute
+
+# System deps
+RUN apt-get update && apt-get install -y \
+    build-essential yasm cmake libtool git git-lfs pkg-config \
+    libass-dev libfreetype6-dev libvorbis-dev \
+    autoconf automake texinfo ffmpeg \
+    wget curl ca-certificates unzip vim less htop \
+    libegl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# AWS CLI v2
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip && ./aws/install && rm -rf awscliv2.zip aws
+
+# UV package manager (latest)
+RUN pip install uv
+
+# Clone Isaac-GR00T N1.7 General Release
+RUN git clone https://github.com/NVIDIA/Isaac-GR00T.git /workspace/gr00t-repo && \
+    cd /workspace/gr00t-repo && \
+    git checkout ${GROOT_COMMIT} && \
+    echo "GR00T version:" && git log -1 --format="%H %ai %s"
+
+# Install via uv sync (N1.7 uses pyproject.toml natively)
+# This creates a .venv with all dependencies including flash-attn
+RUN cd /workspace/gr00t-repo && \
+    uv sync || (sleep 10 && uv sync) || (sleep 30 && uv sync)
+
+# Activate the uv venv
+ENV VIRTUAL_ENV="/workspace/gr00t-repo/.venv"
+ENV PATH="/workspace/gr00t-repo/.venv/bin:${PATH}"
+
+# EGL/Vulkan setup (for any rendering needs)
+RUN mkdir -p /usr/share/glvnd/egl_vendor.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libEGL_nvidia.so.0"}}' \
+    > /usr/share/glvnd/egl_vendor.d/10_nvidia.json
+RUN mkdir -p /usr/share/vulkan/icd.d && \
+    echo '{"file_format_version":"1.0.0","ICD":{"library_path":"libGLX_nvidia.so.0","api_version":"1.2.140"}}' \
+    > /usr/share/vulkan/icd.d/nvidia_icd.json
+
+# Additional utilities for data handling
+RUN pip install boto3 notebook gpustat matplotlib pandas pyarrow "zarr>=2.16" opencv-python-headless
+
+# Copy entrypoints
+COPY containers/gr00t-training/train_entrypoint_n17.py /opt/ml/code/train_entrypoint.py
+COPY containers/gr00t-training/batch-train-entrypoint-n17.sh /opt/ml/code/batch-train
+RUN chmod +x /opt/ml/code/batch-train
+
+# SageMaker compatibility
+ENV PYTHONUNBUFFERED=1
+ENV SAGEMAKER_PROGRAM=train_entrypoint.py
+ENV PYTHONPATH="/workspace/gr00t-repo:/workspace"
+ENV DATASET_LOCAL_DIR="/opt/ml/input/data/training"
+ENV OUTPUT_DIR="/opt/ml/model"
+ENV BASE_MODEL_PATH="nvidia/GR00T-N1.7-3B"
+ENV GROOT_SDK_DIR="/workspace/gr00t-repo"
+
+# Symlink for compatibility
+RUN ln -sf /workspace/gr00t-repo /opt/isaac-gr00t
+
+RUN mkdir -p ${DATASET_LOCAL_DIR} ${OUTPUT_DIR}
+
+WORKDIR /opt/ml/code
+
+# Smart entrypoint: supports both SageMaker (default) and Batch (pass "batch-train" as arg)
+COPY <<'EOF' /opt/ml/code/entrypoint.sh
+#!/bin/bash
+if [ "$1" = "batch-train" ]; then
+    exec bash /opt/ml/code/batch-train
+else
+    exec python /opt/ml/code/train_entrypoint.py "$@"
+fi
+EOF
+RUN chmod +x /opt/ml/code/entrypoint.sh
+
+ENTRYPOINT ["/opt/ml/code/entrypoint.sh"]

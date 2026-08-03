@@ -7,12 +7,12 @@ format expected by NVIDIA GR00T's LeRobotSingleDataset.
 
 Usage (from the repo root):
     # Convert all episodes (after: unzip ur3_episodes_001_027.zip -d training/data/episodes)
-    python training/groot/convert_zarr_to_lerobot.py \
+    python training/gr00t/convert_zarr_to_lerobot.py \
         --episodes-dir training/data/episodes/episodes \
         --output-dir   training/data/ur3_lerobot_dataset
 
     # Convert specific episodes
-    python training/groot/convert_zarr_to_lerobot.py \
+    python training/gr00t/convert_zarr_to_lerobot.py \
         --episodes-dir training/data/episodes/episodes \
         --output-dir   training/data/ur3_lerobot_dataset \
         -e episode_001_pick episode_002_pick
@@ -21,7 +21,7 @@ Usage (from the repo root):
     aws s3 sync training/data/ur3_lerobot_dataset/ "s3://$BUCKET/groot-data/ur3/dataset/"
 
     # Then train (see workshop/lab-1-train-groot.md)
-    python training/groot/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100
+    python training/gr00t/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100
 
 Bring your own data: the input Zarr schema is documented in docs/zarr-schema.md.
 Point --episodes-dir at your own recordings and the same script applies.
@@ -504,7 +504,7 @@ def main():
     print(f"  meta/                 (modality.json, episodes.jsonl, info.json, tasks.jsonl, stats.json)")
     print(f"\nNext steps:")
     print(f'  aws s3 sync {output_dir}/ "s3://$BUCKET/groot-data/ur3/dataset/"')
-    print(f"  python training/groot/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100")
+    print(f"  python training/gr00t/pipeline.py --execute --dataset-prefix groot-data/ur3 --max-steps 100")
 
 
 if __name__ == "__main__":

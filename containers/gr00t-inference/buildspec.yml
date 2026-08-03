@@ -19,10 +19,10 @@ phases:
       - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-west-2.amazonaws.com
   build:
     commands:
-      - echo "Building groot-inference image..."
-      - cd containers/groot-inference
-      - docker build --platform linux/amd64 -t groot-inference .
-      - docker tag groot-inference:latest "$ECR_REPO_URI:latest"
+      - echo "Building gr00t-inference image..."
+      - cd containers/gr00t-inference
+      - docker build --platform linux/amd64 -t gr00t-inference .
+      - docker tag gr00t-inference:latest "$ECR_REPO_URI:latest"
   post_build:
     commands:
       - echo "Pushing to ECR..."

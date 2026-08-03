@@ -42,7 +42,7 @@ Follow [Step 4 in the Batch guide](batch-training-guide.md#step-4-upload-trainin
 ### Preview (no cost)
 
 ```bash
-AWS_DEFAULT_REGION=us-east-2 python3 training/groot/launch_training.py \
+AWS_DEFAULT_REGION=us-east-2 python3 training/gr00t/launch_training.py \
   --s3-bucket physical-ai-dev-datasets-<ACCOUNT_ID> \
   --dataset-prefix groot-data/ur3 \
   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role \
@@ -59,7 +59,7 @@ AWS_DEFAULT_REGION=us-east-2 python3 training/groot/launch_training.py \
 
 ```bash
 HF_TOKEN=<YOUR_HF_TOKEN> \
-AWS_DEFAULT_REGION=us-east-2 python3 training/groot/launch_training.py \
+AWS_DEFAULT_REGION=us-east-2 python3 training/gr00t/launch_training.py \
   --s3-bucket physical-ai-dev-datasets-<ACCOUNT_ID> \
   --dataset-prefix groot-data/ur3 \
   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role \

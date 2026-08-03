@@ -5,7 +5,7 @@
 # `docker run <image> serve` — serve.py ignores the trailing arg and starts Flask.
 #
 # Builds in AWS CodeBuild → ECR (NEVER locally). Same DLC base + GR00T pin as the
-# training image (containers/groot-training) so a checkpoint trained there loads
+# training image (containers/gr00t-training) so a checkpoint trained there loads
 # here without SDK drift.
 FROM 763104351884.dkr.ecr.us-west-2.amazonaws.com/pytorch-inference:2.5.1-gpu-py311-cu124-ubuntu22.04-sagemaker
 

@@ -12,18 +12,18 @@ docs/zarr-schema.md.
 
 Usage:
     # Convert + upload your episodes (bucket auto-detected from the Foundation stack):
-    python training/groot/ingest_customer_data.py \
+    python training/gr00t/ingest_customer_data.py \
         --episodes-dir ./my_robot_episodes \
         --prefix groot-data/myrobot
 
     # ...and immediately launch a 100-step smoke training run:
-    python training/groot/ingest_customer_data.py \
+    python training/gr00t/ingest_customer_data.py \
         --episodes-dir ./my_robot_episodes \
         --prefix groot-data/myrobot \
         --train --max-steps 100
 
     # See exactly what would happen without touching AWS or converting:
-    python training/groot/ingest_customer_data.py \
+    python training/gr00t/ingest_customer_data.py \
         --episodes-dir ./my_robot_episodes --prefix groot-data/myrobot --dry-run
 
 WORKSHOP NOTE: conversion needs the data deps (zarr, opencv, pandas, pyarrow):
@@ -145,7 +145,7 @@ def main():
     print("\n" + json.dumps(result, indent=2))
     if not args.train:
         print(f"\n  Next: launch training with\n"
-              f"    python training/groot/pipeline.py --execute "
+              f"    python training/gr00t/pipeline.py --execute "
               f"--dataset-prefix {args.prefix} --max-steps 100 --region {args.region}")
 
 

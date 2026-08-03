@@ -7,19 +7,19 @@ create_endpoint, using the groot-inference container (BYOC /ping + /invocations)
 
 Usage:
     # Deploy the endpoint (ECR image + role auto-resolved from the Foundation stack):
-    python training/groot/deploy_endpoint.py \
+    python training/gr00t/deploy_endpoint.py \
         --model-s3 s3://<BUCKET>/groot-data/ur3/output/<JOB>/output/model.tar.gz \
         --endpoint-name groot-ur3
 
     # Show exactly what would be created, without touching AWS:
-    python training/groot/deploy_endpoint.py --model-s3 s3://... --dry-run
+    python training/gr00t/deploy_endpoint.py --model-s3 s3://... --dry-run
 
     # Call a live endpoint with a wrist image + robot state:
-    python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
+    python training/gr00t/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
         --image wrist.jpg --state 0,0,0,0,0,0,0 --task "pick up the cube"
 
     # Tear it down (endpoint + config + model) when finished:
-    python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
+    python training/gr00t/deploy_endpoint.py --delete --endpoint-name groot-ur3
 
 GR00T inference needs a GPU endpoint (default ml.g5.2xlarge, ~$1.5/hr) and the
 model loads slowly, so the container startup health-check timeout is 30 min.

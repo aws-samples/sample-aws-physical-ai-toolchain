@@ -16,7 +16,7 @@ export interface ContainerBuildProps {
 
   /**
    * Path to the buildspec file, relative to the repo root.
-   * e.g. `containers/groot-training/buildspec.yml`
+   * e.g. `containers/gr00t-training/buildspec.yml`
    */
   readonly buildSpecPath: string;
 

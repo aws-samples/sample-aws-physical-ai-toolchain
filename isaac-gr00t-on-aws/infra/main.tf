@@ -60,7 +60,7 @@ resource "aws_codebuild_project" "groot_training" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../../containers/groot-training/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/gr00t-training/buildspec.yml")
   }
 
   build_timeout = 60
@@ -109,7 +109,7 @@ resource "aws_codebuild_project" "groot_inference" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../../containers/groot-inference/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/gr00t-inference/buildspec.yml")
   }
 
   build_timeout = 60

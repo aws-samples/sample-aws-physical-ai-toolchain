@@ -7,6 +7,8 @@ version: 0.2
 # Env vars provided by the ContainerBuild construct:
 #   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/groot-training)
 #   AWS_DEFAULT_REGION  - build region
+# NOTE: the ECR repo name itself ("groot-training") is unchanged — only the
+# containers/gr00t-training/ source folder was renamed for spelling consistency.
 
 phases:
   pre_build:
@@ -25,10 +27,10 @@ phases:
       - echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
   build:
     commands:
-      - echo "Building groot-training image..."
-      - echo "Build context contents:" && ls containers/groot-training/
-      - docker build --no-cache --platform linux/amd64 --build-arg DLC_REGION=$AWS_DEFAULT_REGION -t groot-training containers/groot-training/
-      - docker tag groot-training:latest "$ECR_REPO_URI:latest"
+      - echo "Building gr00t-training image..."
+      - echo "Build context contents:" && ls containers/gr00t-training/
+      - docker build --no-cache --platform linux/amd64 --build-arg DLC_REGION=$AWS_DEFAULT_REGION -t gr00t-training containers/gr00t-training/
+      - docker tag gr00t-training:latest "$ECR_REPO_URI:latest"
   post_build:
     commands:
       - echo "Pushing to ECR..."

@@ -158,7 +158,7 @@ unzip -o training/data/ur3_episodes_001_027.zip -d training/data/episodes
 pip install opencv-python-headless zarr pyarrow pandas
 
 # 4. Convert Zarr episodes to LeRobot v2.0 format
-python3 training/groot/convert_zarr_to_lerobot.py \
+python3 training/gr00t/convert_zarr_to_lerobot.py \
   --episodes-dir training/data/episodes/episodes \
   --output-dir training/data/ur3_lerobot_dataset
 
@@ -173,7 +173,7 @@ aws s3 sync training/data/ur3_lerobot_dataset/ \
 If you have your own robot teleoperation data in Zarr format, convert and upload using the same pipeline:
 
 ```bash
-python3 training/groot/convert_zarr_to_lerobot.py \
+python3 training/gr00t/convert_zarr_to_lerobot.py \
   --episodes-dir /path/to/your/episodes \
   --output-dir /tmp/my_lerobot_dataset
 
@@ -409,7 +409,7 @@ terraform destroy -var="aws_region=us-east-2" -var="enable_batch=true"
 
 ## Next Steps
 
-- Deploy the trained model for inference (see `containers/groot-inference/`)
+- Deploy the trained model for inference (see `containers/gr00t-inference/`)
 - Try different datasets and hyperparameters
 - Scale to multi-node training for larger models
 - Compare with the [SageMaker path](sagemaker-training-guide.md) for managed training

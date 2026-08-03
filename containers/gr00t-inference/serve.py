@@ -102,8 +102,8 @@ def load_model():
     video_delta_indices = list(range(0, -max_video_frames, -1)) or [0]
     logger.info(f"Cameras: {camera_names}, frames/camera: {max_video_frames}")
 
-    # Matches the UR3 embodiment used at training time (training/groot/convert_zarr_to_lerobot.py
-    # + containers/groot-training): 6-DOF arm + gripper, EEF velocity-delta actions.
+    # Matches the UR3 embodiment used at training time (training/gr00t/convert_zarr_to_lerobot.py
+    # + containers/gr00t-training): 6-DOF arm + gripper, EEF velocity-delta actions.
     ur3_config = {
         "video": ModalityConfig(delta_indices=video_delta_indices, modality_keys=camera_names),
         "state": ModalityConfig(delta_indices=[0], modality_keys=["arm", "gripper"]),
