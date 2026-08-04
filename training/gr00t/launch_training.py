@@ -9,7 +9,7 @@ Usage:
         --s3-bucket physical-ai-dev-datasets-123456789 \
         --dataset-prefix groot-data/lab1 \
         --role-arn arn:aws:iam::123456789:role/physical-ai-dev-sagemaker-role \
-        --ecr-image 123456789.dkr.ecr.us-west-2.amazonaws.com/physical-ai/groot-training:latest \
+        --ecr-image 123456789.dkr.ecr.us-west-2.amazonaws.com/physical-ai/gr00t-training:latest \
         --max-steps 5000
 
     # Dry run (shows config, doesn't launch):

@@ -5,7 +5,7 @@ version: 0.2
 # CodeBuild authenticates to that account in pre_build.
 #
 # Env vars provided by the ContainerBuild construct:
-#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/groot-inference)
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/gr00t-inference)
 #   AWS_DEFAULT_REGION  - build region
 
 phases:

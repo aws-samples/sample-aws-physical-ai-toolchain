@@ -34,7 +34,7 @@ The `launch_finetune.py` CLI has no `--gradient-checkpointing` flag to work arou
 |-------------|---------------|
 | AWS CLI configured | `aws sts get-caller-identity` |
 | Foundation deployed | `aws ssm get-parameter --name /physical-ai/sagemaker-role-arn --region us-east-2` |
-| Container image in ECR (`:n17` tag) | `aws ecr describe-images --repository-name physical-ai/groot-training --region us-east-2 --image-ids imageTag=n17` |
+| Container image in ECR (`:n17` tag) | `aws ecr describe-images --repository-name physical-ai/gr00t-training --region us-east-2 --image-ids imageTag=n17` |
 | HuggingFace token | Stored in Secrets Manager (`physical-ai/hf-token`) — needed to download `nvidia/GR00T-N1.7-3B` |
 | SageMaker quota for `ml.g6e.12xlarge` | **Must request before first use** |
 
@@ -73,7 +73,7 @@ aws codebuild start-build \
   --environment-variables-override "[{\"name\":\"NGC_API_KEY\",\"value\":\"$NGC_KEY\",\"type\":\"PLAINTEXT\"}]"
 ```
 
-**Build time:** ~15-20 min. Pushes to `physical-ai/groot-training:n17` (and `:latest`).
+**Build time:** ~15-20 min. Pushes to `physical-ai/gr00t-training:n17` (and `:latest`).
 
 > **Compute type note:** Use `BUILD_GENERAL1_2XLARGE` (72 GB RAM). The default project compute (`BUILD_GENERAL1_LARGE`, 8 GB) is not enough for `uv sync` + flash-attn compilation.
 
@@ -101,7 +101,7 @@ python3 training/gr00t/launch_training_n17.py \
   --dataset-prefix groot-data/ur3 \
   --checkpoints-bucket physical-ai-dev-checkpoints-<ACCOUNT_ID> \
   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role \
-  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:n17 \
+  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:n17 \
   --max-steps 100 \
   --region us-east-2
 ```
@@ -115,7 +115,7 @@ aws sagemaker create-training-job \
   --training-job-name "groot-n17-finetune-$(date +%Y%m%d-%H%M%S)" \
   --role-arn "arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role" \
   --algorithm-specification '{
-    "TrainingImage": "<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:n17",
+    "TrainingImage": "<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:n17",
     "TrainingInputMode": "File"
   }' \
   --input-data-config '[{

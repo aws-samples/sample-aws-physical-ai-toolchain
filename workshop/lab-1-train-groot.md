@@ -92,7 +92,7 @@ You should see:
 | DatasetsBucketName | `physical-ai-dev-datasets-<ACCOUNT_ID>` |
 | ModelsBucketName | `physical-ai-dev-models-<ACCOUNT_ID>` |
 | SageMakerRoleArn | `arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role` |
-| GrootTrainingRepoUri | `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/groot-training` |
+| GrootTrainingRepoUri | `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/gr00t-training` |
 
 Save these values — the `pai` commands resolve them for you, but the
 "Under the hood" raw commands and the Step 9 `MODEL_S3` path use `$BUCKET`/`$ECR_URI`:
@@ -270,7 +270,7 @@ aws codebuild list-builds-for-project --project-name physical-ai-groot-training-
   --query 'ids[0]' --output text
 
 # Is the image in ECR yet? (build takes ~10 min)
-aws ecr describe-images --repository-name physical-ai/groot-training \
+aws ecr describe-images --repository-name physical-ai/gr00t-training \
   --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
 ```
 

@@ -5,7 +5,7 @@ version: 0.2
 # CodeBuild authenticates to that account in pre_build. No NGC credentials required.
 #
 # Env vars provided by the ContainerBuild construct:
-#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/groot-training)
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/gr00t-training)
 #   AWS_DEFAULT_REGION  - build region
 # NOTE: the ECR repo name itself ("groot-training") is unchanged — only the
 # containers/gr00t-training/ source folder was renamed for spelling consistency.

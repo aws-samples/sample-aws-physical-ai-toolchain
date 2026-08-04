@@ -126,7 +126,7 @@ resource "aws_iam_role_policy" "batch_s3_ecr" {
           "ecr:BatchGetImage"
         ]
         Resource = [
-          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-training"
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/gr00t-training"
         ]
       },
       {

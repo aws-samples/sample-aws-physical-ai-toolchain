@@ -17,7 +17,7 @@ Usage:
         --dataset-prefix groot-data/ur3 \
         --checkpoints-bucket physical-ai-dev-checkpoints-123456789 \
         --role-arn arn:aws:iam::123456789:role/physical-ai-dev-sagemaker-role \
-        --ecr-image 123456789.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:n17 \
+        --ecr-image 123456789.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:n17 \
         --max-steps 10000
 
     # Dry run (shows config, doesn't launch):

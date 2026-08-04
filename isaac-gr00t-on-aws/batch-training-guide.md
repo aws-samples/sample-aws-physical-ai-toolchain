@@ -223,7 +223,7 @@ aws batch register-job-definition \
   --type container \
   --region us-east-2 \
   --container-properties '{
-    "image": "<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:latest",
+    "image": "<ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:latest",
     "command": ["/opt/ml/code/batch-train"],
     "resourceRequirements": [
       {"type": "VCPU", "value": "48"},

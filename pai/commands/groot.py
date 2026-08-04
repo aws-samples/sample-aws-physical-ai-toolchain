@@ -188,7 +188,7 @@ def launch(dataset_prefix, max_steps, batch_size, instance_type, dry_run):
     # Try SSM parameters first (Terraform/CFN bootstrap), fall back to CDK stack
     bucket = cfn.bucket(STACK_NAME, region)
     role_arn = cfn.role_arn(STACK_NAME, region)
-    ecr_uri = cfn.ecr_uri(STACK_NAME, region, repo="groot-training")
+    ecr_uri = cfn.ecr_uri(STACK_NAME, region, repo="gr00t-training")
     if not (bucket and role_arn and ecr_uri):
         helpers.error("Failed to read infrastructure outputs. Is the foundation deployed?")
         helpers.info(f"  Bucket:   {bucket or 'MISSING'}")

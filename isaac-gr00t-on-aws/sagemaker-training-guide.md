@@ -11,7 +11,7 @@ Fine-tune GR00T N1.6 on Amazon SageMaker. SageMaker provisions GPU instances on 
 | AWS CLI configured | `aws sts get-caller-identity` |
 | Python 3.11+ with boto3 | `python3 -c "import boto3"` |
 | Foundation deployed | `aws ssm get-parameter --name /physical-ai/sagemaker-role-arn --region us-east-2` |
-| Container image in ECR | `aws ecr describe-images --repository-name physical-ai/groot-training --region us-east-2` |
+| Container image in ECR | `aws ecr describe-images --repository-name physical-ai/gr00t-training --region us-east-2` |
 | HuggingFace token | For base model download (set as `HF_TOKEN` env var) |
 | SageMaker GPU quota for ml.g6e.4xlarge | **Must request before first use** |
 
@@ -46,7 +46,7 @@ AWS_DEFAULT_REGION=us-east-2 python3 training/gr00t/launch_training.py \
   --s3-bucket physical-ai-dev-datasets-<ACCOUNT_ID> \
   --dataset-prefix groot-data/ur3 \
   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role \
-  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:latest \
+  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:latest \
   --base-model nvidia/GR00T-N1.6-3B \
   --max-steps 10 \
   --batch-size 2 \
@@ -63,7 +63,7 @@ AWS_DEFAULT_REGION=us-east-2 python3 training/gr00t/launch_training.py \
   --s3-bucket physical-ai-dev-datasets-<ACCOUNT_ID> \
   --dataset-prefix groot-data/ur3 \
   --role-arn arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role \
-  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/groot-training:latest \
+  --ecr-image <ACCOUNT_ID>.dkr.ecr.us-east-2.amazonaws.com/physical-ai/gr00t-training:latest \
   --base-model nvidia/GR00T-N1.6-3B \
   --max-steps 5000 \
   --batch-size 2 \

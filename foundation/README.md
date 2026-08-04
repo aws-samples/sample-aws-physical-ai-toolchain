@@ -11,8 +11,8 @@ Shared AWS resources that all other toolchain components depend on. Deploy this 
 | S3 Bucket | `physical-ai-<env>-datasets-<account>` | Training datasets (LeRobot format, USD) |
 | S3 Bucket | `physical-ai-<env>-models-<account>` | Trained models (ONNX, TensorRT) |
 | S3 Bucket | `physical-ai-<env>-checkpoints-<account>` | Training checkpoints (14-day auto-expiry) |
-| ECR Repo | `physical-ai/groot-training` | GR00T fine-tuning container |
-| ECR Repo | `physical-ai/groot-inference` | GR00T inference container |
+| ECR Repo | `physical-ai/gr00t-training` | GR00T fine-tuning container |
+| ECR Repo | `physical-ai/gr00t-inference` | GR00T inference container |
 | ECR Repo | `physical-ai/isaac-lab` | Isaac Lab RL training container |
 | ECR Repo | `physical-ai/cosmos-transfer` | Cosmos Transfer 2.5 container |
 | ECR Repo | `physical-ai/cosmos3` | Cosmos 3 generation container |
@@ -87,8 +87,8 @@ All resources are published as SSM Parameters under `/physical-ai/`:
 | `/physical-ai/checkpoints-bucket` | Checkpoints bucket name |
 | `/physical-ai/sagemaker-role-arn` | SageMaker execution role ARN |
 | `/physical-ai/cosmos-instance-profile` | Cosmos instance profile name |
-| `/physical-ai/ecr/groot-training` | GR00T training ECR URI |
-| `/physical-ai/ecr/groot-inference` | GR00T inference ECR URI |
+| `/physical-ai/ecr/gr00t-training` | GR00T training ECR URI |
+| `/physical-ai/ecr/gr00t-inference` | GR00T inference ECR URI |
 | `/physical-ai/ecr/isaac-lab` | Isaac Lab ECR URI |
 | `/physical-ai/ecr/cosmos-transfer` | Cosmos Transfer ECR URI |
 | `/physical-ai/ecr/cosmos3` | Cosmos 3 ECR URI |

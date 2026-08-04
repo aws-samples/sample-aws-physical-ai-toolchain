@@ -16,11 +16,11 @@ data "aws_ssm_parameter" "sagemaker_role_arn" {
 }
 
 data "aws_ssm_parameter" "groot_training_ecr" {
-  name = "/${var.project_name}/ecr/groot-training"
+  name = "/${var.project_name}/ecr/gr00t-training"
 }
 
 data "aws_ssm_parameter" "groot_inference_ecr" {
-  name = "/${var.project_name}/ecr/groot-inference"
+  name = "/${var.project_name}/ecr/gr00t-inference"
 }
 
 # =============================================================================
@@ -162,8 +162,8 @@ resource "aws_iam_role_policy" "codebuild" {
           "ecr:CompleteLayerUpload"
         ]
         Resource = [
-          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-training",
-          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/groot-inference",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/gr00t-training",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/gr00t-inference",
           "arn:aws:ecr:${local.region}:763104351884:repository/*",
         ]
       },

@@ -11,7 +11,7 @@ Usage:
     python pipeline.py --create \
         --s3-bucket physical-ai-dev-datasets-<ACCOUNT> \
         --role-arn arn:aws:iam::<ACCOUNT>:role/physical-ai-dev-sagemaker-role \
-        --ecr-image <ACCOUNT>.dkr.ecr.us-west-2.amazonaws.com/physical-ai/groot-training:latest
+        --ecr-image <ACCOUNT>.dkr.ecr.us-west-2.amazonaws.com/physical-ai/gr00t-training:latest
 
     # Execute a run (the pipeline must already exist — run --create first):
     python pipeline.py --execute \
