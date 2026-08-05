@@ -62,7 +62,7 @@ def launch_training_job(
         )
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    job_name = f"groot-n17-finetune-{timestamp}"
+    job_name = f"gr00t-n17-finetune-{timestamp}"
 
     training_config = {
         "TrainingJobName": job_name,

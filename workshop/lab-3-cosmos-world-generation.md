@@ -234,6 +234,60 @@ aws ssm send-command --instance-ids $INSTANCE_ID --document-name AWS-RunShellScr
 
 ---
 
+## Step 3b: Validate the Output in S3
+
+Don't just trust the `HTTP:200` from the generation call — confirm the file actually
+landed in S3 and is a real, playable video before moving on.
+
+**1. Confirm the object exists and check its size:**
+
+```bash
+aws s3 ls s3://<BUCKET>/cosmos-samples/ --region us-east-1 --human-readable
+```
+
+You should see both the original reference clip and the generated output, e.g.:
+```
+2026-08-05 14:49:19  861.7 KiB original_episode_000000.mp4
+2026-08-05 14:49:19    5.9 MiB augmented_episode_000000.mp4
+```
+
+A generated video should be **several MB** (189 frames at 1280x720). If it's only a
+few KB, the generation likely failed silently — check `docker logs cosmos3` on the
+instance for errors before continuing.
+
+**2. Download both files locally to inspect:**
+
+```bash
+mkdir -p ./cosmos-output
+aws s3 cp s3://<BUCKET>/cosmos-samples/original_episode_000000.mp4 ./cosmos-output/ --region us-east-1
+aws s3 cp s3://<BUCKET>/cosmos-samples/generated_demo_seed100.mp4 ./cosmos-output/ --region us-east-1
+ls -lh ./cosmos-output/
+```
+
+**3. Verify it's a valid video (not a truncated/corrupt file):**
+
+```bash
+# ffprobe reports duration, resolution, and codec — a corrupt file will error out here
+ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name \
+  ./cosmos-output/generated_demo_seed100.mp4
+```
+
+Expect `width=1280`, `height=720`, `duration≈7.9` (189 frames at 24fps), and a valid
+`codec_name` (e.g. `h264`). If `ffprobe` errors out or reports `0x0`, the download or
+generation was corrupted — re-run Step 3.
+
+**4. Visually compare original vs. generated:**
+
+Play both files side by side (VS Code's built-in preview, `vlc`, `mpv`, or any video
+player). You're checking:
+- The generated video **starts from the same scene** as the original (same table, same blocks — Cosmos 3 conditions on your input's first frames)
+- The action described in your prompt is **visibly happening** (the right block, moving toward the right target)
+- No obvious artifacts: flickering, extra/missing objects, physically implausible motion
+
+If the generated video doesn't match your prompt (wrong block color, no motion, hallucinated objects), revisit your prompt — see [Prompting Best Practices](#prompting-best-practices) below. This is expected with vague prompts, not a pipeline bug.
+
+---
+
 ## Step 4: Try Different Prompts (~5 min each)
 
 Each generation takes **~5 min on 8x H100**. Change the seed for different trajectories
@@ -303,6 +357,7 @@ The capacity block expires at its end time regardless. Instance charges stop on 
 - [ ] Capacity Block purchased and activated
 - [ ] Cosmos 3 server running (8x H100, `/v1/models` returns `nvidia/Cosmos3-Super`)
 - [ ] Generated at least one synthetic demonstration (HTTP 200, ~7 MB MP4 output)
+- [ ] Confirmed the output in S3 (`aws s3 ls`, correct file size, `ffprobe` reports valid resolution/duration)
 - [ ] Visually verified: output shows coherent pick-and-place trajectory
 - [ ] (Optional) Generated multiple variations (different seeds/prompts)
 - [ ] (Optional) Uploaded all outputs to S3

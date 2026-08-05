@@ -66,7 +66,7 @@ resource "aws_codebuild_project" "cosmos_transfer" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../containers/cosmos-transfer/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/cosmos/buildspec.yml")
   }
 
   build_timeout = 120
@@ -125,7 +125,7 @@ resource "aws_codebuild_project" "cosmos3" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../containers/cosmos3/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/cosmos3/buildspec.yml")
   }
 
   build_timeout = 120

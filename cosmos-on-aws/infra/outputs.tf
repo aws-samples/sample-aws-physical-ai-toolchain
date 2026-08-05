@@ -1,11 +1,13 @@
 output "cosmos_transfer_ecr_uri" {
   description = "ECR URI for the Cosmos Transfer 2.5 container"
   value       = data.aws_ssm_parameter.cosmos_transfer_ecr.value
+  sensitive   = true
 }
 
 output "cosmos3_ecr_uri" {
   description = "ECR URI for the Cosmos 3 container"
   value       = data.aws_ssm_parameter.cosmos3_ecr.value
+  sensitive   = true
 }
 
 output "codebuild_transfer_project" {
