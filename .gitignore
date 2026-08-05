@@ -50,6 +50,7 @@ Thumbs.db
 
 # Terraform
 .terraform/
+.terraform.tfstate.lock.info
 *.tfstate
 *.tfstate.backup
 *.tfstate.*.backup

@@ -1,0 +1,38 @@
+version: 0.2
+
+# Builds the GR00T fine-tuning container in CodeBuild and pushes it to ECR.
+# Base image is an AWS PyTorch Deep Learning Container (ECR account 763104351884);
+# CodeBuild authenticates to that account in pre_build. No NGC credentials required.
+#
+# Env vars provided by the ContainerBuild construct:
+#   ECR_REPO_URI        - full ECR repo URI (…/physical-ai/gr00t-training)
+#   AWS_DEFAULT_REGION  - build region
+# NOTE: the ECR repo name itself ("groot-training") is unchanged — only the
+# containers/gr00t-training/ source folder was renamed for spelling consistency.
+
+phases:
+  pre_build:
+    commands:
+      - echo "Build started on $(date)"
+      - REGISTRY=$(echo "$ECR_REPO_URI" | cut -d/ -f1)
+      - echo "Logging in to target ECR registry $REGISTRY..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+      # The base image is an AWS Deep Learning Container in a public AWS ECR account
+      # (763104351884). CodeBuild must authenticate to pull it.
+      - echo "Logging in to the AWS DLC ECR account (763104351884)..."
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin 763104351884.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
+      # NGC login for the pytorch base image
+      - echo "Logging in to NGC (nvcr.io)..."
+      - NGC_API_KEY=$(aws secretsmanager get-secret-value --secret-id "physical-ai/ngc-api-key" --region "$AWS_DEFAULT_REGION" --query SecretString --output text)
+      - echo "$NGC_API_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
+  build:
+    commands:
+      - echo "Building gr00t-training image..."
+      - echo "Build context contents:" && ls containers/gr00t-training/
+      - docker build --no-cache --platform linux/amd64 --build-arg DLC_REGION=$AWS_DEFAULT_REGION -t gr00t-training containers/gr00t-training/
+      - docker tag gr00t-training:latest "$ECR_REPO_URI:latest"
+  post_build:
+    commands:
+      - echo "Pushing to ECR..."
+      - docker push "$ECR_REPO_URI:latest"
+      - 'echo "Done. Image: $ECR_REPO_URI:latest"'

@@ -60,7 +60,7 @@ Orchestrated by: SageMaker Pipeline (groot-finetune-pipeline)
 - Foundation stack deployed (`pai deploy foundation` — see Lab 0). This already
   triggered the CodeBuild job that builds the training container in the cloud.
 - The `pai` CLI installed (`pip install -e .` from the repo root — see Lab 0). Every
-  step below leads with `pai groot ...`; the raw `python training/groot/...` commands
+  step below leads with `pai groot ...`; the raw `python training/gr00t/...` commands
   are in the "Under the hood" drop-downs if you prefer them.
 - `HF_TOKEN` environment variable set (HuggingFace token for the GR00T base-model
   download; set one to avoid anonymous rate limits during the multi-GB download)
@@ -92,7 +92,7 @@ You should see:
 | DatasetsBucketName | `physical-ai-dev-datasets-<ACCOUNT_ID>` |
 | ModelsBucketName | `physical-ai-dev-models-<ACCOUNT_ID>` |
 | SageMakerRoleArn | `arn:aws:iam::<ACCOUNT_ID>:role/physical-ai-dev-sagemaker-role` |
-| GrootTrainingRepoUri | `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/groot-training` |
+| GrootTrainingRepoUri | `<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/physical-ai/gr00t-training` |
 
 Save these values — the `pai` commands resolve them for you, but the
 "Under the hood" raw commands and the Step 9 `MODEL_S3` path use `$BUCKET`/`$ECR_URI`:
@@ -173,7 +173,7 @@ see the exact command first.
 <summary>Under the hood (raw command)</summary>
 
 ```bash
-python training/groot/convert_zarr_to_lerobot.py \
+python training/gr00t/convert_zarr_to_lerobot.py \
   --episodes-dir training/data/episodes/episodes \
   --output-dir training/data/ur3_lerobot_dataset
 ```
@@ -217,7 +217,7 @@ pai groot ingest \
 <summary>Under the hood (raw command)</summary>
 
 ```bash
-python training/groot/ingest_customer_data.py \
+python training/gr00t/ingest_customer_data.py \
   --episodes-dir ./my_robot_episodes \
   --prefix groot-data/myrobot \
   --train --max-steps 100
@@ -229,7 +229,7 @@ The expected Zarr schema (`observations/joints`, `observations/gripper_position`
 `images/wrist`, `commands.json`, and the `zarr.json` attrs) is documented in full in
 [docs/zarr-schema.md](../docs/zarr-schema.md). For a non-UR3 robot you also update the
 state/action dimensions in `convert_zarr_to_lerobot.py` and the GR00T modality config
-(`containers/groot-training/ur3_modality_config.py`) — both are explained there.
+(`containers/gr00t-training/ur3_modality_config.py`) — both are explained there.
 
 ---
 
@@ -270,7 +270,7 @@ aws codebuild list-builds-for-project --project-name physical-ai-groot-training-
   --query 'ids[0]' --output text
 
 # Is the image in ECR yet? (build takes ~10 min)
-aws ecr describe-images --repository-name physical-ai/groot-training \
+aws ecr describe-images --repository-name physical-ai/gr00t-training \
   --query 'imageDetails[?contains(imageTags, `latest`)].imagePushedAt' --output text
 ```
 
@@ -298,7 +298,7 @@ on an x86 machine with Docker if you want a faster edit/rebuild loop:
 ```bash
 aws ecr get-login-password --region us-east-1 | \
   docker login --username AWS --password-stdin $ECR_URI
-cd containers/groot-training
+cd containers/gr00t-training
 docker build --platform linux/amd64 -t groot-training .
 docker tag groot-training:latest $ECR_URI:latest
 docker push $ECR_URI:latest
@@ -341,14 +341,14 @@ pai groot launch --max-steps 100
 
 ```bash
 # Create the pipeline (one-time; safe to re-run — it updates in place):
-python training/groot/pipeline.py --create \
+python training/gr00t/pipeline.py --create \
   --s3-bucket $BUCKET \
   --role-arn $ROLE_ARN \
   --ecr-image $ECR_URI:latest \
   --region us-west-2
 
 # Execute a 100-step smoke run:
-python training/groot/pipeline.py --execute \
+python training/gr00t/pipeline.py --execute \
   --max-steps 100 \
   --dataset-prefix groot-data/ur3 \
   --region us-west-2
@@ -438,7 +438,7 @@ pai groot runs
 <summary>Under the hood (raw command)</summary>
 
 ```bash
-python training/groot/pipeline.py --list-runs --region us-west-2
+python training/gr00t/pipeline.py --list-runs --region us-west-2
 ```
 
 </details>
@@ -457,7 +457,7 @@ pai groot launch --max-steps 5000
 <summary>Under the hood (raw command)</summary>
 
 ```bash
-python training/groot/pipeline.py --execute --max-steps 5000 \
+python training/gr00t/pipeline.py --execute --max-steps 5000 \
   --dataset-prefix groot-data/ur3 --region us-west-2
 ```
 
@@ -510,14 +510,14 @@ pai groot delete --endpoint-name groot-ur3
 <summary>Under the hood (raw commands)</summary>
 
 ```bash
-python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" \
+python training/gr00t/deploy_endpoint.py --model-s3 "$MODEL_S3" \
   --endpoint-name groot-ur3 --dry-run
-python training/groot/deploy_endpoint.py --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
+python training/gr00t/deploy_endpoint.py --model-s3 "$MODEL_S3" --endpoint-name groot-ur3
 
-python training/groot/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
+python training/gr00t/deploy_endpoint.py --invoke --endpoint-name groot-ur3 \
   --image-path wrist.jpg --state "0,-1.57,1.57,-1.57,-1.57,0,0" --task "pick up the red cube"
 
-python training/groot/deploy_endpoint.py --delete --endpoint-name groot-ur3
+python training/gr00t/deploy_endpoint.py --delete --endpoint-name groot-ur3
 ```
 
 </details>

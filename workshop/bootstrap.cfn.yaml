@@ -83,7 +83,7 @@ Resources:
   GrootTrainingRepo:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub '${ProjectName}/groot-training'
+      RepositoryName: !Sub '${ProjectName}/gr00t-training'
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -93,7 +93,7 @@ Resources:
   GrootInferenceRepo:
     Type: AWS::ECR::Repository
     Properties:
-      RepositoryName: !Sub '${ProjectName}/groot-inference'
+      RepositoryName: !Sub '${ProjectName}/gr00t-inference'
       ImageScanningConfiguration:
         ScanOnPush: true
       LifecyclePolicy:
@@ -281,16 +281,16 @@ Resources:
   GrootTrainingEcrParam:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/ecr/groot-training'
+      Name: !Sub '/${ProjectName}/ecr/gr00t-training'
       Type: String
-      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-training'
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/gr00t-training'
 
   GrootInferenceEcrParam:
     Type: AWS::SSM::Parameter
     Properties:
-      Name: !Sub '/${ProjectName}/ecr/groot-inference'
+      Name: !Sub '/${ProjectName}/ecr/gr00t-inference'
       Type: String
-      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-inference'
+      Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/gr00t-inference'
 
   IsaacLabEcrParam:
     Type: AWS::SSM::Parameter
@@ -340,11 +340,11 @@ Outputs:
 
   GrootTrainingRepoUri:
     Description: ECR URI for GR00T training container
-    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-training'
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/gr00t-training'
 
   GrootInferenceRepoUri:
     Description: ECR URI for GR00T inference container
-    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/groot-inference'
+    Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ProjectName}/gr00t-inference'
 
   IsaacLabRepoUri:
     Description: ECR URI for Isaac Lab container

@@ -39,7 +39,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 | [**Foundation**](foundation/) | Shared S3 buckets, ECR repos, IAM roles, VPC, SSM parameters | `foundation/infra/` | [README](foundation/) | Available |
 | [**Cosmos**](cosmos-on-aws/) | [NVIDIA Cosmos](https://www.nvidia.com/en-us/ai/cosmos/) world generation (Predict V2V) + data augmentation (Transfer 2.5) | `cosmos-on-aws/infra/` | [README](cosmos-on-aws/) | Available |
 | [**Isaac Lab**](isaac-lab-on-aws/) | [NVIDIA Isaac Lab](https://developer.nvidia.com/isaac/lab) RL training (4096 parallel envs) on SageMaker + Batch | `isaac-lab-on-aws/infra/` | [README](isaac-lab-on-aws/) | Available |
-| [**Isaac GR00T**](gr00t-training-on-aws/) | Fine-tune [NVIDIA GR00T](https://developer.nvidia.com/isaac/gr00t) N1.6 VLA model on SageMaker + Batch | `gr00t-training-on-aws/infra/` | [README](gr00t-training-on-aws/) | Available |
+| [**Isaac GR00T**](isaac-gr00t-on-aws/) | Fine-tune [NVIDIA GR00T](https://developer.nvidia.com/isaac/gr00t) N1.6 VLA model on SageMaker + Batch | `isaac-gr00t-on-aws/infra/` | [README](isaac-gr00t-on-aws/) | Available |
 | [**Isaac Sim**](isaac-sim-on-aws/) | [NVIDIA Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) GPU workstation for physics simulation | `isaac-sim-on-aws/infra/` | [README](isaac-sim-on-aws/) | Available |
 | [**OSMO**](osmo-on-aws/) | [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) 6.3 orchestration on EKS - control plane, compute, GPU scheduling | `osmo-on-aws/001-iac/` | [README](osmo-on-aws/) | Available |
 | *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | - | Planned |
@@ -89,7 +89,7 @@ This toolchain supports two usage patterns depending on where you are in your Ph
 |----------|---------------------|
 | Greenfield Physical AI platform | Start with **osmo-on-aws** — it provides orchestration + compute for all stages |
 | Existing pipeline, need RL training | Deploy **isaac-lab-on-aws**, submit jobs via SageMaker or Batch |
-| Existing pipeline, need imitation learning | Deploy **gr00t-training-on-aws**, fine-tune GR00T on your data |
+| Existing pipeline, need imitation learning | Deploy **isaac-gr00t-on-aws**, fine-tune GR00T on your data |
 | Existing pipeline, need SDG only | Deploy **cosmos-on-aws** as a standalone service |
 | Existing pipeline, need edge deployment | Use **jetson-edge-deployment** to package and push models |
 | Migrating from scripts to managed orchestration | Start with **osmo-on-aws**, then migrate stages incrementally |
@@ -152,8 +152,6 @@ Apache 2.0 — see [LICENSE](LICENSE).
 
 ## Authors
 - **Abhishek Srivastav** — Principal Solutions Architect, AWS
-- **Jathavan Sriram** — Senior Solutions Architect, NVIDIA
-- **Ali Shahrokni** — Developer Relations Manager, NVIDIA
 - **Steven DeVries** - Principal Solutions Architect, AWS
 - **Ignacio Salvar** — Solutions Architect, AWS
 - **Adam Weber** — Senior Solutions Architect, AWS

@@ -100,7 +100,7 @@ def role_arn(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None =
     return outputs.get("SageMakerRoleArn", "")
 
 
-def ecr_uri(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None, repo: str = "groot-training") -> str:
+def ecr_uri(stack_name: str = "PhysicalAi-dev-Foundation", region: str | None = None, repo: str = "gr00t-training") -> str:
     """Return the ECR repository URI.
 
     Tries SSM parameter first, falls back to CloudFormation stack outputs.

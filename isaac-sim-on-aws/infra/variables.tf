@@ -42,7 +42,7 @@ variable "allowed_cidrs" {
 variable "volume_size" {
   description = "Root EBS volume size in GB"
   type        = number
-  default     = 200
+  default     = 512
 }
 
 variable "subnet_id" {

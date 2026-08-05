@@ -280,14 +280,14 @@ resource "aws_ssm_parameter" "cosmos_instance_profile" {
 # ECR REPOSITORIES (shared — created once, used by per-component CodeBuild)
 # =============================================================================
 
-resource "aws_ecr_repository" "groot_training" {
-  name                 = "${var.project_name}/groot-training"
+resource "aws_ecr_repository" "gr00t_training" {
+  name                 = "${var.project_name}/gr00t-training"
   image_tag_mutability = "MUTABLE"
   image_scanning_configuration { scan_on_push = true }
 }
 
-resource "aws_ecr_repository" "groot_inference" {
-  name                 = "${var.project_name}/groot-inference"
+resource "aws_ecr_repository" "gr00t_inference" {
+  name                 = "${var.project_name}/gr00t-inference"
   image_tag_mutability = "MUTABLE"
   image_scanning_configuration { scan_on_push = true }
 }
@@ -311,16 +311,16 @@ resource "aws_ecr_repository" "cosmos3" {
 }
 
 # ECR URIs in SSM (so component CodeBuild projects can discover them)
-resource "aws_ssm_parameter" "groot_training_ecr" {
-  name  = "/${var.project_name}/ecr/groot-training"
+resource "aws_ssm_parameter" "gr00t_training_ecr" {
+  name  = "/${var.project_name}/ecr/gr00t-training"
   type  = "String"
-  value = aws_ecr_repository.groot_training.repository_url
+  value = aws_ecr_repository.gr00t_training.repository_url
 }
 
-resource "aws_ssm_parameter" "groot_inference_ecr" {
-  name  = "/${var.project_name}/ecr/groot-inference"
+resource "aws_ssm_parameter" "gr00t_inference_ecr" {
+  name  = "/${var.project_name}/ecr/gr00t-inference"
   type  = "String"
-  value = aws_ecr_repository.groot_inference.repository_url
+  value = aws_ecr_repository.gr00t_inference.repository_url
 }
 
 resource "aws_ssm_parameter" "isaac_lab_ecr" {

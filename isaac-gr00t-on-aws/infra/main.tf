@@ -6,26 +6,30 @@ locals {
   prefix     = "${var.project_name}-${var.environment}"
 }
 
-# Read shared resources from foundation
-data "aws_ssm_parameter" "cosmos_transfer_ecr" {
-  name = "/${var.project_name}/ecr/cosmos-transfer"
+# Read shared resources from foundation (via SSM)
+data "aws_ssm_parameter" "datasets_bucket" {
+  name = "/${var.project_name}/datasets-bucket"
 }
 
-data "aws_ssm_parameter" "cosmos3_ecr" {
-  name = "/${var.project_name}/ecr/cosmos3"
+data "aws_ssm_parameter" "sagemaker_role_arn" {
+  name = "/${var.project_name}/sagemaker-role-arn"
 }
 
-data "aws_ssm_parameter" "cosmos_instance_profile" {
-  name = "/${var.project_name}/cosmos-instance-profile"
+data "aws_ssm_parameter" "groot_training_ecr" {
+  name = "/${var.project_name}/ecr/gr00t-training"
+}
+
+data "aws_ssm_parameter" "groot_inference_ecr" {
+  name = "/${var.project_name}/ecr/gr00t-inference"
 }
 
 # =============================================================================
-# CODEBUILD: COSMOS TRANSFER 2.5
+# CODEBUILD: GROOT TRAINING CONTAINER
 # =============================================================================
 
-resource "aws_codebuild_project" "cosmos_transfer" {
-  name         = "${local.prefix}-cosmos-transfer-build"
-  description  = "Build Cosmos Transfer 2.5 container from source"
+resource "aws_codebuild_project" "groot_training" {
+  name         = "${local.prefix}-gr00t-training-build"
+  description  = "Build GR00T fine-tuning container from PyTorch DLC base + Isaac-GR00T"
   service_role = aws_iam_role.codebuild.arn
 
   artifacts {
@@ -33,24 +37,14 @@ resource "aws_codebuild_project" "cosmos_transfer" {
   }
 
   environment {
-    compute_type    = "BUILD_GENERAL1_2XLARGE"
+    compute_type    = "BUILD_GENERAL1_LARGE"
     image           = "aws/codebuild/standard:7.0"
     type            = "LINUX_CONTAINER"
     privileged_mode = true
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = data.aws_ssm_parameter.cosmos_transfer_ecr.value
-    }
-
-    environment_variable {
-      name  = "COSMOS_REPO"
-      value = var.cosmos_transfer_repo
-    }
-
-    environment_variable {
-      name  = "COSMOS_REF"
-      value = var.cosmos_transfer_ref
+      value = data.aws_ssm_parameter.groot_training_ecr.value
     }
 
     environment_variable {
@@ -66,25 +60,25 @@ resource "aws_codebuild_project" "cosmos_transfer" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../../containers/cosmos/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/gr00t-training/buildspec.yml")
   }
 
-  build_timeout = 120
+  build_timeout = 60
 
   tags = {
     Project     = var.project_name
     Environment = var.environment
-    Component   = "cosmos-transfer"
+    Component   = "groot-training"
   }
 }
 
 # =============================================================================
-# CODEBUILD: COSMOS 3
+# CODEBUILD: GROOT INFERENCE CONTAINER
 # =============================================================================
 
-resource "aws_codebuild_project" "cosmos3" {
-  name         = "${local.prefix}-cosmos3-build"
-  description  = "Build Cosmos 3 (cosmos-framework) container from source"
+resource "aws_codebuild_project" "groot_inference" {
+  name         = "${local.prefix}-gr00t-inference-build"
+  description  = "Build GR00T inference/serving container"
   service_role = aws_iam_role.codebuild.arn
 
   artifacts {
@@ -92,24 +86,14 @@ resource "aws_codebuild_project" "cosmos3" {
   }
 
   environment {
-    compute_type    = "BUILD_GENERAL1_2XLARGE"
+    compute_type    = "BUILD_GENERAL1_LARGE"
     image           = "aws/codebuild/standard:7.0"
     type            = "LINUX_CONTAINER"
     privileged_mode = true
 
     environment_variable {
       name  = "ECR_REPO_URI"
-      value = data.aws_ssm_parameter.cosmos3_ecr.value
-    }
-
-    environment_variable {
-      name  = "COSMOS3_REPO"
-      value = var.cosmos3_repo
-    }
-
-    environment_variable {
-      name  = "COSMOS3_REF"
-      value = var.cosmos3_ref
+      value = data.aws_ssm_parameter.groot_inference_ecr.value
     }
 
     environment_variable {
@@ -125,15 +109,15 @@ resource "aws_codebuild_project" "cosmos3" {
 
   source {
     type      = "NO_SOURCE"
-    buildspec = file("${path.module}/../../containers/cosmos3/buildspec.yml")
+    buildspec = file("${path.module}/../../containers/gr00t-inference/buildspec.yml")
   }
 
-  build_timeout = 120
+  build_timeout = 60
 
   tags = {
     Project     = var.project_name
     Environment = var.environment
-    Component   = "cosmos3"
+    Component   = "groot-inference"
   }
 }
 
@@ -142,7 +126,7 @@ resource "aws_codebuild_project" "cosmos3" {
 # =============================================================================
 
 resource "aws_iam_role" "codebuild" {
-  name = "${local.prefix}-cosmos-codebuild-role"
+  name = "${local.prefix}-gr00t-codebuild-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -155,7 +139,7 @@ resource "aws_iam_role" "codebuild" {
 }
 
 resource "aws_iam_role_policy" "codebuild" {
-  name = "${local.prefix}-cosmos-codebuild-policy"
+  name = "${local.prefix}-gr00t-codebuild-policy"
   role = aws_iam_role.codebuild.id
 
   policy = jsonencode({
@@ -178,8 +162,9 @@ resource "aws_iam_role_policy" "codebuild" {
           "ecr:CompleteLayerUpload"
         ]
         Resource = [
-          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/cosmos-transfer",
-          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/cosmos3",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/gr00t-training",
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/gr00t-inference",
+          "arn:aws:ecr:${local.region}:763104351884:repository/*",
         ]
       },
       {
@@ -190,6 +175,16 @@ resource "aws_iam_role_policy" "codebuild" {
           "logs:PutLogEvents"
         ]
         Resource = ["*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:GetBucketLocation", "s3:ListBucket"]
+        Resource = ["*"]
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["secretsmanager:GetSecretValue"]
+        Resource = ["arn:aws:secretsmanager:*:*:secret:${var.project_name}/ngc-api-key*"]
       }
     ]
   })

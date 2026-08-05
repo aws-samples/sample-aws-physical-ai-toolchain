@@ -72,6 +72,23 @@ resource "aws_iam_role_policy_attachment" "workstation_ecr" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+resource "aws_iam_role_policy" "workstation_s3" {
+  name = "${local.prefix}-isaac-sim-s3"
+  role = aws_iam_role.workstation.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = ["s3:GetObject", "s3:ListBucket"]
+      Resource = [
+        "arn:aws:s3:::physical-ai-*",
+        "arn:aws:s3:::physical-ai-*/*"
+      ]
+    }]
+  })
+}
+
 resource "aws_iam_instance_profile" "workstation" {
   name = "${local.prefix}-isaac-sim-profile"
   role = aws_iam_role.workstation.name
