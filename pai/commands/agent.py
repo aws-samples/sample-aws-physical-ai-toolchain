@@ -77,7 +77,8 @@ def register(cli: click.Group) -> None:
 @click.option("--mode", type=click.Choice(["sim", "real"]), default="sim",
               help="sim: MuJoCo (default, safe); real: physical hardware (opt-in, arm WILL move)")
 @click.option("--policy", default=None,
-              help="Optional policy checkpoint to roll out (local path or s3:// GR00T/LeRobot artifact)")
+              help="Optional policy checkpoint to roll out (local path or s3:// GR00T/LeRobot artifact). "
+                   "Only load checkpoints you trust \u2014 policies can execute arbitrary code.")
 @click.option("--steps", type=int, default=200, help="Max sim steps / agent tool budget")
 @click.option("--dry-run", is_flag=True, help="Show what would run; start nothing")
 def sim(robot: str, task: str, mode: str, policy: str | None, steps: int, dry_run: bool):
@@ -120,6 +121,9 @@ def sim(robot: str, task: str, mode: str, policy: str | None, steps: int, dry_ru
         # Roll out a trained checkpoint (GR00T / LeRobot) on the sim twin or arm.
         # strands_robots resolves the provider from the checkpoint; the agent then
         # supervises the rollout in natural language.
+        # A checkpoint can execute arbitrary code on load (pickle / custom model
+        # code), so only ever roll out artifacts from a source you trust.
+        helpers.warn("  Only load policy checkpoints you trust — they can execute arbitrary code.")
         helpers.info("  Loading policy checkpoint via strands-robots...")
 
     result = Agent(tools=[rob])(task)

@@ -185,6 +185,7 @@ from strands_robots import Robot
 robot = Robot("so101")                 # MuJoCo sim by default; mode="real" for hardware
 robot.run_policy(                      # roll out the fine-tuned GR00T checkpoint
     policy_provider="groot",
+    # Only use checkpoints you trust — a policy artifact can execute arbitrary code on load.
     policy_config={"pretrained_name_or_path": "s3://.../output/model.tar.gz"},
 )
 Agent(tools=[robot])("pick up the red cube")   # agent supervises the rollout in NL

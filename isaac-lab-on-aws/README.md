@@ -155,6 +155,7 @@ from strands import Agent
 from strands_robots import Robot
 
 robot = Robot("anymal_d")                        # MuJoCo twin by default; Isaac Sim backend available
+# Only use policies you trust — a checkpoint can execute arbitrary code on load.
 robot.run_policy(policy_config={"pretrained_name_or_path": "s3://.../policy.pt"})
 Agent(tools=[robot])("walk forward across the rough terrain")
 ```
