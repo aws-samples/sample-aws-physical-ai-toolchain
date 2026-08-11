@@ -62,6 +62,18 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 
 ---
 
+## Agentic Orchestration with Strands Agents
+
+[**strands-robots**](https://github.com/strands-labs/robots) ships a **Cosmos 3
+trainer** (`strands_robots.training.cosmos3`) that drives the same
+`cosmos-framework` SFT pipeline as a Python library. This lets a
+[Strands Agent](https://strandsagents.com) orchestrate the data-generation stage —
+scripting scene prompts, launching Cosmos runs, and curating the generated episodes
+into a LeRobot v2 dataset for downstream GR00T fine-tuning. See
+[strands-agents-on-aws](../strands-agents-on-aws/) for the orchestration layer.
+
+---
+
 ## Next Steps
 
 - **Action-paired augmentation** — for restyling existing video while preserving ground-truth actions, see Cosmos Transfer 2.5 (`containers/cosmos/`)

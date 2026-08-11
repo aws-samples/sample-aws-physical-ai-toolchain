@@ -28,7 +28,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 
 **Data → Train → Validate → Deploy → Feedback → Generate** — a closed loop of continuous model improvement.
 
-**Orchestration** spans the entire cycle — [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) coordinates task scheduling, data flow, dependency resolution, and resource allocation across heterogeneous compute.
+**Orchestration** spans the entire cycle — [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) coordinates task scheduling, data flow, dependency resolution, and resource allocation across heterogeneous compute. At the agentic layer, [**Strands Agents**](strands-agents-on-aws/) drive robots in natural language and close the loop — turning a trained policy into robot behavior, then deciding what to generate or train next.
 
 ---
 
@@ -43,7 +43,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 | [**Isaac Sim**](isaac-sim-on-aws/) | [NVIDIA Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) GPU workstation for physics simulation | `isaac-sim-on-aws/infra/` | [README](isaac-sim-on-aws/) | Available |
 | [**OSMO**](osmo-on-aws/) | [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) 6.3 orchestration on EKS - control plane, compute, GPU scheduling | `osmo-on-aws/001-iac/` | [README](osmo-on-aws/) | Available |
 | *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | - | Planned |
-| *Agentic Orchestration* | AI orchestration with Strands Agents SDK + Amazon Bedrock AgentCore | Planned | - | Planned |
+| [**Strands Agents**](strands-agents-on-aws/) | Natural-language robot orchestration with [Strands Agents](https://strandsagents.com) SDK + [strands-robots](https://github.com/strands-labs/robots) (MuJoCo sim by default, real hardware opt-in); Amazon Bedrock AgentCore hosted runtime planned | (control plane) | [README](strands-agents-on-aws/) | Available |
 | *Model Evaluation* | Benchmarking, regression testing, and safety validation pipelines | Planned | - | Planned |
 
 ---
