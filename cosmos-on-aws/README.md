@@ -59,7 +59,7 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 | [`launch-cosmos3.sh`](launch-cosmos3.sh) | Launch p5.48xlarge into an active Capacity Block (EC2 path) |
 | [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) | Pull the container and start the Cosmos3-Super server (EC2 path) |
 | [`generate-v2v.sh`](generate-v2v.sh) | Generate a V2V synthetic demonstration from a reference video (EC2 path) |
-| [`cosmos3-job.yaml`](cosmos3-job.yaml) | Kubernetes Job + Service running the Cosmos3-Super server (EKS path) |
+| [`cosmos3-job.yaml`](cosmos3-job.yaml) | Self-contained Kubernetes Job — starts the Cosmos3-Super server, generates, and writes output straight to S3, all inside the pod (EKS path) |
 | `infra/ec2.tf` | Terraform for the EC2 server instance |
 | `infra/eks.tf` | Terraform for the dedicated EKS cluster + GPU node group |
 | `infra/main.tf` | Terraform for the CodeBuild-based container build path (Cosmos 3 + Cosmos Transfer 2.5) |

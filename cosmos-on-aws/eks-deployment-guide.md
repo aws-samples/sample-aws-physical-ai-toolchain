@@ -1,6 +1,6 @@
 # Cosmos 3 on EKS — Deployment Guide
 
-Deploy the Cosmos3-Super V2V generation server on a dedicated Amazon EKS cluster. **Validated end-to-end**, including fully automatic GPU node scaling — a real UR3 clip generated a synthetic video after Cluster Autoscaler brought up a GPU node group launched into an EC2 Capacity Block, then scaled it back down automatically when idle. Output matched the EC2 path.
+Run Cosmos3-Super V2V generation as a **self-contained Kubernetes Job** on a dedicated Amazon EKS cluster. **Validated end-to-end**, including fully automatic GPU node scaling — a real UR3 clip generated a synthetic video after Cluster Autoscaler brought up a GPU node group launched into an EC2 Capacity Block, and the pod handled the whole pipeline internally (start server → wait ready → pull reference video from S3 → generate → push result to S3 → exit) before Cluster Autoscaler scaled the node back down automatically. Output matched the EC2 path.
 
 See [`README.md`](README.md) for the overview and the EC2-vs-EKS comparison.
 
@@ -33,26 +33,36 @@ Use the [EC2 guide](ec2-deployment-guide.md) instead if you're experimenting, ru
 │                                │ via capacity_reservation_specification │    │
 │                                │ + instance_market_options              │    │
 │                                │                                        │    │
-│                                │  Job: cosmos3-vllm-omni                │    │
-│                                │  ┌──────────────────────────────┐    │    │
-│                                │  │ vllm/vllm-omni:cosmos3        │    │    │
-│                                │  │ vllm serve nvidia/Cosmos3-Super│    │    │
-│                                │  │ --cfg-parallel-size 2          │    │    │
-│                                │  │ --ulysses-degree 4             │    │    │
-│                                │  │ --use-hsdp --hsdp-shard-size 8 │    │    │
-│                                │  └──────────────────────────────┘    │    │
+│                                │  Job: cosmos3-vllm-omni (self-contained) │  │
+│                                │  ┌──────────────────────────────────┐  │  │
+│                                │  │ vllm/vllm-omni:cosmos3            │  │  │
+│                                │  │ 1. vllm serve nvidia/Cosmos3-Super │  │  │
+│                                │  │    (background, cfg=2 uly=4 hsdp=8)│  │  │
+│                                │  │ 2. wait for localhost:8000 ready   │  │  │
+│                                │  │ 3. aws s3 cp reference video in    │  │  │
+│                                │  │ 4. POST localhost:8000/v1/videos/  │  │  │
+│                                │  │    sync → emptyDir scratch          │  │  │
+│                                │  │ 5. aws s3 cp output + reference out │  │  │
+│                                │  │ 6. exit → Job shows Completed       │  │  │
+│                                │  └──────────────────────────────────┘  │  │
 │                                │  ServiceAccount: cosmos3-generator     │    │
-│                                │  (IRSA → S3 write + Secrets read)     │    │
+│                                │  (IRSA → S3 read/write + Secrets read)│    │
 │                                └──────────────────────────────────────┘    │
-└──────────────────────────┬───────────────────────────────────────────────────┘
-                           │ kubectl port-forward svc/cosmos3-vllm-omni 8000:8000
-                           ▼
-                    POST /v1/videos/sync
-                    -F input_reference=@your_ur3_clip.mp4
-                           │
-                           ▼
-                    S3 (cosmos-samples/)
+└──────────────────────────────────────────────────────────────────────────────┘
+                                            │
+                                            ▼
+                                   S3 (cosmos-samples/)
+                        input pulled + output/reference pushed
+                        entirely from inside the pod — no external
+                        kubectl port-forward / curl / local file hop
 ```
+
+The pod does everything itself: it reads the reference clip directly from S3 and
+writes the generated video (plus a copy of the reference) directly back to S3
+using its own IRSA credentials. The only place a file touches local disk is the
+pod's own `emptyDir` scratch volume, which is required for the HTTP multipart
+upload/download to the local server — there's no local file on your machine and
+no external client driving the generation call.
 
 ---
 
@@ -193,98 +203,75 @@ kubectl get node <GPU_NODE_NAME> -o jsonpath='{.status.capacity.nvidia\.com/gpu}
 
 ---
 
-## Step 5: Deploy the Cosmos3 Job
+## Step 5: Deploy the Self-Contained Cosmos3 Job
 
-The Job manifest (`cosmos-on-aws/cosmos3-job.yaml`) runs the same server configuration validated on EC2 — `vllm/vllm-omni:cosmos3` serving `nvidia/Cosmos3-Super` with `--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8` — as a Kubernetes `Job` + `Service`, using `emptyDir` for the model weight cache (re-downloaded per pod; see [Future Work](#future-work-multi-replica--shared-storage) for shared caching) and the `cosmos3-generator` ServiceAccount for IRSA.
+The Job manifest (`cosmos-on-aws/cosmos3-job.yaml`) runs the same server configuration validated on EC2 — `vllm/vllm-omni:cosmos3` serving `nvidia/Cosmos3-Super` with `--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8` — but unlike an earlier version of this guide, the pod is **fully self-contained**. There's no `Service`, no `kubectl port-forward`, and no external `curl` call. The container's own entrypoint script:
+
+1. Installs the AWS CLI (`pip3 install awscli` — the image has no `unzip`, so the official zip installer doesn't work)
+2. Starts `vllm serve` in the background
+3. Polls `http://localhost:8000/v1/models` until the server reports ready
+4. Downloads the reference video from S3 (`INPUT_S3_URI`) straight into its `emptyDir` scratch volume, using the pod's own IRSA credentials
+5. `POST`s to its own `localhost:8000/v1/videos/sync` to generate the V2V output
+6. Uploads the result and a copy of the reference to S3 (`OUTPUT_S3_PREFIX`)
+7. Exits — the Job reports `Completed`
+
+Configure the run via the env vars in the manifest (`INPUT_S3_URI`, `OUTPUT_S3_PREFIX`, `OUTPUT_FILENAME`, `REFERENCE_FILENAME`, `PROMPT`, `SEED`) instead of running commands by hand.
 
 ```bash
 cd cosmos-on-aws
 kubectl apply -f cosmos3-job.yaml
 ```
 
-Watch the pod schedule onto the GPU node and start:
+Watch the pod schedule onto the GPU node and follow the whole pipeline in its logs:
 ```bash
 kubectl get pods -l app=cosmos3-vllm-omni -o wide
 kubectl logs -l app=cosmos3-vllm-omni -f
 ```
 
-**Model weight download is ~126 GB from HuggingFace** — same as EC2, takes 15-20 min on first pull since the `emptyDir` cache doesn't persist across pod restarts.
+**Model weight download is ~126 GB from HuggingFace** — same as EC2, takes 15-20 min on first pull since the `emptyDir` cache doesn't persist across pod restarts. Model load itself (weights → GPU, HSDP sharding, torch.compile) adds another few minutes once the download completes.
 
-Port-forward to reach the server (do this in a background terminal or separate session):
-```bash
-kubectl port-forward svc/cosmos3-vllm-omni 8000:8000
-```
+The Job has `activeDeadlineSeconds: 2700` (45 min), enough for a first-time model download + load (~15-20 min) + generation (~2-8 min) + upload with headroom. Once the model is warm on a still-running node, a rerun of the Job would only need the generation + upload portion — but note the `emptyDir` cache doesn't survive pod deletion, so a brand-new pod always re-downloads.
 
-Check readiness:
-```bash
-curl -s http://localhost:8000/v1/models
-```
-Ready when it returns `{"data":[{"id":"nvidia/Cosmos3-Super",...}]}`.
-
-**Validated timing (including autoscaler-driven node launch):** pod `Pending` → `Running` in ~9 min (autoscaler scale-up ~44s + node join/join-ready ~2-3 min + image pull ~5-6 min); weight download + model init added another ~15 min on top, consistent with the EC2 path.
-
-> **Avoid `kubectl exec -it` in non-interactive/scripted environments** (CI, automation, or a tool-driven session without a real TTY) — it panics with a Go runtime nil-pointer crash trying to manage terminal resize. Use `kubectl port-forward` + `curl` from outside the pod instead, as shown above; it doesn't need a TTY and is what this guide validated against.
+> **Avoid `kubectl exec -it` in non-interactive/scripted environments** (CI, automation, or a tool-driven session without a real TTY) — it panics with a Go runtime nil-pointer crash trying to manage terminal resize. `kubectl logs -f` (used above) doesn't need a TTY and is sufficient to follow this Job's progress.
 
 ---
 
-## Step 6: Generate a World from Your UR3 Data
+## Step 6: Confirm It Finished and Check the Output in S3
 
-With the port-forward running, generate directly against `localhost:8000` — no need to copy the reference video into the pod first (unlike the EC2/Docker path):
-
+Wait for the Job to report success:
 ```bash
-cd cosmos-on-aws
-aws s3 cp s3://<DATASETS_BUCKET>/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4 \
-  ./episode_000000.mp4 --region <REGION>
-
-PROMPT="A UR3 robot arm with a Robotiq gripper reaches down to a dark matte table, grasps a small red wooden block, lifts it slowly, and places it onto a yellow sticky note approximately 6 inches away. Top-down wrist camera view. Colorful wooden blocks are scattered on the table. Smooth deliberate motion."
-
-curl -sS -X POST http://localhost:8000/v1/videos/sync \
-  -H "Accept: video/mp4" \
-  -F "model=nvidia/Cosmos3-Super" \
-  -F "prompt=${PROMPT}" \
-  -F "size=1280x720" \
-  -F "num_frames=189" \
-  -F "fps=24" \
-  -F "num_inference_steps=35" \
-  -F "guidance_scale=6.0" \
-  -F "max_sequence_length=4096" \
-  -F "flow_shift=10.0" \
-  -F "extra_params={\"condition_frame_indexes_vision\":[0,1],\"condition_video_keep\":\"first\"}" \
-  -F "seed=100" \
-  -F "input_reference=@episode_000000.mp4;type=video/mp4" \
-  -o output_eks_v2v.mp4 \
-  --max-time 600 \
-  -w "\nHTTP:%{http_code} SIZE:%{size_download}\n"
+kubectl get jobs cosmos3-vllm-omni
 ```
+Look for `COMPLETIONS: 1/1`. `kubectl describe job cosmos3-vllm-omni` shows `1 Succeeded` under Pods Statuses once done, and the pod's own logs (still visible via `kubectl logs <pod-name>` even after it exits) end with the upload confirmations followed by `Job complete.`
 
-Same required parameters as the [EC2 path](ec2-deployment-guide.md#step-4-generate-a-world-from-your-ur3-data) — this is the same server, just reached via `kubectl port-forward` instead of SSM.
+**Validated result:** pod ran the full pipeline unattended — server ready → reference video downloaded from S3 → V2V generated → both output and reference uploaded to S3 → clean exit, `Job` `Completed`.
 
-**Validated result:** HTTP 200, 6.1 MB output, generated in a few minutes with a warm model — matching the EC2 path's output size closely (5.9-6.1 MB range across both paths).
-
----
-
-## Step 7: Validate the Output
-
-Same validation approach as [EC2 Step 4b](ec2-deployment-guide.md#step-4b-validate-the-output-in-s3):
-
+Confirm the two new objects landed in S3 (filenames come from `OUTPUT_FILENAME`/`REFERENCE_FILENAME` in the manifest):
 ```bash
-ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name \
-  output_eks_v2v.mp4
-```
-
-Expect `width=1280`, `height=720`, `codec_name=h264`, `duration≈7.875` (189 frames at 24fps). **Validated exactly this on the EKS path.**
-
-Upload to S3 and confirm:
-```bash
-aws s3 cp output_eks_v2v.mp4 s3://<DATASETS_BUCKET>/cosmos-samples/augmented_episode_000000_eks.mp4 --region <REGION>
 aws s3 ls s3://<DATASETS_BUCKET>/cosmos-samples/ --region <REGION> --human-readable
 ```
 
 ---
 
+## Step 7: Validate the Output
+
+Pull the generated file down locally just to run `ffprobe` against it — this is a one-off validation step, not part of the pipeline itself:
+
+```bash
+aws s3 cp s3://<DATASETS_BUCKET>/cosmos-samples/augmented_episode_000000_eks_selfcontained.mp4 . --region <REGION>
+ffprobe -v error -show_entries format=duration,size -show_entries stream=width,height,codec_name \
+  augmented_episode_000000_eks_selfcontained.mp4
+```
+
+Expect `width=1280`, `height=720`, `codec_name=h264`, `duration≈7.875` (189 frames at 24fps). **Validated exactly this on the self-contained EKS Job path** — matches the EC2 path's output.
+
+Same validation approach as [EC2 Step 4b](ec2-deployment-guide.md#step-4b-validate-the-output-in-s3), just pulling from a different S3 key.
+
+---
+
 ## Step 8: Tear Down
 
-**Delete the Job** when done generating — Cluster Autoscaler takes care of scaling the GPU node back to 0 automatically (~10-15 min after the node goes idle, no action needed):
+**Delete the Job** when done — since it's `restartPolicy: Never` with `backoffLimit: 0`, the pod already exited on its own after uploading to S3 (Job shows `Completed`). Deleting just cleans up the Job/pod objects; Cluster Autoscaler takes care of scaling the GPU node back to 0 automatically (~10-15 min after the node goes idle, no action needed):
 ```bash
 kubectl delete -f cosmos-on-aws/cosmos3-job.yaml
 ```
@@ -338,8 +325,9 @@ The Capacity Block itself expires automatically at its end time regardless of no
 | Pod scheduled but never becomes `Running` / image pull slow | ~30GB `vllm/vllm-omni:cosmos3` pull on first schedule to a fresh node | Normal — same pull time as the EC2 path; check `kubectl describe pod` for pull progress |
 | `terraform init` fails with a provider version conflict | EKS module requires AWS provider `< 6.0.0`, lock file has a newer version | `terraform init -upgrade` |
 | IAM role name length error on `terraform plan`/`apply` | EKS module appends `-eks-node-group-<suffix>` to node group names; long prefixes exceed IAM's 38-char `name_prefix` limit | Keep node group `name` short (this repo uses `cosmos3-system` / `cosmos3-gpu`, not prefixed with the full stack name) |
-| `kubectl exec -it ... -- curl ...` panics with a Go nil-pointer crash | No real TTY available (scripted/automated shell) | Use `kubectl port-forward` + `curl` from outside the pod instead |
+| `kubectl exec -it ... -- curl ...` panics with a Go nil-pointer crash | No real TTY available (scripted/automated shell) | Not needed for this Job — everything runs inside the container's entrypoint script. Use `kubectl logs -f <pod-name>` to follow progress instead of `exec -it` |
 | GPU node stuck at `NotReady` after joining | Normal for the first ~10-30s while kubelet/CNI initialize | Wait; check `kubectl describe node` if it persists past a minute |
+| Entrypoint fails trying to install AWS CLI (`unzip: not found` or similar) | `vllm/vllm-omni:cosmos3` doesn't ship `unzip`, which the official AWS CLI v2 zip installer requires | Already fixed in `cosmos3-job.yaml` — installs via `pip3 install awscli` instead, which is pure-Python and needs no `unzip` |
 
 ---
 
