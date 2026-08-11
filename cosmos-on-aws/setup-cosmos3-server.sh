@@ -14,8 +14,8 @@
 
 set -e
 
-REGION="us-east-2"
-ACCOUNT_ID="804152302157"
+# Account-specific — replace before running (see ec2-deployment-guide.md).
+REGION="<REGION>"
 
 echo "=== Step 1: Verify GPUs ==="
 nvidia-smi -L

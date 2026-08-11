@@ -217,6 +217,15 @@ The Job manifest (`cosmos-on-aws/cosmos3-job.yaml`) runs the same server configu
 
 Configure the run via the env vars in the manifest (`INPUT_S3_URI`, `OUTPUT_S3_PREFIX`, `OUTPUT_FILENAME`, `REFERENCE_FILENAME`, `PROMPT`, `SEED`) instead of running commands by hand.
 
+**Before applying, replace the placeholders in `cosmos3-job.yaml`** with your own values — the manifest ships with `<REGION>` and `<DATASETS_BUCKET>` instead of a specific account's values so it stays account-agnostic:
+
+```bash
+DATASETS_BUCKET=$(terraform -chdir=../foundation/infra output -raw datasets_bucket_name)
+sed -i "s/<REGION>/<REGION>/g; s/<DATASETS_BUCKET>/${DATASETS_BUCKET}/g" cosmos-on-aws/cosmos3-job.yaml
+```
+
+(Substitute your actual region for the first `<REGION>` above, or just open the file and edit the two `env` entries directly — `AWS_REGION`, `INPUT_S3_URI`, `OUTPUT_S3_PREFIX`.)
+
 ```bash
 cd cosmos-on-aws
 kubectl apply -f cosmos3-job.yaml

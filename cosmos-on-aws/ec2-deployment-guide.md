@@ -146,6 +146,8 @@ aws ssm describe-instance-information \
 
 [`launch-cosmos3.sh`](launch-cosmos3.sh) does the same thing via `aws ec2 run-instances` directly, with the AZ/subnet/CR ID hardcoded as script variables instead of Terraform inputs. Kept for reference — prefer the Terraform path above for anything beyond a quick one-off test, since it keeps the instance definition versioned alongside the rest of this component's infra.
 
+**Edit the placeholders at the top of the script first** — `REGION`, `AVAILABILITY_ZONE`, `CAPACITY_RESERVATION_ID`, `SUBNET_ID`, `SECURITY_GROUP_ID`, `INSTANCE_PROFILE_NAME`, and `AMI_ID` are all account/environment-specific. `SUBNET_ID`, `SECURITY_GROUP_ID`, and `INSTANCE_PROFILE_NAME` come from the Foundation stack's Terraform outputs (`terraform -chdir=../foundation/infra output`); `CAPACITY_RESERVATION_ID` from Step 1; `AMI_ID` from your region's latest GPU-optimized AMI.
+
 ```bash
 bash cosmos-on-aws/launch-cosmos3.sh
 ```
@@ -156,7 +158,9 @@ bash cosmos-on-aws/launch-cosmos3.sh
 
 ## Step 3: Start the Cosmos 3 Server
 
-Run [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) on the instance via SSM (base64-encode it so multi-line content survives the SSM parameter):
+**Edit `REGION` at the top of [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh)** to your own region before running — it's a placeholder, not a real value.
+
+Run it on the instance via SSM (base64-encode it so multi-line content survives the SSM parameter):
 
 ```bash
 INSTANCE_ID=<from Step 2>
@@ -192,7 +196,9 @@ Ready when it returns `{"data":[{"id":"nvidia/Cosmos3-Super",...}]}`.
 
 ## Step 4: Generate a World from Your UR3 Data
 
-Run [`generate-v2v.sh`](generate-v2v.sh) — it pulls a reference clip from your S3 dataset, submits it to the server, and uploads the result:
+**Edit `REGION` and `ACCOUNT_ID` at the top of [`generate-v2v.sh`](generate-v2v.sh)** to your own values before running (they're placeholders, not real values) — or just set `DATASETS_BUCKET` directly if you already have it from `terraform -chdir=../foundation/infra output -raw datasets_bucket_name`.
+
+Run the script — it pulls a reference clip from your S3 dataset, submits it to the server, and uploads the result:
 
 ```bash
 SCRIPT_B64=$(base64 -w0 cosmos-on-aws/generate-v2v.sh)

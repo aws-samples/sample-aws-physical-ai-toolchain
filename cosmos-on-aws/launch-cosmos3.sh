@@ -3,9 +3,14 @@
 # Cosmos 3 — Launch & Setup Script
 #
 # Prerequisites:
-#   - Capacity Block cr-0d731ac15fed53d9d is ACTIVE
+#   - An ACTIVE P5 Capacity Block (see ec2-deployment-guide.md Step 1)
 #   - HF token stored in Secrets Manager: physical-ai/hf-token
 #   - ECR repo exists: physical-ai/cosmos3
+#
+# BEFORE RUNNING: replace every <PLACEHOLDER> below with your own
+# account/environment values (see ec2-deployment-guide.md Step 2). SUBNET,
+# SG, and PROFILE come from the Foundation stack's Terraform outputs; AMI is
+# region-specific (latest AL2 GPU-optimized ECS/EKS AMI or Deep Learning AMI).
 #
 # Usage:
 #   bash cosmos-on-aws/launch-cosmos3.sh
@@ -13,13 +18,13 @@
 
 set -e
 
-REGION="us-east-2"
-AZ="us-east-2a"
-CR_ID="cr-0c6a09df6922a8364"
-SUBNET="subnet-09bd5f18d618d17e3"
-SG="sg-0aa95eb60b6f55027"
-PROFILE="physical-ai-dev-cosmos-profile"
-AMI="ami-095f757d9450363f1"
+REGION="<REGION>"
+AZ="<AVAILABILITY_ZONE>"
+CR_ID="<CAPACITY_RESERVATION_ID>"
+SUBNET="<SUBNET_ID>"
+SG="<SECURITY_GROUP_ID>"
+PROFILE="<INSTANCE_PROFILE_NAME>"
+AMI="<AMI_ID>"
 INSTANCE_TYPE="p5.48xlarge"
 
 echo "=== Checking Capacity Block state ==="

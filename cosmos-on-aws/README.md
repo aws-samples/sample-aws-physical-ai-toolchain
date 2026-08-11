@@ -25,8 +25,9 @@ Cosmos3-Super's **V2V (video-to-video)** mode takes a reference video as the sta
 
 **Artifacts in S3 (for your own validation):**
 ```bash
-aws s3 cp s3://physical-ai-dev-datasets-804152302157/cosmos-samples/original_episode_000000.mp4 ./
-aws s3 cp s3://physical-ai-dev-datasets-804152302157/cosmos-samples/augmented_episode_000000.mp4 ./
+DATASETS_BUCKET=$(terraform -chdir=../foundation/infra output -raw datasets_bucket_name)
+aws s3 cp s3://${DATASETS_BUCKET}/cosmos-samples/original_episode_000000.mp4 ./
+aws s3 cp s3://${DATASETS_BUCKET}/cosmos-samples/augmented_episode_000000.mp4 ./
 ```
 Play both side by side — `original_episode_000000.mp4` (861.7 KiB, the real input) vs `augmented_episode_000000.mp4` (5.9 MiB, the Cosmos 3 output) — to see the generated trajectory against the source scene it was conditioned on.
 

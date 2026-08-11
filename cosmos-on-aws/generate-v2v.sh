@@ -11,8 +11,11 @@
 
 set -e
 
-REGION="us-east-2"
-ACCOUNT_ID="804152302157"
+# Account-specific — replace both before running (see ec2-deployment-guide.md).
+# Or set DATASETS_BUCKET directly, e.g. from:
+#   terraform -chdir=../foundation/infra output -raw datasets_bucket_name
+REGION="<REGION>"
+ACCOUNT_ID="<ACCOUNT_ID>"
 DATASETS_BUCKET="physical-ai-dev-datasets-${ACCOUNT_ID}"
 
 echo "=== Step 1: Verify server is ready ==="

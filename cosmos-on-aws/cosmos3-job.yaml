@@ -13,6 +13,11 @@
 #
 # Configure via the env vars below (INPUT_S3_URI, OUTPUT_S3_PREFIX, PROMPT,
 # SEED) instead of editing the script.
+#
+# BEFORE APPLYING: replace <DATASETS_BUCKET> and <REGION> below with your own
+# values (see eks-deployment-guide.md Step 5). <DATASETS_BUCKET> is the
+# Foundation stack's datasets bucket name — get it with:
+#   terraform -chdir=foundation/infra output -raw datasets_bucket_name
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -135,9 +140,11 @@ spec:
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef: { name: hf-token, key: token }
-            - { name: AWS_REGION, value: "us-east-2" }
-            - { name: INPUT_S3_URI, value: "s3://physical-ai-dev-datasets-804152302157/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4" }
-            - { name: OUTPUT_S3_PREFIX, value: "s3://physical-ai-dev-datasets-804152302157/cosmos-samples" }
+            # <REGION> and <DATASETS_BUCKET> are account-specific — replace
+            # both before applying (see note at the top of this file).
+            - { name: AWS_REGION, value: "<REGION>" }
+            - { name: INPUT_S3_URI, value: "s3://<DATASETS_BUCKET>/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4" }
+            - { name: OUTPUT_S3_PREFIX, value: "s3://<DATASETS_BUCKET>/cosmos-samples" }
             - { name: OUTPUT_FILENAME, value: "augmented_episode_000000_eks_selfcontained.mp4" }
             - { name: REFERENCE_FILENAME, value: "original_episode_000000_eks_selfcontained.mp4" }
             - { name: SEED, value: "100" }
