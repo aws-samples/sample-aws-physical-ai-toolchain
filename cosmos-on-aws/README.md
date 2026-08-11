@@ -7,7 +7,7 @@ Two deployment paths are documented:
 | Path | Guide | Best for |
 |------|-------|----------|
 | **EC2** | [EC2 Deployment Guide](ec2-deployment-guide.md) | Single-node experiments, workshops, one-off generation runs. **Validated end-to-end.** |
-| **EKS** | [EKS Deployment Guide](eks-deployment-guide.md) | Production-scale generation, multi-replica flywheel, persistent shared storage. **Planned — not yet validated.** |
+| **EKS** | [EKS Deployment Guide](eks-deployment-guide.md) | Production-scale generation, multi-replica flywheel. **Validated end-to-end**, including fully automatic GPU node scaling via Cluster Autoscaler (single-replica; multi-replica + shared FSx storage documented as future work). |
 
 Both paths run the same server (`vllm/vllm-omni:cosmos3` serving `nvidia/Cosmos3-Super`) on the same hardware (p5.48xlarge / p5en.48xlarge, 8x H100+). The difference is orchestration: EC2 is a single instance you manage directly; EKS lets you run multiple generation jobs in parallel across a GPU node pool with shared storage (FSx).
 
@@ -17,9 +17,9 @@ Both paths run the same server (`vllm/vllm-omni:cosmos3` serving `nvidia/Cosmos3
 
 Cosmos3-Super's **V2V (video-to-video)** mode takes a reference video as the starting condition and generates a new plausible continuation — this works with any input video, including your own UR3 teleoperation footage.
 
-**Validated end-to-end (on EC2):**
+**Validated end-to-end on both EC2 and EKS:**
 - **Input:** `episode_000000.mp4` — a real UR3 wrist-camera pick-and-place episode (862 KB, from the Lab 1 dataset)
-- **Output:** A new 189-frame, 1280×720, 24fps synthetic video (6.0 MB) — the UR3 arm performing a novel pick-and-place trajectory, photorealistic quality
+- **Output:** A new 189-frame, 1280×720, 24fps synthetic video (~6.0 MB on EC2, ~6.1 MB on EKS) — the UR3 arm performing a novel pick-and-place trajectory, photorealistic quality
 - **Generation time:** ~2-8 min on 8x H100 (first request includes JIT warmup)
 - **Mechanism:** The first 1-2 frames of your input video anchor the scene (table, blocks, lighting); the text prompt + seed control what action gets generated
 
@@ -45,7 +45,8 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 ## Choosing EC2 vs EKS
 
 - **Start with EC2** if you're experimenting, running a workshop, or need to generate a batch of videos during a single Capacity Block window. Simpler — one instance, no cluster.
-- **Move to EKS** when you need multiple concurrent generation jobs (a continuous "flywheel" producing synthetic data), shared FSx storage across replicas, or integration with a broader Kubernetes-orchestrated pipeline (e.g. [OSMO](../osmo-on-aws/)).
+- **Move to EKS** when you need multiple concurrent generation jobs (a continuous "flywheel" producing synthetic data), automatic GPU node scaling (submit a Job, walk away — Cluster Autoscaler brings up a node and tears it down when idle, no manual `aws eks update-nodegroup-config` calls), or integration with a broader Kubernetes-orchestrated pipeline (e.g. [OSMO](../osmo-on-aws/)). Note EKS adds ~$0.14/hr of control-plane + system-node overhead beyond the shared GPU cost — worth it once you need concurrency or hands-off scaling, pure overhead for a single one-off generation.
+- Multi-replica scaling and shared FSx storage across replicas are documented as future work in the EKS guide — the validated EKS path today runs one Cosmos3-Super replica, same as EC2, just orchestrated by Kubernetes instead of a raw instance.
 
 ---
 
@@ -54,11 +55,14 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 | File | Purpose |
 |------|---------|
 | [`ec2-deployment-guide.md`](ec2-deployment-guide.md) | Full EC2 deployment walkthrough — Capacity Block, launch, server setup, generation, S3 validation |
-| [`eks-deployment-guide.md`](eks-deployment-guide.md) | EKS deployment plan and open work items (not yet validated) |
-| [`launch-cosmos3.sh`](launch-cosmos3.sh) | Launch p5.48xlarge into an active Capacity Block |
-| [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) | Pull the container and start the Cosmos3-Super server |
-| [`generate-v2v.sh`](generate-v2v.sh) | Generate a V2V synthetic demonstration from a reference video |
-| `infra/` | Terraform for the CodeBuild-based container build path (Cosmos 3 + Cosmos Transfer 2.5) |
+| [`eks-deployment-guide.md`](eks-deployment-guide.md) | Full EKS deployment walkthrough — cluster, GPU node group, IRSA, Job, generation, S3 validation |
+| [`launch-cosmos3.sh`](launch-cosmos3.sh) | Launch p5.48xlarge into an active Capacity Block (EC2 path) |
+| [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) | Pull the container and start the Cosmos3-Super server (EC2 path) |
+| [`generate-v2v.sh`](generate-v2v.sh) | Generate a V2V synthetic demonstration from a reference video (EC2 path) |
+| [`cosmos3-job.yaml`](cosmos3-job.yaml) | Kubernetes Job + Service running the Cosmos3-Super server (EKS path) |
+| `infra/ec2.tf` | Terraform for the EC2 server instance |
+| `infra/eks.tf` | Terraform for the dedicated EKS cluster + GPU node group |
+| `infra/main.tf` | Terraform for the CodeBuild-based container build path (Cosmos 3 + Cosmos Transfer 2.5) |
 
 ---
 
@@ -78,4 +82,5 @@ into a LeRobot v2 dataset for downstream GR00T fine-tuning. See
 
 - **Action-paired augmentation** — for restyling existing video while preserving ground-truth actions, see Cosmos Transfer 2.5 (`containers/cosmos/`)
 - **Feed generated videos into training** — use Cosmos 3 output for vision pre-training or dataset diversity ahead of [GR00T fine-tuning](../isaac-gr00t-on-aws/)
+- **Scale EKS to multi-replica** — see [Future Work](eks-deployment-guide.md#future-work-multi-replica--shared-storage) in the EKS guide (FSx shared storage, multiple concurrent Jobs)
 - **Full CLI runbook** — every command run during validation is in [`docs/cosmos3-validated-runbook.md`](../docs/cosmos3-validated-runbook.md)
