@@ -49,13 +49,14 @@ spec:
               set -euo pipefail
               mkdir -p /workspace/hf-cache /workspace/io
 
-              # --- Ensure the AWS CLI is available (image may not ship it) ---
+              # --- Ensure the AWS CLI is available (image doesn't ship it) ---
+              # Installed via pip instead of the official zip installer — the
+              # image has python3/pip3 but not `unzip`, which the zip
+              # installer requires. pip's awscli is pure-Python, no unzip
+              # needed, and is fast enough here (a few seconds).
               if ! command -v aws >/dev/null 2>&1; then
-                echo "=== Installing AWS CLI v2 ==="
-                curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-                unzip -q /tmp/awscliv2.zip -d /tmp
-                /tmp/aws/install
-                rm -rf /tmp/awscliv2.zip /tmp/aws
+                echo "=== Installing AWS CLI (via pip) ==="
+                pip3 install --quiet awscli
               fi
 
               # --- Start the server in the background ---
@@ -137,8 +138,8 @@ spec:
             - { name: AWS_REGION, value: "us-east-2" }
             - { name: INPUT_S3_URI, value: "s3://physical-ai-dev-datasets-804152302157/groot-data/ur3/dataset/videos/chunk-000/observation.images.wrist/episode_000000.mp4" }
             - { name: OUTPUT_S3_PREFIX, value: "s3://physical-ai-dev-datasets-804152302157/cosmos-samples" }
-            - { name: OUTPUT_FILENAME, value: "augmented_episode_000000_eks_job.mp4" }
-            - { name: REFERENCE_FILENAME, value: "original_episode_000000_eks_job.mp4" }
+            - { name: OUTPUT_FILENAME, value: "augmented_episode_000000_eks_selfcontained.mp4" }
+            - { name: REFERENCE_FILENAME, value: "original_episode_000000_eks_selfcontained.mp4" }
             - { name: SEED, value: "100" }
             - name: PROMPT
               value: >-
