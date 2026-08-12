@@ -18,12 +18,24 @@ REGION="<REGION>"
 ACCOUNT_ID="<ACCOUNT_ID>"
 DATASETS_BUCKET="physical-ai-dev-datasets-${ACCOUNT_ID}"
 
+# Must match COSMOS_MODEL used in setup-cosmos3-server.sh ("super" or "nano").
+COSMOS_MODEL="super"
+
+case "$COSMOS_MODEL" in
+  super) MODEL_ID="nvidia/Cosmos3-Super" ;;
+  nano)  MODEL_ID="nvidia/Cosmos3-Nano" ;;
+  *)
+    echo "ERROR: Unknown COSMOS_MODEL '$COSMOS_MODEL' (expected 'super' or 'nano')" >&2
+    exit 1
+    ;;
+esac
+
 echo "=== Step 1: Verify server is ready ==="
 MODELS=$(curl -s http://localhost:8000/v1/models 2>/dev/null)
-if echo "$MODELS" | grep -q "Cosmos3-Super"; then
-    echo "✅ Server ready: nvidia/Cosmos3-Super"
+if echo "$MODELS" | grep -q "$(basename "$MODEL_ID")"; then
+    echo "✅ Server ready: $MODEL_ID"
 else
-    echo "❌ Server not ready. Check: docker logs cosmos3 2>&1 | tail -20"
+    echo "❌ Server not ready or serving a different model. Check: docker logs cosmos3 2>&1 | tail -20"
     exit 1
 fi
 
@@ -50,7 +62,7 @@ echo "Start time: $(date -u)"
 
 docker exec cosmos3 curl -sS -X POST http://localhost:8000/v1/videos/sync \
   -H "Accept: video/mp4" \
-  -F "model=nvidia/Cosmos3-Super" \
+  -F "model=${MODEL_ID}" \
   -F "prompt=${PROMPT}" \
   -F "size=1280x720" \
   -F "num_frames=189" \

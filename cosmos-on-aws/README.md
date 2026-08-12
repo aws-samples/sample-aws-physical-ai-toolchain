@@ -9,7 +9,7 @@ Two deployment paths are documented:
 | **EC2** | [EC2 Deployment Guide](ec2-deployment-guide.md) | Single-node experiments, workshops, one-off generation runs. **Validated end-to-end.** |
 | **EKS** | [EKS Deployment Guide](eks-deployment-guide.md) | Production-scale generation, multi-replica flywheel. **Validated end-to-end**, including fully automatic GPU node scaling via Cluster Autoscaler (single-replica; multi-replica + shared FSx storage documented as future work). |
 
-Both paths run the same server (`vllm/vllm-omni:cosmos3` serving `nvidia/Cosmos3-Super`) on the same hardware (p5.48xlarge / p5en.48xlarge, 8x H100+). The difference is orchestration: EC2 is a single instance you manage directly; EKS lets you run multiple generation jobs in parallel across a GPU node pool with shared storage (FSx).
+Both paths run the same server (`vllm/vllm-omni:cosmos3`) and default to `nvidia/Cosmos3-Super` on the same hardware (p5.48xlarge / p5en.48xlarge, 8x H100+) — validated end-to-end on both. A `COSMOS_MODEL` toggle in the scripts/manifest lets you switch to `nvidia/Cosmos3-Nano` instead, which needs only 1 GPU; see [Choosing Super vs Nano](#choosing-super-vs-nano) below. The difference between EC2 and EKS is orchestration: EC2 is a single instance you manage directly; EKS lets you run multiple generation jobs in parallel across a GPU node pool with shared storage (FSx).
 
 ---
 
@@ -51,6 +51,28 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 
 ---
 
+## Choosing Super vs Nano
+
+Cosmos 3 ships in three sizes — Super (64B), Nano (16B), and Edge (4B, not covered here; Edge doesn't support V2V). This repo's scripts and `cosmos3-job.yaml` default to **Super**, but include a `COSMOS_MODEL` toggle (`"super"` or `"nano"`) to switch:
+
+| | **Cosmos3-Super** (default, validated) | **Cosmos3-Nano** |
+|---|---|---|
+| Parameters | 64B | 16B |
+| GPUs needed | 8 (full p5.48xlarge) | 1 |
+| Serve flags | `--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8` | none (single-GPU default) |
+| Instance/node | p5.48xlarge (Capacity Block required — P5 is scarce) | Any single-GPU instance, e.g. `g6e.xlarge`/`g6e.4xlarge` (on-demand, no Capacity Block needed) |
+| Model weight download | ~126 GB | ~33 GB |
+| Quality | Highest-fidelity generation, best for production synthetic data / teacher-model use | Good quality/speed balance, faster iteration |
+| Cost | ~$37/hr (p5.48xlarge Capacity Block) | Roughly an order of magnitude less — single mid-tier GPU on-demand |
+
+**Where to change it:**
+- EC2 path: set `COSMOS_MODEL` at the top of [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) and [`generate-v2v.sh`](generate-v2v.sh) (must match in both)
+- EKS path: set the `COSMOS_MODEL` env var in [`cosmos3-job.yaml`](cosmos3-job.yaml), and update `resources.requests`/`resources.limits` (`nvidia.com/gpu`) to `"1"` — Nano doesn't need the p5.48xlarge GPU node group or a Capacity Block at all, so you'd size a separate, much cheaper node group for it (see [eks-deployment-guide.md](eks-deployment-guide.md))
+
+**Everything else in this repo (V2V mechanism, prompt structure, generation parameters, S3 upload flow) is identical between the two** — only the model ID, serve flags, and GPU count change.
+
+---
+
 ## Files in This Directory
 
 | File | Purpose |
@@ -58,9 +80,9 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 | [`ec2-deployment-guide.md`](ec2-deployment-guide.md) | Full EC2 deployment walkthrough — Capacity Block, launch, server setup, generation, S3 validation |
 | [`eks-deployment-guide.md`](eks-deployment-guide.md) | Full EKS deployment walkthrough — cluster, GPU node group, IRSA, Job, generation, S3 validation |
 | [`launch-cosmos3.sh`](launch-cosmos3.sh) | Launch p5.48xlarge into an active Capacity Block (EC2 path) |
-| [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) | Pull the container and start the Cosmos3-Super server (EC2 path) |
+| [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) | Pull the container and start the Cosmos3 server — Super or Nano via `COSMOS_MODEL` (EC2 path) |
 | [`generate-v2v.sh`](generate-v2v.sh) | Generate a V2V synthetic demonstration from a reference video (EC2 path) |
-| [`cosmos3-job.yaml`](cosmos3-job.yaml) | Self-contained Kubernetes Job — starts the Cosmos3-Super server, generates, and writes output straight to S3, all inside the pod (EKS path) |
+| [`cosmos3-job.yaml`](cosmos3-job.yaml) | Self-contained Kubernetes Job — starts the Cosmos3 server (Super or Nano via `COSMOS_MODEL`), generates, and writes output straight to S3, all inside the pod (EKS path) |
 | `infra/ec2.tf` | Terraform for the EC2 server instance |
 | `infra/eks.tf` | Terraform for the dedicated EKS cluster + GPU node group |
 | `infra/main.tf` | Terraform for the CodeBuild-based container build path (Cosmos 3 + Cosmos Transfer 2.5) |

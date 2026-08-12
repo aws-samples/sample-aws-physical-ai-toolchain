@@ -2,6 +2,8 @@
 
 Deploy the Cosmos3-Super V2V generation server on a single EC2 instance (p5.48xlarge, 8x H100). This is the simplest path — one instance, SSM access, no cluster to manage.
 
+> This guide defaults to Cosmos3-Super. To use the smaller Cosmos3-Nano instead (1 GPU, faster/cheaper, some quality tradeoff), see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) in the README — set `COSMOS_MODEL="nano"` in both `setup-cosmos3-server.sh` and `generate-v2v.sh`, and use a single-GPU instance type instead of p5.48xlarge.
+
 See [`README.md`](README.md) for the overview, the EC2-vs-EKS comparison, and validated proof that this pipeline generates world output conditioned on real UR3 robot data.
 
 ---

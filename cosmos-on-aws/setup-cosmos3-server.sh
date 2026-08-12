@@ -3,10 +3,10 @@
 # Run ON the Cosmos 3 p5.48xlarge instance (via SSM session)
 #
 # This script:
-#   1. Verifies 8x H100 GPUs
+#   1. Verifies GPUs
 #   2. Pulls the vLLM-Omni Cosmos3 container (~30GB)
 #   3. Retrieves HF token from Secrets Manager
-#   4. Starts the Cosmos3-Super server
+#   4. Starts the Cosmos3 server (Super or Nano, see COSMOS_MODEL below)
 #
 # Usage (from SSM session on the instance):
 #   bash /tmp/setup-cosmos3-server.sh
@@ -17,12 +17,34 @@ set -e
 # Account-specific — replace before running (see ec2-deployment-guide.md).
 REGION="<REGION>"
 
+# Model choice — "super" (64B, highest quality, needs all 8 GPUs) or "nano"
+# (16B, needs only 1 GPU, faster/cheaper, some quality tradeoff). See
+# cosmos-on-aws/README.md "Choosing Super vs Nano" for the full comparison.
+COSMOS_MODEL="super"
+
+case "$COSMOS_MODEL" in
+  super)
+    MODEL_ID="nvidia/Cosmos3-Super"
+    SERVE_ARGS="--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8"
+    GPUS_NEEDED=8
+    ;;
+  nano)
+    MODEL_ID="nvidia/Cosmos3-Nano"
+    SERVE_ARGS=""
+    GPUS_NEEDED=1
+    ;;
+  *)
+    echo "ERROR: Unknown COSMOS_MODEL '$COSMOS_MODEL' (expected 'super' or 'nano')" >&2
+    exit 1
+    ;;
+esac
+
 echo "=== Step 1: Verify GPUs ==="
 nvidia-smi -L
 GPU_COUNT=$(nvidia-smi -L | wc -l)
-echo "Found $GPU_COUNT GPUs"
-if [ "$GPU_COUNT" -ne 8 ]; then
-    echo "WARNING: Expected 8 GPUs, found $GPU_COUNT"
+echo "Found $GPU_COUNT GPUs ($COSMOS_MODEL needs $GPUS_NEEDED)"
+if [ "$GPU_COUNT" -lt "$GPUS_NEEDED" ]; then
+    echo "WARNING: $COSMOS_MODEL needs $GPUS_NEEDED GPUs, found $GPU_COUNT"
 fi
 
 echo ""
@@ -45,8 +67,8 @@ fi
 echo "HF token retrieved (${#HF_TOKEN} chars)"
 
 echo ""
-echo "=== Step 4: Start Cosmos3-Super vLLM server ==="
-echo "Model download: ~128GB from HuggingFace (first time, 15-20 min)"
+echo "=== Step 4: Start Cosmos3 vLLM server ($MODEL_ID) ==="
+echo "Model download: Super ~128GB, Nano ~33GB from HuggingFace (first time)."
 echo "Subsequent starts use cached weights."
 
 docker run -d \
@@ -59,7 +81,7 @@ docker run -d \
   -e HF_HOME=/workspace/hf-cache \
   -v /opt/hf-cache:/workspace/hf-cache \
   vllm/vllm-omni:cosmos3 \
-  bash -c "vllm serve nvidia/Cosmos3-Super --omni --cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8 --init-timeout 2400 --stage-init-timeout 1800 --host 0.0.0.0 --port 8000"
+  bash -c "vllm serve $MODEL_ID --omni $SERVE_ARGS --init-timeout 2400 --stage-init-timeout 1800 --host 0.0.0.0 --port 8000"
 
 echo ""
 echo "=== Server starting (background) ==="
@@ -70,4 +92,4 @@ echo ""
 echo "Check if ready:"
 echo "  curl -s http://localhost:8000/v1/models"
 echo ""
-echo "When ready, it returns: {\"data\":[{\"id\":\"nvidia/Cosmos3-Super\",...}]}"
+echo "When ready, it returns: {\"data\":[{\"id\":\"$MODEL_ID\",...}]}"

@@ -2,6 +2,8 @@
 
 Run Cosmos3-Super V2V generation as a **self-contained Kubernetes Job** on a dedicated Amazon EKS cluster. **Validated end-to-end**, including fully automatic GPU node scaling — a real UR3 clip generated a synthetic video after Cluster Autoscaler brought up a GPU node group launched into an EC2 Capacity Block, and the pod handled the whole pipeline internally (start server → wait ready → pull reference video from S3 → generate → push result to S3 → exit) before Cluster Autoscaler scaled the node back down automatically. Output matched the EC2 path.
 
+> This guide defaults to Cosmos3-Super (8 GPUs). To use the smaller Cosmos3-Nano instead (1 GPU, faster/cheaper, some quality tradeoff), see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) — set `COSMOS_MODEL="nano"` in `cosmos3-job.yaml`, drop `resources.requests`/`resources.limits` (`nvidia.com/gpu`) to `"1"`, and size a separate, smaller GPU node group (no Capacity Block needed for Nano).
+
 See [`README.md`](README.md) for the overview and the EC2-vs-EKS comparison.
 
 ---
@@ -215,7 +217,7 @@ The Job manifest (`cosmos-on-aws/cosmos3-job.yaml`) runs the same server configu
 6. Uploads the result and a copy of the reference to S3 (`OUTPUT_S3_PREFIX`)
 7. Exits — the Job reports `Completed`
 
-Configure the run via the env vars in the manifest (`INPUT_S3_URI`, `OUTPUT_S3_PREFIX`, `OUTPUT_FILENAME`, `REFERENCE_FILENAME`, `PROMPT`, `SEED`) instead of running commands by hand.
+Configure the run via the env vars in the manifest (`COSMOS_MODEL`, `INPUT_S3_URI`, `OUTPUT_S3_PREFIX`, `OUTPUT_FILENAME`, `REFERENCE_FILENAME`, `PROMPT`, `SEED`) instead of running commands by hand.
 
 **Before applying, replace the placeholders in `cosmos3-job.yaml`** with your own values — the manifest ships with `<REGION>` and `<DATASETS_BUCKET>` instead of a specific account's values so it stays account-agnostic:
 
