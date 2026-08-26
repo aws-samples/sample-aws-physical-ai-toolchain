@@ -32,20 +32,24 @@ Run scripts in numerical order:
 ./05-deploy-osmo-backend.sh
 ```
 
-> **6.3 / ConfigMap mode:** Scripts `05`–`09` are **retired no-op stubs**. All of
+> **6.3 / ConfigMap mode:** Scripts `06`–`09` are **retired no-op stubs**. All of
 > their configuration (pools, `l40s` platform, pod templates, roles, KAI backend
 > scheduler, dataset/workflow storage) is now declarative under `services.configs.*`
 > in `values/osmo-control-plane.yaml` (+ a generated overlay) and applied by Step 4.
 > S3 access uses **IRSA**, not registered credentials. To change config, edit the
-> values file and re-run `03`.
+> values file and re-run `04`.
 
 ## Deployment Modes
 
 | Mode | Scripts to Run |
 |------|----------------|
-| Full | 01, 02-gpu, 02-keycloak, 03, 04 |
-| Control-Plane-Only | 01, 02-keycloak, 03 |
-| Backend-Only | 01, 02-gpu, 04 (with --service-url) |
+| Full | 01, 02, 03, 04, 05 |
+| Control-Plane-Only | 01, 03, 04 |
+| Backend-Only | 01, 02, 05 (with --service-url) |
+
+> The mode is set by the `deployment_mode` Terraform output (default `full`), and
+> `02`/`04`/`05` self-skip when they don't apply to the active mode — so running an
+> out-of-mode script is a safe no-op, not an error.
 
 ## Email anti-spoofing (DNS)
 
@@ -88,7 +92,7 @@ Helm values files for each component. Customize before deployment:
 ### config/
 
 The legacy `*.template.json` files (service/workflow/scheduler/dataset/gpu-platform/
-gpu-pod-template) drove the retired `05`–`09` API-config scripts. In 6.3 their
+gpu-pod-template) drove the retired `06`–`09` API-config scripts. In 6.3 their
 content lives in `values/osmo-control-plane.yaml` under `services.configs.*`. The
 dynamic pieces (bucket paths, workflow storage URLs, ECR registry) are rendered by
 `04-deploy-osmo-control-plane.sh` into `config/out/configs-overlay.yaml` and layered
@@ -159,7 +163,7 @@ kubectl logs deploy/osmo-router -n osmo --tail=100
 ```
 
 Common causes:
-- **osmo-service crash-loops with a config error** → malformed `services.configs.*`. In ConfigMap mode the loader fails fast; check `kubectl describe configmap osmo-service-configs -n osmo` for a `ConfigMapReloadFailed` event, fix the values, re-run `03`.
+- **osmo-service crash-loops with a config error** → malformed `services.configs.*`. In ConfigMap mode the loader fails fast; check `kubectl describe configmap osmo-service-configs -n osmo` for a `ConfigMapReloadFailed` event, fix the values, re-run `04`.
 - **oauth2-proxy** missing/invalid `client_secret`/`cookie_secret` in secret `oauth2-proxy-secrets`, or (new in 6.3) it can't reach the Redis session store → verify `gateway.oauth2Proxy.redis.serviceName`.
 - **service can't reach RDS/Redis** → check security groups and secrets.
 
