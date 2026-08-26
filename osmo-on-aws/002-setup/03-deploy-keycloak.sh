@@ -228,7 +228,8 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/success-codes: "200,302,303"
-    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+    # same path the k8s readinessProbe uses — returns 200 on the traffic port
+    alb.ingress.kubernetes.io/healthcheck-path: /realms/master
     ${sg_annotation}
   path: /
   pathType: Prefix
@@ -300,8 +301,8 @@ YAML
 
   kc_url="http://localhost:${local_port}"
 
-  # Wait until Keycloak is reachable
-  while ! curl -sS -o /dev/null -w '' "${kc_url}/health/ready" 2>/dev/null; do
+  # Wait until Keycloak actually serves (-f so a non-2xx no longer counts as ready).
+  while ! curl -fsS -o /dev/null "${kc_url}/realms/master" 2>/dev/null; do
     retries=$((retries + 1))
     if [[ $retries -ge $max_retries ]]; then
       kill "$pf_pid" 2>/dev/null || true
