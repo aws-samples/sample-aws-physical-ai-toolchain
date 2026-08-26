@@ -3,6 +3,8 @@
 terraform {
   required_version = ">= 1.5.0"
 
+  # .terraform.lock.hcl is intentionally gitignored: providers float to the
+  # newest version allowed by the constraints below (a reference-deployment choice).
   required_providers {
     aws = {
       source  = "hashicorp/aws"
