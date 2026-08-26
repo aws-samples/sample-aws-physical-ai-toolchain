@@ -20,8 +20,13 @@ module "platform" {
 
   # DNS / ACM configuration
   route53_zone_id    = var.route53_zone_id
+  route53_zone_name  = var.route53_zone_name
   osmo_hostname      = local.osmo_hostname
   osmo_auth_hostname = local.osmo_auth_hostname
+
+  # Email anti-spoofing (SPF + DMARC)
+  enable_email_spoofing_protection = var.enable_email_spoofing_protection
+  dmarc_report_address             = var.dmarc_report_address
 
   # VPC configuration
   vpc_cidr            = var.vpc_cidr

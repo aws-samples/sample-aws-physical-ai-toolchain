@@ -212,6 +212,11 @@ output "acm_auth_certificate_arn" {
   )
 }
 
+output "email_security_protected_domains" {
+  description = "Domains protected from email spoofing (DMARC p=reject on each; SPF v=spf1 -all on the apex). Validate with: dig +short TXT <domain> and dig +short TXT _dmarc.<domain>"
+  value       = sort(tolist(local.email_dmarc_domains))
+}
+
 #------------------------------------------------------------------------------
 # WAF Outputs
 #------------------------------------------------------------------------------

@@ -29,6 +29,11 @@ variable "route53_zone_id" {
   type        = string
 }
 
+variable "route53_zone_name" {
+  description = "Name (apex) of the existing Route53 hosted zone (e.g., example.com)"
+  type        = string
+}
+
 variable "osmo_hostname" {
   description = "FQDN for OSMO service (e.g., osmo-aws.example.com)"
   type        = string
@@ -37,6 +42,22 @@ variable "osmo_hostname" {
 variable "osmo_auth_hostname" {
   description = "FQDN for OSMO auth/Keycloak (e.g., osmo-aws-auth.example.com)"
   type        = string
+}
+
+#------------------------------------------------------------------------------
+# Email Anti-Spoofing (SPF + DMARC)
+#------------------------------------------------------------------------------
+
+variable "enable_email_spoofing_protection" {
+  description = "Publish anti-spoofing TXT records so mail cannot be spoofed from these names: DMARC (p=reject) for the zone apex and both OSMO hostnames, plus SPF (v=spf1 -all) for the apex. For the two OSMO hostnames we deliberately rely on DMARC alone (no per-host SPF); DMARC p=reject blocks spoofing there on its own. Set false if these names' email DNS is managed elsewhere (e.g. a parent zone)."
+  type        = bool
+  default     = true
+}
+
+variable "dmarc_report_address" {
+  description = "Optional email address for DMARC aggregate (rua) and forensic (ruf) reports. Leave empty to publish p=reject with no reporting (still fully blocks spoofing)."
+  type        = string
+  default     = ""
 }
 
 variable "cluster_name" {

@@ -22,6 +22,15 @@ deployment_mode   = "full"
 route53_zone_id   = "ZXXXXXXXXXXXXXXXXXXXXX"
 route53_zone_name = "dev.example.com"
 
+# Email anti-spoofing (optional; enabled by default). OSMO sends no mail, so
+# Terraform publishes DNS records that reject spoofed mail from these names:
+# DMARC (p=reject) on the zone apex + both OSMO hostnames, plus SPF (v=spf1 -all)
+# on the apex. For the two OSMO hostnames we deliberately rely on DMARC alone (no
+# per-host SPF) — DMARC p=reject blocks spoofing on its own, so this is complete
+# as-is.
+# enable_email_spoofing_protection = true   # set false if these names' email DNS is managed elsewhere
+# dmarc_report_address             = ""     # optional mailbox for DMARC aggregate/forensic reports
+
 # Keycloak/OSMO admin username (created in Keycloak, bootstrapped into OSMO). Default: admin.
 keycloak_admin_username = "admin"
 

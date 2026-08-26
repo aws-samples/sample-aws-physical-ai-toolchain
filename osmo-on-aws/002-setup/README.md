@@ -47,6 +47,20 @@ Run scripts in numerical order:
 | Control-Plane-Only | 01, 02-keycloak, 03 |
 | Backend-Only | 01, 02-gpu, 04 (with --service-url) |
 
+## Email anti-spoofing (DNS)
+
+Email anti-spoofing records are managed by Terraform in `../001-iac`, not by these
+setup scripts. For these non-mail-sending domains it publishes DMARC (`p=reject`)
+on the zone apex **and** both OSMO hostnames, plus SPF (`v=spf1 -all`) on the apex.
+DMARC `p=reject` already blocks spoofing from every one of these names, so the
+default configuration is complete out of the box — apply it with
+`cd ../001-iac && terraform apply`.
+
+For the two OSMO **hostnames** we deliberately rely on DMARC alone and publish no
+per-host SPF: DMARC `p=reject` fully blocks spoofing there, so a per-host SPF
+record would add nothing. See `001-iac/variables.tf`
+(`enable_email_spoofing_protection`, `dmarc_report_address`).
+
 ## Configuration
 
 ### defaults.conf
