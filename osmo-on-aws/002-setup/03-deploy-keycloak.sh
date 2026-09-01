@@ -228,7 +228,8 @@ ingress:
     alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
     alb.ingress.kubernetes.io/ssl-redirect: "443"
     alb.ingress.kubernetes.io/success-codes: "200,302,303"
-    alb.ingress.kubernetes.io/healthcheck-path: /health/ready
+    # same path the k8s readinessProbe uses — returns 200 on the traffic port
+    alb.ingress.kubernetes.io/healthcheck-path: /realms/master
     ${sg_annotation}
   path: /
   pathType: Prefix
@@ -300,8 +301,8 @@ YAML
 
   kc_url="http://localhost:${local_port}"
 
-  # Wait until Keycloak is reachable
-  while ! curl -sS -o /dev/null -w '' "${kc_url}/health/ready" 2>/dev/null; do
+  # Wait until Keycloak actually serves (-f so a non-2xx no longer counts as ready).
+  while ! curl -fsS -o /dev/null "${kc_url}/realms/master" 2>/dev/null; do
     retries=$((retries + 1))
     if [[ $retries -ge $max_retries ]]; then
       kill "$pf_pid" 2>/dev/null || true
@@ -577,12 +578,39 @@ YAML
   ensure_namespace "$osmo_namespace"
 
   if [[ -n "$browser_client_secret" && "$browser_client_secret" != "null" ]]; then
+    # cookie_secret must survive re-runs: it keys the oauth2-proxy session cookies
+    # already in users' browsers, so a new value logs everyone out. Reuse the stored
+    # one and generate only on first install. (client_secret above is re-read from
+    # Keycloak every run on purpose — Keycloak is authoritative for it.)
+    # Kept base64 in the variable and decoded to a file: the value is raw bytes and
+    # command substitution cannot carry NUL. openssl base64 for BSD/GNU portability.
+    local cookie_b64 cookie_file
+    cookie_b64=$(kubectl get secret oauth2-proxy-secrets \
+      --namespace "$osmo_namespace" \
+      -o jsonpath='{.data.cookie_secret}' 2>/dev/null || true)
+    cookie_file=$(mktemp)
+
+    if [[ -n "$cookie_b64" ]]; then
+      printf '%s' "$cookie_b64" | openssl base64 -d -A > "$cookie_file"
+      info "Reusing existing oauth2-proxy cookie_secret (rotating it would sign out all users)"
+    else
+      openssl rand 32 > "$cookie_file"
+      info "Generating oauth2-proxy cookie_secret"
+    fi
+
+    # Guard against writing an empty/short key — oauth2-proxy needs 16, 24 or 32 bytes.
+    if [[ ! -s "$cookie_file" ]]; then
+      rm -f "$cookie_file"
+      fatal "Failed to obtain a cookie_secret for oauth2-proxy"
+    fi
+
     info "Creating oauth2-proxy-secrets in namespace $osmo_namespace"
     kubectl create secret generic oauth2-proxy-secrets \
       --namespace "$osmo_namespace" \
       --from-literal=client_secret="$browser_client_secret" \
-      --from-file=cookie_secret=<(openssl rand 32) \
+      --from-file=cookie_secret="$cookie_file" \
       --dry-run=client -o yaml | kubectl apply -f -
+    rm -f "$cookie_file"
     pass "OAuth2 Proxy secrets created"
   else
     warn "Could not retrieve browser client secret. Create oauth2-proxy-secrets manually."

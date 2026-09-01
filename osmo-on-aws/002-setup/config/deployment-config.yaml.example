@@ -28,7 +28,7 @@ osmo:
 
 # --- Dependency Versions -----------------------------------------------------
 dependencies:
-  gpu_operator_version: "v24.9.0"
+  gpu_operator_version: "v25.10.1"
   kai_scheduler_version: "v0.12.4"
   aws_lb_controller_version: "1.7.1"
   cluster_autoscaler_version: "9.35.0"
