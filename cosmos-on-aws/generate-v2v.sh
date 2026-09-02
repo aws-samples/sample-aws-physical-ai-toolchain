@@ -52,7 +52,7 @@ echo "=== Step 3: Copy video into container ==="
 docker cp /tmp/episode_000000.mp4 cosmos3:/tmp/episode_000000.mp4
 
 echo ""
-echo "=== Step 4: Generate V2V (this takes 5-8 min) ==="
+echo "=== Step 4: Generate V2V (Super: ~2-8 min, Nano: ~10-12 min) ==="
 PROMPT="A UR3 robot arm with a Robotiq gripper reaches down to a dark matte table, grasps a small red wooden block, lifts it slowly, and places it onto a yellow sticky note approximately 6 inches away. Top-down wrist camera view. Colorful wooden blocks are scattered on the table. Smooth deliberate motion."
 
 echo "Prompt: $PROMPT"
@@ -60,8 +60,15 @@ echo ""
 echo "Generating 189 frames at 1280x720, 24fps..."
 echo "Start time: $(date -u)"
 
-docker exec cosmos3 curl -sS -X POST http://localhost:8000/v1/videos/sync \
-  -H "Accept: video/mp4" \
+# Uses the ASYNC job API (POST /v1/videos + poll + /content), not the
+# /v1/videos/sync endpoint. /v1/videos/sync has a hardcoded server-side abort
+# at ~600s regardless of client --max-time — confirmed hitting this on Nano
+# (single GPU, no parallelism, full 189-frame/720p generation takes
+# ~10-12 min). Super usually finishes well under 600s but async is used
+# uniformly here since it's the robust path for either model — vLLM-Omni's
+# own docs recommend /v1/videos/sync only for quick benchmarks.
+CREATE_RESPONSE=$(docker exec cosmos3 curl -sS -X POST http://localhost:8000/v1/videos \
+  -H "Accept: application/json" \
   -F "model=${MODEL_ID}" \
   -F "prompt=${PROMPT}" \
   -F "size=1280x720" \
@@ -73,15 +80,34 @@ docker exec cosmos3 curl -sS -X POST http://localhost:8000/v1/videos/sync \
   -F "flow_shift=10.0" \
   -F "extra_params={\"condition_frame_indexes_vision\":[0,1],\"condition_video_keep\":\"first\"}" \
   -F "seed=100" \
-  -F "input_reference=@/tmp/episode_000000.mp4;type=video/mp4" \
-  -o /tmp/output_v2v.mp4 \
-  --max-time 600 \
-  -w "\nHTTP:%{http_code} SIZE:%{size_download}\n"
+  -F "input_reference=@/tmp/episode_000000.mp4;type=video/mp4")
+VIDEO_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+echo "Job submitted: $VIDEO_ID"
+
+echo "Polling for completion..."
+for i in $(seq 1 90); do
+  STATUS_JSON=$(docker exec cosmos3 curl -sS "http://localhost:8000/v1/videos/${VIDEO_ID}")
+  STATUS=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','unknown'))")
+  echo "  [$i] status=$STATUS ($(date -u +%H:%M:%S))"
+  if [ "$STATUS" = "completed" ]; then
+    break
+  fi
+  if [ "$STATUS" = "failed" ] || [ "$STATUS" = "cancelled" ]; then
+    echo "ERROR: job $STATUS: $STATUS_JSON" >&2
+    exit 1
+  fi
+  sleep 10
+done
+if [ "$STATUS" != "completed" ]; then
+  echo "ERROR: job did not complete in time (last status: $STATUS)" >&2
+  exit 1
+fi
 
 echo "End time: $(date -u)"
 echo ""
 
 echo "=== Step 5: Verify output ==="
+docker exec cosmos3 curl -sS -L "http://localhost:8000/v1/videos/${VIDEO_ID}/content" -o /tmp/output_v2v.mp4
 docker cp cosmos3:/tmp/output_v2v.mp4 /tmp/output_v2v.mp4
 ls -lh /tmp/output_v2v.mp4
 

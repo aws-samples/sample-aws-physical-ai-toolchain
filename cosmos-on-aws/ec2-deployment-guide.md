@@ -2,7 +2,7 @@
 
 Deploy the Cosmos3-Super V2V generation server on a single EC2 instance (p5.48xlarge, 8x H100). This is the simplest path — one instance, SSM access, no cluster to manage.
 
-> This guide defaults to Cosmos3-Super. To use the smaller Cosmos3-Nano instead (1 GPU, faster/cheaper, some quality tradeoff), see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) in the README — set `COSMOS_MODEL="nano"` in both `setup-cosmos3-server.sh` and `generate-v2v.sh`, and use a single-GPU instance type instead of p5.48xlarge.
+> This guide defaults to Cosmos3-Super. To use the smaller Cosmos3-Nano instead (1 GPU, faster/cheaper, some quality tradeoff), see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) in the README — set `COSMOS_MODEL="nano"` in both `setup-cosmos3-server.sh` and `generate-v2v.sh`, and use a single-GPU on-demand instance type (e.g. `g6e.4xlarge`) instead of p5.48xlarge — no Capacity Block needed. **Validated end-to-end**: apply `infra/ec2.tf` with `enable_ec2_server=true`, `server_instance_type=g6e.4xlarge`, and `capacity_reservation_id` left unset for an on-demand launch.
 
 See [`README.md`](README.md) for the overview, the EC2-vs-EKS comparison, and validated proof that this pipeline generates world output conditioned on real UR3 robot data.
 
@@ -24,7 +24,7 @@ See [`README.md`](README.md) for the overview, the EC2-vs-EKS comparison, and va
 │       --cfg-parallel-size 2 --ulysses-degree 4 \                         │
 │       --use-hsdp --hsdp-shard-size 8                                     │
 │                                                                            │
-│   POST /v1/videos/sync                                                   │
+│   POST /v1/videos (async job) → poll → GET /v1/videos/{id}/content       │
 │     -F input_reference=@your_ur3_clip.mp4   ← YOUR robot data            │
 │     -F prompt="..."                          ← task description         │
 │     -F seed=100                              ← trajectory variation      │
@@ -50,7 +50,7 @@ See [`README.md`](README.md) for the overview, the EC2-vs-EKS comparison, and va
 | Requirement | Why | How to get it |
 |-------------|-----|----------------|
 | Foundation deployed | Cosmos IAM role, instance profile, ECR repos | `cd foundation/infra && terraform apply` |
-| P5 Capacity Block | P5 is rarely available on-demand | See [Step 1](#step-1-reserve-a-capacity-block) |
+| P5 Capacity Block (Super only) | P5 is rarely available on-demand. **Not needed for Nano** — any on-demand single-GPU type (e.g. `g6e.4xlarge`) works, see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) | See [Step 1](#step-1-reserve-a-capacity-block) |
 | HuggingFace token | Downloads Cosmos3-Super + guardrail weights | https://huggingface.co/settings/tokens |
 | Accepted gated model licenses | vLLM-Omni downloads both at startup | Accept both below |
 | A reference video | Your starting scene for V2V generation | Any wrist/scene camera MP4 (UR3 or other) |
@@ -214,7 +214,7 @@ aws ssm send-command --instance-ids $INSTANCE_ID \
 **What it does:**
 1. Downloads a UR3 wrist-camera episode from `s3://<DATASETS_BUCKET>/groot-data/ur3/dataset/videos/.../episode_000000.mp4`
 2. Copies it into the running container
-3. POSTs to `/v1/videos/sync` with the reference video + a task-specific prompt + generation parameters
+3. Submits an async job to `/v1/videos` with the reference video + a task-specific prompt + generation parameters, polls `/v1/videos/{id}` until `completed`, then downloads from `/v1/videos/{id}/content`. (Not `/v1/videos/sync` — it has a hardcoded ~600s server-side abort that full-length generations, especially on Nano's single GPU, can exceed regardless of client timeout.)
 4. Downloads the generated output and uploads both original + generated videos to `s3://<DATASETS_BUCKET>/cosmos-samples/`
 
 **Required generation parameters** (from the vLLM-Omni Cosmos3-Super recipe):
@@ -229,7 +229,7 @@ aws ssm send-command --instance-ids $INSTANCE_ID \
 | `flow_shift` | `10.0` | Generation parameter |
 | `extra_params` | `{"condition_frame_indexes_vision":[0,1],"condition_video_keep":"first"}` | V2V conditioning — anchors generation to your input's first frames |
 
-**Validated result:** HTTP 200, 6.0 MB output video, generated in ~2 minutes (warm model).
+**Validated result:** HTTP 200 (async job `completed`), 6.0 MB output video, generated in ~2 minutes with Super (warm model). Nano takes longer (~10-12 min, single GPU, no parallelism) — see [Choosing Super vs Nano](README.md#choosing-super-vs-nano) for the full comparison, also validated end-to-end.
 
 **To use your own robot data:** swap the S3 source path in `generate-v2v.sh` for any wrist/scene-camera MP4 from your robot, and edit the prompt to match your task, target object, and camera framing. The pipeline is embodiment-agnostic — the reference video just needs to show the starting scene you want Cosmos 3 to continue from.
 
@@ -351,6 +351,8 @@ The Capacity Block itself expires automatically at its end time — no separate 
 | `condition_frame_indexes_vision outside latent video` | Wrong resolution/frame count | Use exactly `size=1280x720`, `num_frames=189`, `fps=24` |
 | Download stalls on a weight shard | HuggingFace rate-limiting | `docker restart cosmos3` — cached shards persist in `/opt/hf-cache` |
 | SSM not registering | Instance profile missing SSM policy, or no outbound internet | Verify `AmazonSSMManagedInstanceCore` attached; subnet has NAT/IGW |
+| Generation request returns `HTTP:000` / curl times out, or server logs show `504 Gateway Timeout` after ~10 min | `/v1/videos/sync` has a hardcoded ~600s server-side abort, independent of your client's `--max-time` | Use the async job API instead (`POST /v1/videos` → poll `GET /v1/videos/{id}` → `GET /v1/videos/{id}/content`) — already what `generate-v2v.sh` and `cosmos3-job.yaml` do. Confirmed hitting this on Nano, whose full 189-frame/720p generation (~10-12 min on 1 GPU) exceeds the sync endpoint's limit |
+| `torch.OutOfMemoryError` during VAE decode (Nano, single-GPU instance) | Default VAE decode path needs more VRAM than a `g6e.4xlarge`'s ~44GB usable | Add `--vae-use-tiling` to the `vllm serve` command — already set for `COSMOS_MODEL="nano"` in `setup-cosmos3-server.sh` and `cosmos3-job.yaml` |
 
 ---
 

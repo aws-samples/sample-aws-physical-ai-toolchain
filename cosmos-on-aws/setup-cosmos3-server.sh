@@ -30,7 +30,11 @@ case "$COSMOS_MODEL" in
     ;;
   nano)
     MODEL_ID="nvidia/Cosmos3-Nano"
-    SERVE_ARGS=""
+    # --vae-use-tiling is required on single-GPU instances like g6e.4xlarge
+    # (~44GB usable VRAM) — without it, VAE decode OOMs at the default
+    # 189-frame/720p generation size. Cuts peak decode VRAM ~68% for ~13%
+    # extra latency. Validated: fixes CUDA OOM on L40S.
+    SERVE_ARGS="--vae-use-tiling"
     GPUS_NEEDED=1
     ;;
   *)

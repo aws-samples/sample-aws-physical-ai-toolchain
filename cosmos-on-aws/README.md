@@ -53,21 +53,26 @@ Full step-by-step generation, validation, and troubleshooting: **[→ EC2 Deploy
 
 ## Choosing Super vs Nano
 
-Cosmos 3 ships in three sizes — Super (64B), Nano (16B), and Edge (4B, not covered here; Edge doesn't support V2V). This repo's scripts and `cosmos3-job.yaml` default to **Super**, but include a `COSMOS_MODEL` toggle (`"super"` or `"nano"`) to switch:
+Cosmos 3 ships in three sizes — Super (64B), Nano (16B), and Edge (4B, not covered here; Edge doesn't support V2V). This repo's scripts and `cosmos3-job.yaml` default to **Super**, but include a `COSMOS_MODEL` toggle (`"super"` or `"nano"`) to switch. **Both validated end-to-end on EC2** (on-demand `g6e.4xlarge`, no Capacity Block needed for Nano).
 
-| | **Cosmos3-Super** (default, validated) | **Cosmos3-Nano** |
+| | **Cosmos3-Super** (default, validated) | **Cosmos3-Nano** (validated) |
 |---|---|---|
 | Parameters | 64B | 16B |
 | GPUs needed | 8 (full p5.48xlarge) | 1 |
-| Serve flags | `--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8` | none (single-GPU default) |
+| Serve flags | `--cfg-parallel-size 2 --ulysses-degree 4 --use-hsdp --hsdp-shard-size 8` | `--vae-use-tiling` (required — see below) |
 | Instance/node | p5.48xlarge (Capacity Block required — P5 is scarce) | Any single-GPU instance, e.g. `g6e.xlarge`/`g6e.4xlarge` (on-demand, no Capacity Block needed) |
 | Model weight download | ~126 GB | ~33 GB |
+| Generation time (189 frames/720p) | ~2-8 min (8-GPU parallelism) | ~10-12 min (single GPU, no parallelism) |
 | Quality | Highest-fidelity generation, best for production synthetic data / teacher-model use | Good quality/speed balance, faster iteration |
 | Cost | ~$37/hr (p5.48xlarge Capacity Block) | Roughly an order of magnitude less — single mid-tier GPU on-demand |
 
+**Two things the Nano validation run surfaced, both already fixed in this repo's scripts:**
+1. **`--vae-use-tiling` is required on single-GPU nodes.** Without it, VAE decode runs out of memory on a `g6e.4xlarge`'s ~44GB usable VRAM at the default 189-frame/720p size (confirmed: `torch.OutOfMemoryError` during decode). The flag cuts peak decode VRAM ~68% for ~13% extra latency — the tradeoff already documented in vLLM-Omni's own Cosmos3-Nano recipe.
+2. **Use the async `/v1/videos` job API, not `/v1/videos/sync`.** `/v1/videos/sync` has a hardcoded ~600s server-side abort regardless of client `--max-time` — confirmed this killing full-length Nano generations (~10-12 min total) even after raising the client timeout. `generate-v2v.sh` and `cosmos3-job.yaml` both use `POST /v1/videos` → poll `GET /v1/videos/{id}` → `GET /v1/videos/{id}/content` for both models now, since it's the robust path either way (vLLM-Omni's docs recommend `/v1/videos/sync` only for quick benchmarks).
+
 **Where to change it:**
-- EC2 path: set `COSMOS_MODEL` at the top of [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) and [`generate-v2v.sh`](generate-v2v.sh) (must match in both)
-- EKS path: set the `COSMOS_MODEL` env var in [`cosmos3-job.yaml`](cosmos3-job.yaml), and update `resources.requests`/`resources.limits` (`nvidia.com/gpu`) to `"1"` — Nano doesn't need the p5.48xlarge GPU node group or a Capacity Block at all, so you'd size a separate, much cheaper node group for it (see [eks-deployment-guide.md](eks-deployment-guide.md))
+- EC2 path: set `COSMOS_MODEL` at the top of [`setup-cosmos3-server.sh`](setup-cosmos3-server.sh) and [`generate-v2v.sh`](generate-v2v.sh) (must match in both). For an on-demand Nano instance via Terraform, apply `infra/ec2.tf` with `enable_ec2_server=true` and `server_instance_type=g6e.4xlarge`, leaving `capacity_reservation_id` unset.
+- EKS path: set the `COSMOS_MODEL` env var in [`cosmos3-job.yaml`](cosmos3-job.yaml), and update `resources.requests`/`resources.limits` (`nvidia.com/gpu`) to `"1"` — Nano doesn't need the p5.48xlarge GPU node group or a Capacity Block at all, so you'd size a separate, much cheaper node group for it (see [eks-deployment-guide.md](eks-deployment-guide.md)). **Not yet runtime-validated on EKS** — the fix is applied to the manifest but hasn't been tested against a live single-GPU node group.
 
 **Everything else in this repo (V2V mechanism, prompt structure, generation parameters, S3 upload flow) is identical between the two** — only the model ID, serve flags, and GPU count change.
 

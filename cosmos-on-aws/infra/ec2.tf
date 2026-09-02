@@ -1,36 +1,45 @@
 # =============================================================================
-# EC2: COSMOS 3 GENERATION SERVER (p5.48xlarge, 8x H100)
+# EC2: COSMOS 3 GENERATION SERVER (p5.48xlarge/8x H100 for Super, or any
+# single-GPU type like g6e.4xlarge for Nano — see cosmos3-job.yaml/README.md
+# "Choosing Super vs Nano")
 # =============================================================================
 #
-# Launches into an already-ACTIVE EC2 Capacity Block. Capacity Block purchase
-# itself is NOT managed by Terraform — it's an async external reservation
-# (minutes to days to become active) that doesn't fit a `terraform apply`
-# lifecycle. Purchase it first (see ec2-deployment-guide.md Step 1), then set
-# capacity_reservation_id below and apply.
+# Two launch modes, both through the same aws_instance resource:
+#   - Capacity Block (default, required for Super/p5.48xlarge — P5 capacity
+#     is scarce): set capacity_reservation_id + availability_zone. Capacity
+#     Block purchase itself is NOT managed by Terraform — it's an async
+#     external reservation (minutes to days to become active) that doesn't
+#     fit a `terraform apply` lifecycle. Purchase it first (see
+#     ec2-deployment-guide.md Step 1), then set capacity_reservation_id and
+#     apply.
+#   - On-demand (for Nano/g6e.* — commonly available without a reservation):
+#     leave capacity_reservation_id empty. availability_zone is then optional;
+#     Terraform picks any private subnet if unset.
 #
 # Toggle with var.enable_ec2_server (default false) so `terraform apply` is
-# safe to run before you have an active Capacity Block.
+# safe to run before you have an active Capacity Block (or when you don't
+# need one, for on-demand Nano launches).
 
 variable "enable_ec2_server" {
-  description = "Deploy the Cosmos 3 EC2 generation server. Requires an ACTIVE Capacity Block."
+  description = "Deploy the Cosmos 3 EC2 generation server."
   type        = bool
   default     = false
 }
 
 variable "capacity_reservation_id" {
-  description = "ID of an ACTIVE EC2 Capacity Block to launch into (e.g. cr-0123456789abcdef0). Purchase separately — see Step 1 of ec2-deployment-guide.md."
+  description = "ID of an ACTIVE EC2 Capacity Block to launch into (e.g. cr-0123456789abcdef0). Leave empty for an on-demand launch (works for commonly-available types like g6e.* used by Nano; P5/Super needs a Capacity Block — see Step 1 of ec2-deployment-guide.md)."
   type        = string
   default     = ""
 }
 
 variable "availability_zone" {
-  description = "AZ of the Capacity Block (must match its reserved AZ)"
+  description = "AZ to launch in. Required to match the Capacity Block's reserved AZ when capacity_reservation_id is set; optional otherwise (Terraform picks any private subnet if left empty)."
   type        = string
   default     = ""
 }
 
 variable "server_instance_type" {
-  description = "Instance type for the Cosmos 3 server (must match the Capacity Block's reserved type)"
+  description = "Instance type for the Cosmos 3 server. Must match the Capacity Block's reserved type when using one (p5.48xlarge for Super); any available on-demand GPU type works otherwise (e.g. g6e.4xlarge for Nano)."
   type        = string
   default     = "p5.48xlarge"
 }
@@ -57,14 +66,26 @@ data "aws_ssm_parameter" "private_subnet_ids" {
   name  = "/${var.project_name}/private-subnet-ids"
 }
 
-# Pick the private subnet in the same AZ as the Capacity Block.
-data "aws_subnet" "server" {
+# Pick a private subnet. Filtered to a specific AZ when one is given (required
+# to match a Capacity Block's reserved AZ); otherwise picks the first
+# available private subnet (fine for on-demand launches with no AZ pin).
+data "aws_subnets" "server_candidates" {
   count = var.enable_ec2_server ? 1 : 0
   filter {
     name   = "subnet-id"
     values = split(",", data.aws_ssm_parameter.private_subnet_ids[0].value)
   }
-  availability_zone = var.availability_zone
+  dynamic "filter" {
+    for_each = var.availability_zone != "" ? [var.availability_zone] : []
+    content {
+      name   = "availability-zone"
+      values = [filter.value]
+    }
+  }
+}
+
+locals {
+  server_subnet_id = var.enable_ec2_server ? data.aws_subnets.server_candidates[0].ids[0] : ""
 }
 
 # Latest Deep Learning Base OSS Nvidia Driver GPU AMI, unless pinned explicitly.
@@ -110,20 +131,27 @@ resource "aws_instance" "cosmos_server" {
   count                  = var.enable_ec2_server ? 1 : 0
   ami                    = local.server_ami_id
   instance_type          = var.server_instance_type
-  subnet_id              = data.aws_subnet.server[0].id
+  subnet_id              = local.server_subnet_id
   vpc_security_group_ids = [aws_security_group.cosmos_server[0].id]
   iam_instance_profile   = data.aws_ssm_parameter.cosmos_instance_profile.value
 
-  # Launch into the Capacity Block reserved for this AZ/instance type.
-  capacity_reservation_specification {
-    capacity_reservation_target {
-      capacity_reservation_id = var.capacity_reservation_id
+  # Launch into a Capacity Block only when one is specified. Omitted entirely
+  # for on-demand launches (e.g. Nano on g6e.*) — Capacity Blocks require
+  # instance_market_options=capacity-block, which is invalid without a target.
+  dynamic "capacity_reservation_specification" {
+    for_each = var.capacity_reservation_id != "" ? [var.capacity_reservation_id] : []
+    content {
+      capacity_reservation_target {
+        capacity_reservation_id = capacity_reservation_specification.value
+      }
     }
   }
 
-  # Capacity Blocks require this market type at launch.
-  instance_market_options {
-    market_type = "capacity-block"
+  dynamic "instance_market_options" {
+    for_each = var.capacity_reservation_id != "" ? [1] : []
+    content {
+      market_type = "capacity-block"
+    }
   }
 
   root_block_device {

@@ -7,7 +7,10 @@
 #      see COSMOS_MODEL below)
 #   2. Wait for /v1/models to report ready
 #   3. Download the reference video from S3 (via the pod's IRSA credentials)
-#   4. POST /v1/videos/sync to generate the V2V output
+#   4. Submit an async /v1/videos job, poll until completed, download the
+#      result from /v1/videos/{id}/content (not /v1/videos/sync — it has a
+#      hardcoded ~600s server-side abort that full-length generations,
+#      especially on Nano, can exceed)
 #   5. Upload the result (+ the original reference) to S3
 #   6. Exit — the Job reports Completed, Cluster Autoscaler scales the GPU
 #      node back down once it's idle past scale-down-unneeded-time
@@ -36,8 +39,9 @@ spec:
   parallelism: 1
   completions: 1
   backoffLimit: 0
-  # Give the Job enough time for model load (~15-20 min first time) +
-  # generation (~2-8 min) + upload.
+  # Give the Job enough time for model load (~15-20 min first time, Nano
+  # ~33GB is faster than Super's ~126GB) + generation (Super ~2-8 min, Nano
+  # ~10-12 min on 1 GPU) + upload.
   activeDeadlineSeconds: 2700
   template:
     metadata:
@@ -71,7 +75,10 @@ spec:
                   ;;
                 nano)
                   MODEL_ID="nvidia/Cosmos3-Nano"
-                  SERVE_ARGS=""
+                  # --vae-use-tiling is required on single-GPU nodes (e.g.
+                  # g6e.4xlarge, ~44GB usable VRAM) — without it, VAE decode
+                  # OOMs at the default 189-frame/720p generation size.
+                  SERVE_ARGS="--vae-use-tiling"
                   ;;
                 *)
                   echo "ERROR: Unknown COSMOS_MODEL '${COSMOS_MODEL}' (expected 'super' or 'nano')" >&2
@@ -122,11 +129,18 @@ spec:
               aws s3 cp "${INPUT_S3_URI}" "$REF_LOCAL" --region "${AWS_REGION}"
 
               # --- Generate ---
+              # Uses the ASYNC job API (POST /v1/videos + poll + /content),
+              # not /v1/videos/sync. /v1/videos/sync has a hardcoded
+              # server-side abort at ~600s regardless of client --max-time —
+              # confirmed hitting this on Nano (single GPU, full
+              # 189-frame/720p generation takes ~10-12 min). Super usually
+              # finishes under 600s but async is used uniformly since it's
+              # the robust path for either model.
               OUT_LOCAL=/workspace/io/output.mp4
               echo "=== Generating V2V (prompt below) ==="
               echo "${PROMPT}"
-              HTTP_CODE=$(curl -sS -X POST http://localhost:8000/v1/videos/sync \
-                -H "Accept: video/mp4" \
+              CREATE_RESPONSE=$(curl -sS -X POST http://localhost:8000/v1/videos \
+                -H "Accept: application/json" \
                 -F "model=${MODEL_ID}" \
                 -F "prompt=${PROMPT}" \
                 -F "size=1280x720" \
@@ -138,15 +152,31 @@ spec:
                 -F "flow_shift=10.0" \
                 -F "extra_params={\"condition_frame_indexes_vision\":[0,1],\"condition_video_keep\":\"first\"}" \
                 -F "seed=${SEED}" \
-                -F "input_reference=@${REF_LOCAL};type=video/mp4" \
-                -o "$OUT_LOCAL" \
-                --max-time 600 \
-                -w "%{http_code}")
-              echo "Generation HTTP status: $HTTP_CODE"
-              if [ "$HTTP_CODE" != "200" ]; then
-                echo "ERROR: generation failed (HTTP $HTTP_CODE)." >&2
+                -F "input_reference=@${REF_LOCAL};type=video/mp4")
+              VIDEO_ID=$(echo "$CREATE_RESPONSE" | python3 -c "import json,sys; print(json.load(sys.stdin)['id'])")
+              echo "Job submitted: $VIDEO_ID"
+
+              echo "Polling for completion..."
+              GEN_STATUS="unknown"
+              for i in $(seq 1 90); do
+                STATUS_JSON=$(curl -sf -m 10 "http://localhost:8000/v1/videos/${VIDEO_ID}")
+                GEN_STATUS=$(echo "$STATUS_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('status','unknown'))")
+                echo "  [${i}] status=${GEN_STATUS}"
+                if [ "$GEN_STATUS" = "completed" ]; then
+                  break
+                fi
+                if [ "$GEN_STATUS" = "failed" ] || [ "$GEN_STATUS" = "cancelled" ]; then
+                  echo "ERROR: job ${GEN_STATUS}: ${STATUS_JSON}" >&2
+                  exit 1
+                fi
+                sleep 10
+              done
+              if [ "$GEN_STATUS" != "completed" ]; then
+                echo "ERROR: job did not complete in time (last status: ${GEN_STATUS})." >&2
                 exit 1
               fi
+
+              curl -sS -L "http://localhost:8000/v1/videos/${VIDEO_ID}/content" -o "$OUT_LOCAL"
               ls -lh "$OUT_LOCAL"
 
               # --- Upload result (+ original reference) to S3 ---
