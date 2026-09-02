@@ -277,6 +277,11 @@ output "route53_zone_id" {
   value       = var.route53_zone_id
 }
 
+output "email_security_protected_domains" {
+  description = "Domains protected from email spoofing (DMARC p=reject on each; SPF v=spf1 -all on the apex). Validate: dig +short TXT <domain> ; dig +short TXT _dmarc.<domain>"
+  value       = module.platform.email_security_protected_domains
+}
+
 output "osmo_namespace" {
   description = "Kubernetes namespace for OSMO"
   value       = local.osmo_namespace

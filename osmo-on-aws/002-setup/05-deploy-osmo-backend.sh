@@ -324,7 +324,7 @@ main() {
 
   info "Next steps:"
   info "  Deployment is complete. In 6.3 (ConfigMap mode) all configuration is"
-  info "  declarative and already applied by 03 — scripts 05-09 are retired no-ops."
+  info "  declarative and already applied by 04 — scripts 06-09 are retired no-ops."
   info "  1. Verify the pool is ONLINE:"
   info "       osmo pool list   (or check the UI at https://<osmo-hostname>)"
   info "  2. Register the workflow credential:"

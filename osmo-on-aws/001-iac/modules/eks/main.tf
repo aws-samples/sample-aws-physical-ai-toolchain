@@ -88,10 +88,11 @@ module "eks" {
     }
   }
 
-  # Cluster addons
+  # Cluster addons — versions pinned (not most_recent) so apply is idempotent.
+  # To bump: aws eks describe-addon-versions --kubernetes-version 1.35 --addon-name <name>
   cluster_addons = {
     coredns = {
-      most_recent = true
+      addon_version = "v1.14.3-eksbuild.3"
       configuration_values = jsonencode({
         computeType = "Fargate"
         resources = {
@@ -107,10 +108,10 @@ module "eks" {
       })
     }
     kube-proxy = {
-      most_recent = true
+      addon_version = "v1.35.3-eksbuild.17"
     }
     vpc-cni = {
-      most_recent              = true
+      addon_version            = "v1.22.4-eksbuild.3"
       before_compute           = true
       service_account_role_arn = module.vpc_cni_irsa.iam_role_arn
       configuration_values = jsonencode({
@@ -121,7 +122,7 @@ module "eks" {
       })
     }
     aws-ebs-csi-driver = {
-      most_recent              = true
+      addon_version            = "v1.62.0-eksbuild.1"
       service_account_role_arn = module.ebs_csi_irsa.iam_role_arn
     }
   }

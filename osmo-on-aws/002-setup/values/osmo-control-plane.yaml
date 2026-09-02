@@ -143,6 +143,25 @@ services:
     # gpu_tolerations also pins the workflow IRSA ServiceAccount so osmo-ctrl
     # authenticates to S3 via the web-identity token (no static dataset keys).
     podTemplates:
+      # Workaround for NVIDIA/OSMO#1067 (see docs/troubleshooting.md): skips
+      # osmo-ctrl's broken S3 pre-flight check on the IRSA path. REMOVE once fixed.
+      # Full container spec re-declared here because Helm REPLACES lists on merge.
+      default_ctrl:
+        spec:
+          containers:
+            - name: osmo-ctrl
+              env:
+                - name: OSMO_SKIP_DATA_AUTH
+                  value: "1"
+              resources:
+                limits:
+                  cpu: "{{USER_CPU}}"
+                  memory: "{{USER_MEMORY}}"
+                  ephemeral-storage: "{{USER_STORAGE}}"
+                requests:
+                  cpu: "1"
+                  memory: "1Gi"
+                  ephemeral-storage: "1Gi"
       gpu_tolerations:
         spec:
           serviceAccountName: osmo-workflow

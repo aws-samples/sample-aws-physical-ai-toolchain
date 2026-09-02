@@ -200,6 +200,43 @@ kubectl logs -n gpu-operator -l app=nvidia-device-plugin-daemonset
 3. **Wrong instance type:**
    - Ensure nodes are GPU instance types (g4dn, g5, p3, p4d, etc.)
 
+#### GPU Operator pods crash on containerd 2.x AMIs
+
+**Symptom:** After a fresh deploy, pods in `gpu-operator` (notably
+`nvidia-container-toolkit-daemonset` and `nvidia-operator-validator`) crash-loop,
+and GPU nodes never advertise `nvidia.com/gpu` capacity.
+
+**Cause:** GPU Operator **v24.9.0** ships a container-toolkit that is incompatible
+with the **containerd 2.x** runtime on current EKS GPU AMIs — the toolkit writes a
+`config.toml` in a schema that containerd 2.x rejects, so the runtime never gets
+NVIDIA support wired in.
+
+**Solution:** use GPU Operator **v25.10.1** or later (now the default in
+`config/deployment-config.yaml.example` and `defaults.conf`). If you overrode it,
+set `dependencies.gpu_operator_version: "v25.10.1"` (or `export
+GPU_OPERATOR_VERSION=v25.10.1`) and re-run `02-deploy-gpu-infrastructure.sh`.
+
+#### GPU nodes fail to launch — `VcpuLimitExceeded` / `InsufficientInstanceCapacity`
+
+**Symptom:** the GPU node group never reaches its desired count; the backing EC2
+Auto Scaling group shows failed scaling activities.
+
+**Diagnosis:**
+```bash
+# Inspect the most recent scaling activities for the GPU node group's ASG
+aws autoscaling describe-scaling-activities \
+  --auto-scaling-group-name <gpu-node-group-asg> --max-items 5
+```
+
+**Causes & solutions:**
+- **`VcpuLimitExceeded`** — the account's On-Demand GPU vCPU quota is too low. For
+  the g5/g6 families the quota is **L-DB2E81BA** ("Running On-Demand G and VT
+  instances"); the P family (p4d/p5) has a separate quota code. Request an increase
+  in Service Quotas for the deployment region, then retry.
+- **`InsufficientInstanceCapacity`** — AWS has no capacity for that instance type in
+  the chosen AZ. Try another AZ or instance type, or back the node group with an
+  On-Demand Capacity Reservation.
+
 ### 8. OSMO-Specific Issues
 
 #### Backend not connecting to service
@@ -244,9 +281,29 @@ to perform: s3:GetBucketLocation ...
    kubectl get sa osmo-workflow -n osmo-workflows -o yaml | grep role-arn
    ```
    If missing, re-run `05-deploy-osmo-backend.sh` (it creates + annotates the SA).
-2. Verify the pod template pins the SA — `services.configs.podTemplates.gpu_tolerations.spec.serviceAccountName: osmo-workflow` in `values/osmo-control-plane.yaml`. Re-run `03` after changes.
+2. Verify the pod template pins the SA — `services.configs.podTemplates.gpu_tolerations.spec.serviceAccountName: osmo-workflow` in `values/osmo-control-plane.yaml`. Re-run `04` after changes.
 3. Confirm the IRSA trust policy subject matches `osmo-workflows:osmo-workflow` (see `001-iac/modules/eks/irsa.tf`).
 4. Ensure the `osmo-workflows` namespace allows HTTPS egress to STS + S3 (NetworkPolicy `allow-workflow-aws-egress`).
+
+#### `s3://` workflow I/O fails with `ValueError: Invalid endpoint:`
+
+**Symptom:** a workflow that reads/writes `s3://…` dataset or artifact paths fails
+early with an error resembling:
+```
+ValueError: Invalid endpoint: https://s3..amazonaws.com
+```
+(note the empty region between the dots).
+
+**Cause:** upstream bug NVIDIA/OSMO#1067 — on the IRSA credential path `osmo-ctrl`
+constructs the S3 endpoint without a region, producing an invalid host. It surfaces
+only when the task authenticates via **IRSA**, which is the required model on AWS
+(company policy prohibits long-lived data-bucket credentials).
+
+**Solution (workaround):** set `OSMO_SKIP_DATA_AUTH=1` on the task pod template.
+This repo already applies it in `values/osmo-control-plane.yaml` under
+`services.configs.podTemplates.default_ctrl`; if you customized pod templates,
+re-add the env var and re-run `04-deploy-osmo-control-plane.sh`. Remove the
+workaround once #1067 is fixed upstream.
 
 #### Config change via CLI/API returns HTTP 409
 
@@ -259,6 +316,31 @@ to perform: s3:GetBucketLocation ...
 **Cause:** the API server's kubelet client lacks RBAC for the `nodes/proxy` subresource (cluster-wide), which breaks logs/exec/port-forward — and therefore the bootstrap scripts that port-forward to `osmo-service`.
 
 **Solution:** this is a cluster-level kubelet authorization issue (often from a custom node AMI bootstrapping kubelet authz differently). Verify a healthy fresh EKS cluster has the default apiserver→kubelet RBAC; if using a custom GPU AMI, ensure its bootstrap configures `--authorization-mode=Webhook` / `--authentication-token-webhook` consistently with the EKS-optimized system nodes.
+
+### 9. Authentication / Login Issues
+
+#### Forced to re-login roughly every hour
+
+**Cause:** the `osmo` realm is created (by `03-deploy-keycloak.sh`) with short
+lifetimes — `accessTokenLifespan` 3600s (1h) and `ssoSessionIdleTimeout` 1800s
+(30m idle). When the session expires, oauth2-proxy bounces the browser back to
+Keycloak for re-authentication.
+
+**Solution:** raise the realm's `accessTokenLifespan` / `ssoSessionIdleTimeout`
+(Keycloak Admin → Realm settings → Tokens/Sessions) to match your security posture,
+then have users re-authenticate once. No OSMO redeploy is needed. To change the
+baked-in defaults for future deploys, edit the realm-creation body in
+`03-deploy-keycloak.sh`.
+
+#### `osmo` CLI returns 401 / token expired
+
+**Causes & solutions:**
+- **Expired credential** — re-run `osmo login` to refresh. The device-login code
+  itself is short-lived (`oauth2DeviceCodeLifespan` 600s / 10m), so complete the
+  browser step promptly.
+- **CLI / API version skew** — a CLI built against a different OSMO API version can
+  fail auth or reject responses. Match the CLI to the deployed control plane
+  (`osmo.version` in `config/deployment-config.yaml`, currently `6.3.1`).
 
 ## Diagnostic Commands
 

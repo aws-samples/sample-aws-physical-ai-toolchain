@@ -84,6 +84,25 @@ variable "route53_zone_name" {
 }
 
 #------------------------------------------------------------------------------
+# Email Anti-Spoofing (SPF + DMARC)
+#------------------------------------------------------------------------------
+# OSMO sends no email, so its domains publish SPF/DMARC records that reject any
+# mail spoofing these names — the standard hardening for non-sending domains.
+# See SPF (RFC 7208) and DMARC (RFC 7489).
+
+variable "enable_email_spoofing_protection" {
+  description = "Publish anti-spoofing TXT records: DMARC (p=reject) for the Route53 zone apex and both OSMO hostnames, plus SPF (v=spf1 -all) for the apex. For the two OSMO hostnames we deliberately rely on DMARC alone (no per-host SPF); DMARC p=reject blocks spoofing there on its own. Set false only if these names' email DNS is managed elsewhere."
+  type        = bool
+  default     = true
+}
+
+variable "dmarc_report_address" {
+  description = "Optional email address for DMARC aggregate (rua) and forensic (ruf) reports. Leave empty to publish p=reject with no reporting (still fully blocks spoofing). If set to an address outside these domains, that mailbox's domain must authorize external reporting per RFC 7489 §7.1."
+  type        = string
+  default     = ""
+}
+
+#------------------------------------------------------------------------------
 # VPC Configuration
 #------------------------------------------------------------------------------
 

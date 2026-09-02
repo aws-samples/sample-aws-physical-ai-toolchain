@@ -144,6 +144,7 @@ terraform destroy
 | Name | Version |
 |------|---------|
 | <a name="provider_aws"></a> [aws](#provider\_aws) | ~> 5.0 |
+| <a name="provider_terraform"></a> [terraform](#provider\_terraform) | n/a |
 
 ## Modules
 
@@ -168,7 +169,9 @@ terraform destroy
 | [aws_security_group_rule.nodes_from_alb](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule) | resource |
 | [aws_security_group_rule.rds_from_eks](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule) | resource |
 | [aws_security_group_rule.redis_from_eks](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group_rule) | resource |
+| [terraform_data.name_prefix_length_guard](https://registry.terraform.io/providers/hashicorp/terraform/latest/docs/resources/data) | resource |
 | [aws_availability_zones.available](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones) | data source |
+| [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
 
 ## Inputs
 
@@ -178,6 +181,7 @@ terraform destroy
 |------|-------------|------|---------|:--------:|
 | <a name="input_aws_region"></a> [aws\_region](#input\_aws\_region) | AWS region for all resources | `string` | n/a | yes |
 | <a name="input_cluster_name"></a> [cluster\_name](#input\_cluster\_name) | Name for the EKS cluster and related resources | `string` | n/a | yes |
+| <a name="input_gpu_ami_id"></a> [gpu\_ami\_id](#input\_gpu\_ami\_id) | Required. AMI ID for GPU nodes — the Canonical Ubuntu EKS image for your region and Kubernetes version (see https://cloud-images.ubuntu.com/docs/aws/eks/). gpu\_ami\_type is ignored and the NVIDIA GPU Operator handles driver installation. | `string` | n/a | yes |
 | <a name="input_resource_suffix"></a> [resource\_suffix](#input\_resource\_suffix) | Suffix for resource names to avoid collisions (e.g. osm01, dev01). Use a unique value per deployment when sharing the same cluster\_name and environment. Required - no default. | `string` | n/a | yes |
 | <a name="input_route53_zone_id"></a> [route53\_zone\_id](#input\_route53\_zone\_id) | ID of existing Route53 hosted zone (e.g., ZEXAMPLEZONEID123456) | `string` | n/a | yes |
 | <a name="input_route53_zone_name"></a> [route53\_zone\_name](#input\_route53\_zone\_name) | Name of existing Route53 hosted zone (e.g., example.com) | `string` | n/a | yes |
@@ -194,8 +198,10 @@ terraform destroy
 | <a name="input_deploy_identity_center"></a> [deploy\_identity\_center](#input\_deploy\_identity\_center) | Create an IAM Identity Center OAuth 2.0 application for OSMO | `bool` | `false` | no |
 | <a name="input_deploy_keycloak"></a> [deploy\_keycloak](#input\_deploy\_keycloak) | Provision ACM certificate and Terraform outputs for a self-hosted Keycloak IdP | `bool` | `true` | no |
 | <a name="input_deployment_mode"></a> [deployment\_mode](#input\_deployment\_mode) | Deployment mode: full, control-plane-only, or backend-only | `string` | `"full"` | no |
+| <a name="input_dmarc_report_address"></a> [dmarc\_report\_address](#input\_dmarc\_report\_address) | Optional email address for DMARC aggregate (rua) and forensic (ruf) reports. Leave empty to publish p=reject with no reporting (still fully blocks spoofing). If set to an address outside these domains, that mailbox's domain must authorize external reporting per RFC 7489 §7.1. | `string` | `""` | no |
 | <a name="input_eks_admin_principal_arns"></a> [eks\_admin\_principal\_arns](#input\_eks\_admin\_principal\_arns) | List of IAM principal ARNs to grant EKS admin access | `list(string)` | `[]` | no |
 | <a name="input_enable_cloudwatch_logging"></a> [enable\_cloudwatch\_logging](#input\_enable\_cloudwatch\_logging) | Provision the Fluent Bit IRSA role + CloudWatch log group for shipping pod logs. The Fluent Bit DaemonSet itself is deployed by 01-deploy-aws-prerequisites.sh. | `bool` | `true` | no |
+| <a name="input_enable_email_spoofing_protection"></a> [enable\_email\_spoofing\_protection](#input\_enable\_email\_spoofing\_protection) | Publish anti-spoofing TXT records: DMARC (p=reject) for the Route53 zone apex and both OSMO hostnames, plus SPF (v=spf1 -all) for the apex. For the two OSMO hostnames we deliberately rely on DMARC alone (no per-host SPF); DMARC p=reject blocks spoofing there on its own. Set false only if these names' email DNS is managed elsewhere. | `bool` | `true` | no |
 | <a name="input_enable_flow_logs"></a> [enable\_flow\_logs](#input\_enable\_flow\_logs) | Enable VPC Flow Logs for network traffic analysis | `bool` | `false` | no |
 | <a name="input_enable_guardduty"></a> [enable\_guardduty](#input\_enable\_guardduty) | Enable AWS GuardDuty for threat detection | `bool` | `false` | no |
 | <a name="input_enable_managed_prometheus"></a> [enable\_managed\_prometheus](#input\_enable\_managed\_prometheus) | Provision an Amazon Managed Prometheus (AMP) workspace + managed scraper for cluster/GPU metrics | `bool` | `true` | no |
@@ -204,7 +210,6 @@ terraform destroy
 | <a name="input_environment"></a> [environment](#input\_environment) | Environment name (dev, staging, prod) | `string` | `"dev"` | no |
 | <a name="input_external_service_url"></a> [external\_service\_url](#input\_external\_service\_url) | External OSMO service URL (required for backend-only mode) | `string` | `null` | no |
 | <a name="input_flow_logs_retention_days"></a> [flow\_logs\_retention\_days](#input\_flow\_logs\_retention\_days) | Retention period for VPC Flow Logs in CloudWatch | `number` | `30` | no |
-| <a name="input_gpu_ami_id"></a> [gpu\_ami\_id](#input\_gpu\_ami\_id) | Required. AMI ID for GPU nodes — the Canonical Ubuntu EKS image for your region and Kubernetes version (see https://cloud-images.ubuntu.com/docs/aws/eks/). gpu\_ami\_type is ignored and the NVIDIA GPU Operator handles driver installation. | `string` | n/a | yes |
 | <a name="input_gpu_ami_type"></a> [gpu\_ami\_type](#input\_gpu\_ami\_type) | AMI type for GPU nodes (ignored when gpu\_ami\_id is set) | `string` | `"AL2_x86_64_GPU"` | no |
 | <a name="input_gpu_node_capacity_type"></a> [gpu\_node\_capacity\_type](#input\_gpu\_node\_capacity\_type) | Capacity type for GPU nodes (ON\_DEMAND or SPOT) | `string` | `"ON_DEMAND"` | no |
 | <a name="input_gpu_node_desired_size"></a> [gpu\_node\_desired\_size](#input\_gpu\_node\_desired\_size) | Desired number of GPU nodes | `number` | `0` | no |
@@ -289,6 +294,7 @@ terraform destroy
 | <a name="output_configure_kubectl"></a> [configure\_kubectl](#output\_configure\_kubectl) | AWS CLI command to configure kubectl |
 | <a name="output_deployment_mode"></a> [deployment\_mode](#output\_deployment\_mode) | Deployment mode |
 | <a name="output_ebs_csi_driver_role_arn"></a> [ebs\_csi\_driver\_role\_arn](#output\_ebs\_csi\_driver\_role\_arn) | IAM role ARN for EBS CSI driver |
+| <a name="output_email_security_protected_domains"></a> [email\_security\_protected\_domains](#output\_email\_security\_protected\_domains) | Domains protected from email spoofing (DMARC p=reject on each; SPF v=spf1 -all on the apex). Validate: dig +short TXT <domain> ; dig +short TXT \_dmarc.<domain> |
 | <a name="output_environment"></a> [environment](#output\_environment) | Environment name |
 | <a name="output_external_dns_role_arn"></a> [external\_dns\_role\_arn](#output\_external\_dns\_role\_arn) | IAM role ARN for external-dns |
 | <a name="output_external_secrets_role_arn"></a> [external\_secrets\_role\_arn](#output\_external\_secrets\_role\_arn) | IAM role ARN for External Secrets Operator |

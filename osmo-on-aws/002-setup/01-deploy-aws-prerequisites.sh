@@ -178,13 +178,16 @@ EOF
     # Extract zone name from osmo_hostname (strip the first label)
     local zone_name="${osmo_hostname#*.}"
 
+    # external-dns TXT-registry owner id; override to isolate a second deployment sharing a parent zone
+    local txt_owner_id="${EXTERNAL_DNS_TXT_OWNER_ID:-osmo}"
+
     helm_upgrade_install external-dns external-dns/external-dns \
       kube-system \
       --version "$EXTERNAL_DNS_VERSION" \
       --set provider.name=aws \
       --set policy=sync \
       --set registry=txt \
-      --set txtOwnerId=osmo \
+      --set txtOwnerId="$txt_owner_id" \
       --set "domainFilters[0]=$zone_name" \
       --set "sources[0]=ingress" \
       --set serviceAccount.annotations."eks\.amazonaws\.com/role-arn"="$external_dns_role_arn" \
