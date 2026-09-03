@@ -84,7 +84,13 @@ install_helm() {
     return 0
   fi
   info "Installing Helm..."
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  local os
+  os=$(detect_os)
+  case "$os" in
+    darwin) brew install helm ;;
+    ubuntu|debian) curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash ;;
+    *) fatal "Unsupported OS: $os" ;;
+  esac
   info "Helm installed: $(helm version --short)"
 }
 
