@@ -24,7 +24,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 |----------|----------|----------|----------|
 | **Synthetic Data Generation** | **Model Training** | **SIL Simulation** | **Sim-to-Real / HIL** |
 | Scene composition, domain randomization, curriculum-aware augmentation | Distributed training, RL, hyperparameter search, checkpoint promotion | Physics-accurate validation, adversarial scenarios, regression gating | Domain adaptation, safety monitoring, digital twin sync, deployment scoring |
-| *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) + [Cosmos](https://www.nvidia.com/en-us/ai/cosmos/)* | *[GR00T](https://developer.nvidia.com/isaac/gr00t), [Isaac Lab](https://isaac-sim.github.io/IsaacLab/main/index.html)* | *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html)* | *[Jetson](https://developer.nvidia.com/embedded-computing) / RTX* |
+| *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) + [Cosmos](https://www.nvidia.com/en-us/ai/cosmos/)* | *[GR00T](https://developer.nvidia.com/isaac/gr00t), [DreamZero](https://github.com/dreamzero0/dreamzero), [Isaac Lab](https://isaac-sim.github.io/IsaacLab/main/index.html)* | *[Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html)* | *[Jetson](https://developer.nvidia.com/embedded-computing) / RTX* |
 
 **Data → Train → Validate → Deploy → Feedback → Generate** — a closed loop of continuous model improvement.
 
@@ -40,6 +40,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 | [**Cosmos**](cosmos-on-aws/) | [NVIDIA Cosmos](https://www.nvidia.com/en-us/ai/cosmos/) world generation (Predict V2V) + data augmentation (Transfer 2.5) | `cosmos-on-aws/infra/` | [README](cosmos-on-aws/) | Available |
 | [**Isaac Lab**](isaac-lab-on-aws/) | [NVIDIA Isaac Lab](https://developer.nvidia.com/isaac/lab) RL training (4096 parallel envs) on SageMaker + Batch | `isaac-lab-on-aws/infra/` | [README](isaac-lab-on-aws/) | Available |
 | [**Isaac GR00T**](isaac-gr00t-on-aws/) | Fine-tune [NVIDIA GR00T](https://developer.nvidia.com/isaac/gr00t) N1.6 VLA model on SageMaker + Batch | `isaac-gr00t-on-aws/infra/` | [README](isaac-gr00t-on-aws/) | Available |
+| [**DreamZero**](dreamzero-on-aws/) | Fine-tune [NVIDIA DreamZero](https://github.com/dreamzero0/dreamzero), a 14B World Action Model, with LoRA on SageMaker; automatic merge to servable weights | CDK — [standalone repo](https://github.com/aws-samples/sample-dreamzero-finetuning-on-sagemaker) | [README](dreamzero-on-aws/) | Available |
 | [**Isaac Sim**](isaac-sim-on-aws/) | [NVIDIA Isaac Sim](https://docs.isaacsim.omniverse.nvidia.com/latest/index.html) GPU workstation for physics simulation | `isaac-sim-on-aws/infra/` | [README](isaac-sim-on-aws/) | Available |
 | [**OSMO**](osmo-on-aws/) | [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) 6.3 orchestration on EKS - control plane, compute, GPU scheduling | `osmo-on-aws/001-iac/` | [README](osmo-on-aws/) | Available |
 | *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | - | Planned |
@@ -110,6 +111,8 @@ The example uses a **UR3 arm** (a popular collaborative robot in the industry) w
 |-----------|------|-------|
 | GR00T training (smoke test) | ~$2 | ml.g5.12xlarge for 15 min |
 | GR00T training (full) | ~$79 | ml.g5.12xlarge for 11 hrs |
+| DreamZero fine-tune (smoke gate) | ~$10 | ml.g7e.24xlarge for 25 min |
+| DreamZero fine-tune (1000 steps) | ~$93 | ml.g7e.24xlarge for 4 h 11 m |
 | Cosmos 3 Predict | ~$37/hr | p5.48xlarge (Capacity Block) |
 | Cosmos Transfer 2.5 | ~$8/hr | g6e.12xlarge (Spot) |
 | Isaac Sim workstation | ~$1.86/hr | g6e.4xlarge (stop when idle) |
