@@ -1,0 +1,16 @@
+# Model-family adapter manifest (registry).
+name: openvla
+# The 'smoke-v2' tag is an ECR IMAGE TAG, not terminology. ECR tags here are
+# immutable, so renaming this string would point at an image that does not exist.
+# It gets the sample naming when the image is next rebuilt under a new tag.
+train_image: vla/openvla:smoke-v2
+defaults_json: entrypoints/train/openvla/defaults.json
+train_instance: ml.g6e.12xlarge
+eval_instance: ml.g5.2xlarge
+# Submit-time operational requirements. This file is the SOLE owner of them: the
+# resource keys that used to sit in defaults.json were read by NOBODY --
+# load_family_schemas() and registry.family_schemas() both project only
+# input_config_schema and provenance_keys -- so openvla's per-role block there was a
+# declared value governing nothing. These must be known BEFORE any container exists.
+train_volume_gb: 300
+eval_volume_gb: 200

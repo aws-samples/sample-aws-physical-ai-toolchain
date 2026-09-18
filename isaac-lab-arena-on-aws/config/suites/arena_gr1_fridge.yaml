@@ -1,0 +1,82 @@
+# Suite manifest -- the COMPLETE definition of one evaluation cell's task.
+#
+# A "suite" binds together everything that must agree between FineTune and
+# SimEval: the training dataset, the per-family embodiment wiring, and (for a
+# closed-loop simulator) the simulator's runtime contract. Before suite
+# manifests these five things lived in four different places -- the launcher's
+# CLI defaults, train_entry's SUITE_DATASETS/SUITE_META, the simulator
+# manifest's `suites:` block, and validator.VALID_SUITES -- so a suite could be
+# half-declared and a run could train on one task while evaluating another.
+#
+# This is the reference Arena suite: the NVIDIA GR1 fridge task.
+name: arena_gr1_fridge
+simulator: isaac_arena
+description: >
+  Fourier GR1 humanoid, put_item_in_fridge_and_close_door. Single-task Arena
+  suite. See the README's Accepted reference runs for dated measurements
+  and their limitations.
+
+# Canonical task_ids for this suite. `EvalTaskIds=all` expands to exactly this
+# list, and Validate binds the report's task_ids against it.
+canonical_task_ids: [0]
+
+# --- FineTune dataset contract -------------------------------------------
+# The Arena GR1 datasets ship pre-converted GR00T-LeRobot under a subdir and
+# carry their OWN meta/modality.json (GR1 arms/hands/waist), which must NOT be
+# overwritten by NVIDIA's LIBERO modality.json.
+# NOTE `revision` is a NAMED HuggingFace ref, not a commit SHA -- it can be
+# re-pointed upstream, so it is weaker reproducibility than it looks. Pinning a
+# SHA avoids a moved ref (README.md#validation-runtime-and-training-lineage).
+dataset:
+  repo_id: nvidia/Arena-GR1-Manipulation-PlaceItemCloseDoor-Task
+  subdir: ranch_bottle_into_fridge/ranch_bottle_into_fridge_generated_100/lerobot
+  revision: arena_v0.2_lab_v3.0
+  copy_libero_modality: false
+
+# --- Per-family embodiment wiring ----------------------------------------
+# Keyed by model family, then by that family's version selector. `null` means
+# "use the family's defaults.json value" (that is the LIBERO case).
+#
+# `embodiment_tag` is consumed on BOTH sides: the launcher sends it to the GR00T
+# eval server, the train entry carries the same value as a CI-pinned literal, and
+# Validate's embodiment coherence gate rejects a checkpoint whose recorded tag
+# disagrees with it.
+#
+# `modality_config` is currently TRAIN-SIDE ONLY. The eval entry resolves
+# MODALITY_CONFIG_PATH with its own hardcoded default and the connector image bakes
+# only arena_gr1_data_config.py, so this field does not reach SimEval. Harmless for
+# the GR1 suites (the baked default equals their n17 value, and the n16 server path
+# passes no modality config at all) but a real gap for any other embodiment --
+# described in README.md#notes-and-limitations.
+# TODO(port): a family x embodiment table would be cleaner than keying this by
+# suite -- the embodiment is a property of the scene, not of the task. Tracked
+# in README.md#notes-and-limitations; keyed by suite to preserve shipped behavior.
+family_overrides:
+  gr00t:
+    # N1.7 @376ba890 has no bundled `gr1` tag, so GR1 trains/evals under the
+    # custom-embodiment slot NEW_EMBODIMENT plus the vendored modality config.
+    n17:
+      embodiment_tag: new_embodiment
+      modality_config: arena_gr1_data_config.py
+    # N1.6 has the NATIVE pretrained GR1 head. Its launch_finetune tyro CLI
+    # takes the EmbodimentTag enum NAME "GR1" (uppercase), not the value "gr1".
+    n16:
+      embodiment_tag: GR1
+      modality_config: arena_gr1_data_config_n16.py
+
+# --- Isaac Lab Arena closed-loop runtime contract (SimEval) ---------------
+# These become the policy_runner argv. Required for simulator: isaac_arena.
+arena:
+  # policy_runner positional `task` (a choices-positional -- must match Arena's
+  # registered task id exactly).
+  task: put_item_in_fridge_and_close_door
+  # `--embodiment` twin for multi-embodiment tasks; null omits the flag.
+  # GR1 requires the joint-control twin (NOT gr1_pink).
+  embodiment: gr1_joint
+  # `--object` per-task selector; null omits the flag, which is what both
+  # launchers did on main (`--object NONE`) and what the proven cell's argv used.
+  # Arena does expose a selector for this task (`ranch_dressing_hope_robolab`);
+  # recorded here so the option is not lost, NOT enabled -- turning it on changes
+  # the scene and has not been run.
+  object: null
+  policy_config: /workspace/isaaclab_arena_gr00t/policy/config/gr1_manip_ranch_bottle_gr00t_closedloop_config.yaml

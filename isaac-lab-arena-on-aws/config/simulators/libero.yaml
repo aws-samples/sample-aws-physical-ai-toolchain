@@ -1,0 +1,15 @@
+# Simulator adapter manifest.
+# LIBERO/MuJoCo: train image == eval image, entry delivered via SageMaker sourcedir.
+name: libero
+delivery_mode: sourcedir       # eval_entry shipped in the sourcedir tarball
+# No `suites:` block -- see config/simulators/isaac_arena.yaml. Canonical
+# task_ids now live in each suite's own manifest under config/suites/.
+
+# The capability the EVALUATOR IMAGE must attest to before a run is submitted, published as an OCI
+# label single-sourced with /opt/vla/.baked_env. Declared HERE, per simulator, because it is a property
+# of the image a simulator uses -- not of the launcher that submits it.
+#
+# Hardcoding it in the launchers produced both possible errors at once: run_arena demanded this LIBERO
+# capability from the Arena connector image, which can never carry it, while run_matrix demanded
+# nothing at all. One declaration read by every launcher makes both impossible.
+required_image_capability: libero-client-verified

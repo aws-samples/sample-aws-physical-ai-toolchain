@@ -1,0 +1,22 @@
+# DEMO suite manifest -- the extensibility proof, matching config/families/dummy.yaml
+# and config/simulators/dummy_sim.yaml. Adding a suite is a manifest, not a code
+# change; this one exercises the wiring with no GPU and no real model.
+#
+# `config/pairs/dummy--dummy_sim.yaml` declares `default_suite: dummy_suite`, so
+# before suite manifests the demo pair pointed at a suite that was declared
+# nowhere -- it had no canonical task_ids and was absent from the validator
+# allowlist. It is a real manifest now.
+name: dummy_suite
+simulator: dummy_sim
+# PERMANENTLY experimental: this is the extensibility demo, never promotable.
+# TODO(port): keep or drop the dummy family/simulator/suite deliberately -- they
+# are load-bearing for tests/test_registry_extensibility.py. See README.md#notes-and-limitations.
+status: experimental
+description: No-op demo suite. Not a real evaluation cell.
+
+# Nominal -- dummy_sim deliberately declared no task ids on main.
+canonical_task_ids: [0]
+
+dataset: null
+
+family_overrides: {}

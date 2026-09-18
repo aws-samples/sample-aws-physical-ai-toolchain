@@ -1,0 +1,125 @@
+{
+  "PipelineParameters": [
+    {
+      "Name": "UseGrootServer",
+      "Value": "true"
+    },
+    {
+      "Name": "ExpectedArenaEmbodiment",
+      "Value": "gr1_joint"
+    },
+    {
+      "Name": "Suite",
+      "Value": "arena_gr1_fridge"
+    },
+    {
+      "Name": "TrainSteps",
+      "Value": "200"
+    },
+    {
+      "Name": "EvalSimConfig",
+      "Value": "{\"arena_embodiment\": \"gr1_joint\", \"embodiment_tag\": \"GR1\", \"object\": \"NONE\", \"policy_config_yaml\": \"/workspace/isaaclab_arena_gr00t/policy/config/gr1_manip_ranch_bottle_gr00t_closedloop_config.yaml\", \"task_name\": \"put_item_in_fridge_and_close_door\"}"
+    },
+    {
+      "Name": "DatasetS3Uri",
+      "Value": "__LIBERO_DEFAULT__"
+    },
+    {
+      "Name": "ExpectedPolicyConfig",
+      "Value": "/workspace/isaaclab_arena_gr00t/policy/config/gr1_manip_ranch_bottle_gr00t_closedloop_config.yaml"
+    },
+    {
+      "Name": "EvalTaskIds",
+      "Value": "all"
+    },
+    {
+      "Name": "DatasetRevision",
+      "Value": "arena_v0.2_lab_v3.0"
+    },
+    {
+      "Name": "EvalDoseSteps",
+      "Value": "all"
+    },
+    {
+      "Name": "TrainInstanceType",
+      "Value": "ml.g6e.xlarge"
+    },
+    {
+      "Name": "EvalInstanceType",
+      "Value": "ml.g6e.xlarge"
+    },
+    {
+      "Name": "ModelFamily",
+      "Value": "gr00t"
+    },
+    {
+      "Name": "ModelPackageGroupName",
+      "Value": "vla-arena-gr00t"
+    },
+    {
+      "Name": "TrainSuite",
+      "Value": "arena_gr1_fridge"
+    },
+    {
+      "Name": "EvalTrials",
+      "Value": "3"
+    },
+    {
+      "Name": "EvalSeed",
+      "Value": "100"
+    },
+    {
+      "Name": "ArenaConnector",
+      "Value": "groot"
+    },
+    {
+      "Name": "Gr00tVersion",
+      "Value": "n16"
+    },
+    {
+      "Name": "VolumeSizeInGB",
+      "Value": "150"
+    },
+    {
+      "Name": "EvalVolumeSizeInGB",
+      "Value": "150"
+    },
+    {
+      "Name": "ExpectedEmbodimentTag",
+      "Value": "GR1"
+    },
+    {
+      "Name": "ExpectedArenaObject",
+      "Value": "NONE"
+    },
+    {
+      "Name": "TrainSaveSteps",
+      "Value": "1000000"
+    },
+    {
+      "Name": "SuccessThreshold",
+      "Value": "0.0"
+    },
+    {
+      "Name": "EvalImageUri",
+      "Value": "${ECR_REGISTRY}/physical-ai/isaac-lab-arena@sha256:ccab57fb85eea7be5ccc3bd366c6b72e5a49f3cff957b4584d1974d4f8a3e44b"
+    },
+    {
+      "Name": "MaxRuntimeSeconds",
+      "Value": "28800"
+    },
+    {
+      "Name": "EvalSourceDirUri",
+      "Value": "__STAGED_LOCAL_SOURCE__"
+    },
+    {
+      "Name": "TrainSourceDirUri",
+      "Value": "__STAGED_LOCAL_SOURCE__"
+    },
+    {
+      "Name": "TrainImageUri",
+      "Value": "${ECR_REGISTRY}/vla/gr00t:1.2"
+    }
+  ],
+  "RecipeDescription": "GR00T N1.6 x Arena GR1 fridge sample: 200 steps, three episodes, seed 100 and threshold 0.0. Derived from the complete managed N1.6/Arena sample export with EvalTrials changed from 1 to 3 and deployment-specific source/ECR locations templated. Establishes pipeline operation only."
+}

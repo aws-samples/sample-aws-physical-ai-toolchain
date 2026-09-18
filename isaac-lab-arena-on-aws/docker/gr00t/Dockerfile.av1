@@ -1,0 +1,13 @@
+# Repair only FFmpeg on an existing GR00T image. Build context: component root.
+# Supply the immutable original image URI; never overwrite its existing tag.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends libdav1d-dev pkg-config && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+COPY docker/gr00t/build_ffmpeg.sh /tmp/build_ffmpeg.sh
+RUN bash /tmp/build_ffmpeg.sh && rm /tmp/build_ffmpeg.sh
+COPY docker/gr00t/check_video_decode.py docker/gr00t/av1-two-frames.mp4 /tmp/video-check/
+RUN ${WORK}/gr00t/.venv/bin/python /tmp/video-check/check_video_decode.py && \
+    rm -rf /tmp/video-check
+LABEL dev.physical-ai.av1-decoding="verified"

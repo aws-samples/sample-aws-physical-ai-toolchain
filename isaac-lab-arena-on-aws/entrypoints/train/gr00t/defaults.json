@@ -1,0 +1,42 @@
+{
+  "family": "gr00t",
+  "max_runtime_seconds": 28800,
+  "base_checkpoint": "nvidia/GR00T-N1.7-3B",
+  "base_checkpoint_hf_revision": "2fc962b973bccdd5d8ce4f67cc63b264d6886495",
+  "base_note": "The 3B FOUNDATION model we FINE-TUNE (dose ladder). Distinct from the already-LIBERO-tuned eval checkpoint below -- fine-tuning the LIBERO checkpoint would contaminate the ladder (tuning an already-solved policy).",
+  "checkpoint": "nvidia/GR00T-N1.7-LIBERO",
+  "checkpoint_hf_revision": "2ea293aa20ba7cf5bbf3ba17a5fbcb1a01cbfe21",
+  "checkpoint_subdir": "libero_spatial",
+  "embodiment_tag": "LIBERO_PANDA",
+  "repo": "https://github.com/NVIDIA/Isaac-GR00T.git",
+  "repo_commit": "376ba890cff8c9de64d71d982772a9c36185fdd7",
+  "base_checkpoint_n16": "nvidia/GR00T-N1.6-3B",
+  "base_checkpoint_hf_revision_n16": "d0814e7ecb19202e7c8468b46098b0b7ef3a6d61",
+  "repo_commit_n16": "5dc80c4afd726b34faad1d8f7e007a13b34e4c88",
+  "version_note": "GR00T_VERSION selects the path. n17 (default): base GR00T-N1.7-3B @ repo_commit (376ba890), Arena GR1 -> new_embodiment + n17->n16 action shim at eval. n16: base GR00T-N1.6-3B @ repo_commit_n16 (5dc80c4 / n1.6.1-release), native EmbodimentTag.GR1, native Gr00tN1d6 eval server (no shim). n16+GR1 matches the NVIDIA reference on N1.6.",
+  "server_port": 5555,
+  "input_config_schema": {
+    "embodiment_tag": {
+      "type": "str",
+      "required": true
+    },
+    "n_action_steps": {
+      "type": "str",
+      "required": false
+    },
+    "max_episode_steps": {
+      "type": "str",
+      "required": false
+    }
+  },
+  "provenance_keys": {
+    "repo_commit": {
+      "type": "str",
+      "required": true
+    },
+    "python_version": {
+      "type": "str",
+      "required": true
+    }
+  }
+}

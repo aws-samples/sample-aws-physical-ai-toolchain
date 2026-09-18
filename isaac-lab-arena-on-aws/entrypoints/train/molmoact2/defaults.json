@@ -1,0 +1,44 @@
+{
+  "family": "molmoact2",
+  "max_runtime_seconds": 18000,
+  "input_config_schema": {
+    "norm_tag": {
+      "type": "str",
+      "required": true,
+      "enum": [
+        "libero"
+      ]
+    },
+    "model_dtype": {
+      "type": "str",
+      "required": true,
+      "enum": [
+        "float32"
+      ]
+    },
+    "inference_action_mode": {
+      "type": "str",
+      "required": true,
+      "enum": [
+        "continuous"
+      ]
+    },
+    "camera_name_mapping": {
+      "type": "str",
+      "required": true,
+      "enum": [
+        "{\"agentview_image\":\"image\",\"robot0_eye_in_hand_image\":\"wrist_image\"}"
+      ]
+    }
+  },
+  "provenance_keys": {
+    "lerobot_branch": {
+      "type": "str",
+      "required": true
+    },
+    "python_version": {
+      "type": "str",
+      "required": true
+    }
+  }
+}

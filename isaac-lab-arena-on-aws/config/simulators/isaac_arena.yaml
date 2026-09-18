@@ -1,0 +1,14 @@
+# Simulator adapter manifest.
+# Isaac Lab Arena: separate eval image; eval_entry is BAKED (COPY in Dockerfile),
+# the custom entrypoint ignores SageMaker sourcedir.
+name: isaac_arena
+delivery_mode: baked
+# No `suites:` block: a suite is declared ONCE, by its own manifest under
+# config/suites/ (which also carries the Arena runtime contract, the fine-tune
+# dataset, and the per-family embodiment wiring). This manifest describes the
+# simulator's adapter identity only.
+
+# NO required_image_capability. The Arena connector image is a different image with a different
+# provenance stamp and no LIBERO client; requiring libero-client-verified here refused a valid image.
+# Absent means "nothing to check at submit time", which is not the same as "unchecked at runtime" --
+# the evaluator still verifies what it needs when it starts.

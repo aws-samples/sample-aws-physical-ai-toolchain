@@ -1,0 +1,11 @@
+# Pair adapter manifest (registry). Reproduces run_libero.py resolution.
+family: openvla
+simulator: libero
+# The 'smoke-v2' tag is an ECR IMAGE TAG, not terminology. ECR tags here are
+# immutable, so renaming this string would point at an image that does not exist.
+# It gets the sample naming when the image is next rebuilt under a new tag.
+eval_image: vla/openvla:smoke-v2
+connector: groot
+use_groot_server: "false"
+default_suite: libero_spatial
+registry_group_prefix: vla-eval

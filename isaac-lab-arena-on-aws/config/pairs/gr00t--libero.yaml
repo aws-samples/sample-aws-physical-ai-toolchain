@@ -1,0 +1,8 @@
+# Pair adapter manifest (registry). Reproduces run_libero.py resolution.
+family: gr00t
+simulator: libero
+eval_image: vla/gr00t:1.2     # train == eval for LIBERO; one gr00t image serves N1.6/N1.7 (see config/families/gr00t.yaml)
+connector: groot                   # run_libero leaves ArenaConnector at pipeline default "groot"
+use_groot_server: "false"          # run_libero leaves UseGrootServer at pipeline default "false"
+default_suite: libero_spatial      # run_libero --suite default
+registry_group_prefix: vla-eval

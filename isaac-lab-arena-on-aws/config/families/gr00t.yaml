@@ -1,0 +1,30 @@
+# Model-family adapter manifest (registry).
+# Adapter identity only; per-run knobs (dose/trials/seed/task-ids) stay CLI args.
+name: gr00t
+# GR00T train image. ONE image serves BOTH n16 and n17: the runtime re-clones
+# Isaac-GR00T at the version's commit and uv-syncs its own venv (the version
+# differs by GR00T_VERSION, not by image). Built by
+# `build_images.py --family gr00t --tag 1.0`. The former "N1.7 cuDNN incompatible"
+# symptom (undefined cudnnGetLibConfig) was a runtime library-precedence bug
+# (DLC system cuDNN 9.1 shadowing the venv's nvidia-cudnn-cu12>=9.5), fixed in code
+# on the n17 path (train_entry.py + eval_entry.py prepend the venv nvidia/*/lib to
+# LD_LIBRARY_PATH). No separate n17 Dockerfile/tag. The headline n16 Arena run
+# passes --train-image vla/gr00t:1.2 explicitly; LIBERO + N1.7xArena use this default.
+# 1.2 is the first tag whose marker carries libero-client-verified: 1.0 predates the LIBERO bake
+# (added 2026-09-12, 9d19dcf) and 1.1 never built -- egl-probe's CMakeLists is rejected by CMake 4
+# without CMAKE_POLICY_VERSION_MINIMUM. So every gr00t x libero run on 1.0 was refused at startup
+# by the evaluator's own capability guard.
+train_image: vla/gr00t:1.2
+defaults_json: entrypoints/train/gr00t/defaults.json  # single source for input_config_schema + provenance_keys
+train_instance: ml.g6e.12xlarge
+eval_instance: ml.g6e.12xlarge
+# Submit-time operational requirements. This file is the SOLE owner of them: the
+# resource keys that used to sit in defaults.json were read by NOBODY --
+# load_family_schemas() and registry.family_schemas() both project only
+# input_config_schema and provenance_keys -- so openvla's per-role block there was a
+# declared value governing nothing. These must be known BEFORE any container exists.
+# instance_note: g6e.12xlarge has four L40S GPUs (48 GB nominal memory each).
+# The README's managed sample explicitly overrides both jobs to ml.g6e.xlarge
+# (one L40S). Quota/capacity and runtime must be checked for the selected size.
+train_volume_gb: 150
+eval_volume_gb: 150

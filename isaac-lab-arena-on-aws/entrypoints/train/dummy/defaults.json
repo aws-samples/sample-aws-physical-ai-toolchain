@@ -1,0 +1,15 @@
+{
+  "family": "dummy",
+  "input_config_schema": {
+    "example_param": {
+      "type": "str",
+      "required": true
+    }
+  },
+  "provenance_keys": {
+    "repo_commit": {
+      "type": "str",
+      "required": true
+    }
+  }
+}

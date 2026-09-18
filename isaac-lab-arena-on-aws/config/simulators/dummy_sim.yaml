@@ -1,0 +1,6 @@
+# DEMO simulator manifest: proves adding a simulator is a
+# manifest YAML only -- NO registry.py / pipeline.py edits. Not a real sim.
+# No 'suites' block on purpose: a sim need not declare canonical task_ids, and
+# omitting it keeps suite_canonical_task_ids() unchanged for the real sims.
+name: dummy_sim
+delivery_mode: sourcedir

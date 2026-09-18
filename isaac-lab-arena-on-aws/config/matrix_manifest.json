@@ -1,0 +1,16 @@
+{
+  "protocol": {
+    "train_steps": 5,
+    "eval_trials": 1,
+    "eval_seed": 1000,
+    "eval_task_ids": "all",
+    "success_threshold": 0.0,
+    "description": "SMOKE: full code paths, minimal magnitudes. Identical to FULL except integers."
+  },
+  "cells": [
+    {"family": "openvla", "suite": "libero_spatial"},
+    {"family": "gr00t", "suite": "libero_spatial"},
+    {"family": "molmoact2", "suite": "libero_spatial"},
+    {"family": "molmoact2", "suite": "libero_object"}
+  ]
+}

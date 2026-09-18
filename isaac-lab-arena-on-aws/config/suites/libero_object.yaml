@@ -1,0 +1,34 @@
+# Suite manifest -- LIBERO object (MuJoCo). See arena_gr1_fridge.yaml for the
+# annotated reference copy of this schema.
+name: libero_object
+simulator: libero
+description: LIBERO object, 10 tasks.
+
+canonical_task_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+dataset:
+  repo_id: IPEC-COMMUNITY/libero_object_no_noops_1.0.0_lerobot
+  subdir: ""
+  revision: null
+  copy_libero_modality: true
+
+family_overrides:
+  gr00t:
+    n17:
+      embodiment_tag: null
+      modality_config: null
+    n16:
+      embodiment_tag: null
+      modality_config: null
+
+# I6: the EVALUATION PROTOCOL, owned by the suite rather than by the checkpoint being
+# evaluated. These were taken from the checkpoint's own input_config with only a
+# positive-integer check, so a checkpoint could pick its own episode horizon and action-chunk
+# length -- changing the experiment while keeping the same suite label. Validate compares the
+# values a run actually consumed against these.
+#
+# 720 steps and 8 action steps are the calibrated LIBERO values this component has always
+# used as its defaults; declaring them makes them an expectation rather than a fallback.
+evaluation_protocol:
+  n_action_steps: 8
+  max_episode_steps: 720

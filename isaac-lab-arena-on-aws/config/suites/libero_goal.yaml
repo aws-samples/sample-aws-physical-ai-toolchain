@@ -1,0 +1,37 @@
+# Suite manifest -- LIBERO goal (MuJoCo). See arena_gr1_fridge.yaml for the
+# annotated reference copy of this schema.
+name: libero_goal
+simulator: libero
+description: >
+  LIBERO goal, 10 tasks. EVAL-ONLY for gr00t: no fine-tune dataset is declared,
+  so a train-default gr00t run on this suite is rejected at FineTune. It is the
+  documented example suite for the MolmoAct2 eval entry.
+
+canonical_task_ids: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+
+# null => no fine-tune dataset declared for this suite. Deliberately not
+# fabricated: the shipped gr00t train entry only ever declared datasets for
+# libero_spatial / libero_object, and inventing a repo_id here would send a real
+# FineTune job at a dataset nobody validated.
+dataset: null
+
+family_overrides:
+  gr00t:
+    n17:
+      embodiment_tag: null
+      modality_config: null
+    n16:
+      embodiment_tag: null
+      modality_config: null
+
+# I6: the EVALUATION PROTOCOL, owned by the suite rather than by the checkpoint being
+# evaluated. These were taken from the checkpoint's own input_config with only a
+# positive-integer check, so a checkpoint could pick its own episode horizon and action-chunk
+# length -- changing the experiment while keeping the same suite label. Validate compares the
+# values a run actually consumed against these.
+#
+# 720 steps and 8 action steps are the calibrated LIBERO values this component has always
+# used as its defaults; declaring them makes them an expectation rather than a fallback.
+evaluation_protocol:
+  n_action_steps: 8
+  max_episode_steps: 720

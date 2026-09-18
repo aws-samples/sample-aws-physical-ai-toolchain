@@ -1,0 +1,19 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo "Building VLA image for family=$FAMILY tag=$IMAGE_TAG"
+      - echo "Logging in to ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO
+      - export DLC_REGISTRY="${DLC_REGISTRY:-763104351884.dkr.ecr.${AWS_REGION}.amazonaws.com}"
+      - aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$DLC_REGISTRY"
+  build:
+    commands:
+      - echo "Building docker/$FAMILY/Dockerfile..."
+      - docker build --build-arg DLC_REGISTRY="$DLC_REGISTRY" -t $ECR_REPO:$IMAGE_TAG -f docker/$FAMILY/Dockerfile docker/$FAMILY/
+  post_build:
+    commands:
+      - echo "Pushing $ECR_REPO:$IMAGE_TAG..."
+      - docker push $ECR_REPO:$IMAGE_TAG
+      - echo "Done. Image $ECR_REPO:$IMAGE_TAG"

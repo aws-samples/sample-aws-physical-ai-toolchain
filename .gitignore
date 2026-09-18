@@ -22,9 +22,6 @@ data/**
 training/data/episodes/
 training/data/ur3_lerobot_dataset/
 
-# Binary design docs / working artifacts (not source)
-*.docx
-
 # Python
 __pycache__/
 *.pyc
@@ -55,6 +52,10 @@ Thumbs.db
 *.tfstate.backup
 *.tfstate.*.backup
 .terraform.lock.hcl
+# S8: isaac-lab-arena-on-aws COMMITS its lock file -- that is what makes a fresh
+# clone select the same provider build, and ignoring it defeated the version pinning
+# in its versions.tf. Scoped so other components keep the repo-wide default.
+!isaac-lab-arena-on-aws/infra/.terraform.lock.hcl
 
 # Docker build cache
 containers/**/build/
@@ -62,15 +63,8 @@ containers/**/build/
 # OSMO values with credentials
 osmo_values.yaml
 
-# Internal dev artifacts — AI-assistant context, build history, and implementation
-# plans. Not part of the public toolchain (they reference internal accounts/hosts
-# and ongoing-work state). Kept locally, never committed.
-CLAUDE.md
-.kiro/
-PLAN.md
-TODO.md
-plans/
-docs/ROADMAP.md
+# Authored scripts, plans, agent instructions and reports remain visible to Git.
+# Review them before staging; temporary work is not automatically publishable.
 
 notebooks/lab1/.env
 notebooks/lab4/.env
@@ -78,3 +72,6 @@ notebooks/lab4/.env
 
 # Notebook checkpoints (can contain secrets from cell execution)
 .ipynb_checkpoints/
+
+# SageMaker local credentials, caches and execution evidence (runner is in scripts/local/).
+local-dev/

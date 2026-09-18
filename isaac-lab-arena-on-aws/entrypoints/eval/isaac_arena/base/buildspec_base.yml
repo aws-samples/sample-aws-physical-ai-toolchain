@@ -1,0 +1,53 @@
+version: 0.2
+
+# Arena base image (vla/isaac-arena): the pinned Arena 0.2.1 recipe provides
+# Isaac Sim 6.0.0-dev2, Isaac Lab and GR00T N1.6 dependencies.
+# The component's CodeBuild project uses privileged docker-in-docker.
+#
+# Launch (NO_SOURCE + inline override, with the NGC/HF grants):
+#   CODEBUILD_PROJECT_NAME=$(aws ssm get-parameter --region us-east-1 \
+#     --name "/$VLA_FOUNDATION_PROJECT/component/codebuild-project" \
+#     --query Parameter.Value --output text)
+#   aws codebuild start-build --region us-east-1 --project-name "$CODEBUILD_PROJECT_NAME" \
+#     --source-type-override NO_SOURCE \
+#     --compute-type-override BUILD_GENERAL1_2XLARGE \
+#     --timeout-in-minutes-override 180 \
+#     --buildspec-override "$(cat entrypoints/eval/isaac_arena/base/buildspec_base.yml)" \
+#     --environment-variables-override \
+#         name=ECR_REGISTRY,value=<acct>.dkr.ecr.<region>.amazonaws.com \
+#         name=IMAGE_URI,value=<acct>.dkr.ecr.<region>.amazonaws.com/vla/isaac-arena:0.2.1-gn16
+env:
+  variables:
+    ARENA_REF: "release/0.2.1"
+    # Pin the exact commit for reproducibility (ARENA_REF is a moving branch).
+    # 8b4a3a47 = release/0.2.1 HEAD as of 2026-09-03; bump deliberately + re-verify.
+    ARENA_COMMIT: "8b4a3a47fc53de23e8205089d71109a2e2348acd"
+    NGC_SECRET_ID: "vla-pipeline/ngc-token"
+phases:
+  pre_build:
+    commands:
+      - echo "=== NGC login (pull Isaac Sim base from nvcr.io) ==="
+      - NGC_TOKEN=$(aws secretsmanager get-secret-value --secret-id "$NGC_SECRET_ID" --query SecretString --output text --region "$AWS_DEFAULT_REGION")
+      - echo "$NGC_TOKEN" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+      - echo "=== ECR login ==="
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+      - echo "=== Clone Isaac Lab Arena $ARENA_REF @ $ARENA_COMMIT (+submodules IsaacLab, Isaac-GR00T) ==="
+      - git config --global url."https://github.com/".insteadOf "git@github.com:"
+      - git clone --branch "$ARENA_REF" --recurse-submodules https://github.com/isaac-sim/IsaacLab-Arena.git
+      - cd IsaacLab-Arena && git checkout "$ARENA_COMMIT" && git submodule update --init --recursive && cd ..
+      - df -h /  # disk headroom check (isaac-sim base ~20GB, final image 40GB+)
+  build:
+    commands:
+      - cd "$CODEBUILD_SRC_DIR/IsaacLab-Arena"
+      - echo "=== docker build (INSTALL_GROOT=true, WORKDIR=/workspace) ==="
+      # WORKDIR=/workspace is Arena's default:
+      # it puts the package at /workspace/isaaclab_arena and the gr00t policy configs at
+      # /workspace/isaaclab_arena_gr00t (matching eval_entry.py's ARENA_WORKSPACE=/workspace
+      # and the suite's policy_config path). Do NOT nest it under
+      # /workspace/isaaclab_arena — that adds a level and breaks both paths.
+      - docker build --pull --build-arg WORKDIR=/workspace --build-arg INSTALL_GROOT=true -t "$IMAGE_URI" --file docker/Dockerfile.isaaclab_arena .
+  post_build:
+    commands:
+      - echo "=== push $IMAGE_URI ==="
+      - docker push "$IMAGE_URI"
+      - echo "DONE base image pushed -> $IMAGE_URI"

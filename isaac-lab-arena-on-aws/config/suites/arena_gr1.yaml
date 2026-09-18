@@ -1,0 +1,32 @@
+# Suite manifest -- Arena GR1 open-microwave. See arena_gr1_fridge.yaml for the
+# annotated reference copy of this schema.
+name: arena_gr1
+simulator: isaac_arena
+status: experimental
+description: >
+  Fourier GR1 humanoid, gr1_open_microwave. Single-task Arena suite over the
+  general Arena-GR1-Manipulation dataset.
+
+canonical_task_ids: [0]
+
+dataset:
+  repo_id: nvidia/Arena-GR1-Manipulation-Task
+  subdir: lerobot
+  revision: arena_v0.2_lab_v3.0
+  copy_libero_modality: false
+
+family_overrides:
+  gr00t:
+    n17:
+      embodiment_tag: new_embodiment
+      modality_config: arena_gr1_data_config.py
+    n16:
+      embodiment_tag: GR1
+      modality_config: arena_gr1_data_config_n16.py
+
+arena:
+  task: gr1_open_microwave
+  embodiment: gr1_joint
+  object: null
+  # REQUIRED before a run -- see arena_gr1_fridge.yaml and README.md#base-requirements.
+  policy_config: null

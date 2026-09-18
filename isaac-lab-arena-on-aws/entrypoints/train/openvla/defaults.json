@@ -1,0 +1,24 @@
+{
+  "family": "openvla",
+  "input_config_schema": {
+    "num_images_in_input": {
+      "type": "int",
+      "required": true
+    },
+    "use_proprio": {
+      "type": "bool",
+      "required": true
+    },
+    "unnorm_key": {
+      "type": "str",
+      "required": true
+    }
+  },
+  "provenance_keys": {
+    "libero_commit": {
+      "type": "str",
+      "required": true,
+      "pattern": "^[0-9a-f]{40}$"
+    }
+  }
+}
