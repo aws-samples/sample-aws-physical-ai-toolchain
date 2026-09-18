@@ -45,7 +45,7 @@ The flywheel consists of four pillars with an **Agentic AI Orchestration Layer**
 | [**OSMO**](osmo-on-aws/) | [NVIDIA OSMO](https://nvidia.github.io/OSMO/main/user_guide/index.html) 6.3 orchestration on EKS - control plane, compute, GPU scheduling | `osmo-on-aws/001-iac/` | [README](osmo-on-aws/) | Available |
 | *Edge Deployment* | Model packaging to [Jetson](https://developer.nvidia.com/embedded-computing) via EKS Hybrid Nodes + Greengrass | Planned | - | Planned |
 | [**Strands Agents**](strands-agents-on-aws/) | Natural-language robot orchestration with [Strands Agents](https://strandsagents.com) SDK + [strands-robots](https://github.com/strands-labs/robots) (MuJoCo sim by default, real hardware opt-in); Amazon Bedrock AgentCore hosted runtime planned | (control plane) | [README](strands-agents-on-aws/) | Available |
-| *Model Evaluation* | Benchmarking, regression testing, and safety validation pipelines | Planned | - | Planned |
+| [**Isaac Lab Arena Evaluation**](isaac-lab-arena-on-aws/) | GR00T closed-loop evaluation, checkpoint integrity validation, and gated SageMaker registration | `isaac-lab-arena-on-aws/infra/` | [README](isaac-lab-arena-on-aws/) | Preview — see [validation status](isaac-lab-arena-on-aws/README.md#accepted-reference-runs) |
 
 ---
 

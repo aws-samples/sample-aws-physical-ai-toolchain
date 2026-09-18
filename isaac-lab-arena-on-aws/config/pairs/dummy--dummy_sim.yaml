@@ -1,0 +1,8 @@
+# DEMO pair manifest: dummy family x dummy simulator.
+family: dummy
+simulator: dummy_sim
+eval_image: vla/dummy:v0
+connector: groot
+use_groot_server: "false"
+default_suite: dummy_suite
+registry_group_prefix: vla-demo

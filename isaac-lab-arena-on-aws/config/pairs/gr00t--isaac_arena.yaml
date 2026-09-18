@@ -1,0 +1,17 @@
+# Pair adapter manifest: GR00T x Isaac Lab Arena.
+family: gr00t
+simulator: isaac_arena
+
+# Build targets, not evidence that either image exists in the target account.
+# The CLI records selected image digests; walkthrough builds can override this tag.
+eval_image: physical-ai/isaac-lab-arena:v11
+
+# Built by entrypoints/eval/isaac_arena/base/buildspec_base.yml at Arena commit
+# 8b4a3a47fc53de23e8205089d71109a2e2348acd; the connector checks ECR before building.
+eval_base_image: vla/isaac-arena:0.2.1-gn16
+
+# "groot" is the runtime connector selector; "gr00t" names the model family.
+connector: groot
+use_groot_server: "true"
+default_suite: arena_gr1_fridge
+registry_group_prefix: vla-arena

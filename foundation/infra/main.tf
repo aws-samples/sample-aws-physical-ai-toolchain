@@ -298,6 +298,18 @@ resource "aws_ecr_repository" "isaac_lab" {
   image_scanning_configuration { scan_on_push = true }
 }
 
+resource "aws_ecr_repository" "isaac_lab_arena" {
+  name                 = "${var.project_name}/isaac-lab-arena"
+  image_tag_mutability = "IMMUTABLE"
+  image_scanning_configuration { scan_on_push = true }
+}
+
+resource "aws_ssm_parameter" "isaac_lab_arena_ecr" {
+  name  = "/${var.project_name}/ecr/isaac-lab-arena"
+  type  = "String"
+  value = aws_ecr_repository.isaac_lab_arena.repository_url
+}
+
 resource "aws_ecr_repository" "cosmos_transfer" {
   name                 = "${var.project_name}/cosmos-transfer"
   image_tag_mutability = "MUTABLE"

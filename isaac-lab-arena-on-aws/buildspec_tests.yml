@@ -1,0 +1,25 @@
+version: 0.2
+# CI: run the offline test suite. Point a CodeBuild project (or mirror to GitHub
+# Actions) at this to gate merges on `pytest`. Installs the package editable via
+# pyproject.toml (deps + src layout + [dev] pytest), so no PYTHONPATH hacks and
+# the pytest rootdir/pythonpath come from pyproject.
+phases:
+  install:
+    runtime-versions:
+      python: 3.12
+    commands:
+      - python -m pip install --upgrade pip
+      - pip install -e "./isaac-lab-arena-on-aws[dev]"
+  build:
+    commands:
+      - python -m pytest isaac-lab-arena-on-aws/tests -q --strict-markers -rs
+      # I9: the standing gates were never run by CI, so they only protected commits someone
+      # remembered to check by hand. Each covers a defect the pytest suite structurally cannot
+      # reach -- source injected as a string literal, patch ORDERING against pinned upstream, and
+      # data flow between what a command executes and what the report claims. Every one of those
+      # three defects reached a commit before the gate existed.
+      #
+      # Run individually rather than in a loop so the failing gate is named in the build log.
+      - python isaac-lab-arena-on-aws/scripts/gate_injected_audit.py
+      - python isaac-lab-arena-on-aws/scripts/gate_telemetry_patch_order.py
+      - python isaac-lab-arena-on-aws/scripts/gate_reported_equals_executed.py

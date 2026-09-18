@@ -1,0 +1,24 @@
+version: 0.2
+
+env:
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - set -euo pipefail
+      - ': "${AWS_DEFAULT_REGION:?AWS_DEFAULT_REGION is required}"'
+      - ': "${ECR_REPO_URI:?ECR_REPO_URI is required}"'
+      - ': "${IMAGE_TAG:?IMAGE_TAG is required}"'
+      - ': "${ARENA_BASE_IMAGE:?ARENA_BASE_IMAGE is required}"'
+      - REGISTRY=${ECR_REPO_URI%%/*}
+      - aws ecr get-login-password --region "$AWS_DEFAULT_REGION" | docker login --username AWS --password-stdin "$REGISTRY"
+  build:
+    commands:
+      - set -euo pipefail
+      - docker build --platform linux/amd64 --build-arg ARENA_BASE_IMAGE="$ARENA_BASE_IMAGE" -f containers/isaac-lab-arena/Dockerfile -t "$ECR_REPO_URI:$IMAGE_TAG" .
+  post_build:
+    commands:
+      - set -euo pipefail
+      - test "$CODEBUILD_BUILD_SUCCEEDING" = 1
+      - docker push "$ECR_REPO_URI:$IMAGE_TAG"

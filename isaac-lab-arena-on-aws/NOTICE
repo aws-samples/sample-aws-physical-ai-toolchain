@@ -1,0 +1,20 @@
+Isaac Lab Arena Evaluation on AWS
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+This component integrates or adapts code from the following projects:
+
+- NVIDIA Isaac-GR00T (https://github.com/NVIDIA/Isaac-GR00T)
+  Apache License 2.0 -- GR00T fine-tuning and evaluation recipes
+
+- NVIDIA Isaac Lab Arena (https://github.com/isaac-sim/IsaacLab-Arena)
+  Apache License 2.0 (at pinned commit 8b4a3a47) -- closed-loop simulation
+  and policy runner
+
+- OpenVLA-OFT (https://github.com/moojink/openvla-oft)
+  MIT License -- OpenVLA fine-tuning adapter
+
+- AllenAI LeRobot (https://github.com/allenai/lerobot)
+  Apache License 2.0 -- MolmoAct2 training backend
+
+- LIBERO (https://github.com/Lifelong-Robot-Learning/LIBERO)
+  MIT License -- LIBERO benchmark suite and environments

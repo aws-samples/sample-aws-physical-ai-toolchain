@@ -1,0 +1,2 @@
+# This tiny build-test fixture must be available when unrelated LFS media is skipped.
+av1-two-frames.mp4 -filter -diff -merge -text

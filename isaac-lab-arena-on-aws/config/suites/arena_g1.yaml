@@ -1,0 +1,49 @@
+# Suite manifest -- Arena G1 loco-manipulation. See arena_gr1_fridge.yaml for
+# the annotated reference copy of this schema.
+#
+# STATUS: experimental. Before suite manifests this suite was HALF-wired -- the
+# gr00t train entry declared a dataset and a modality config for it, but it was
+# absent from the validator's suite allowlist, so a run could fine-tune and then
+# fail Validate with "unknown suite". `status: experimental` makes that state
+# explicit instead of accidental: the suite resolves, but it is excluded from
+# valid_suites() and from the launchers' --suite choices unless the caller passes
+# --allow-experimental.
+# TODO(port): promote to `supported` once a cell is proven end-to-end.
+# See README.md#notes-and-limitations.
+name: arena_g1
+simulator: isaac_arena
+status: experimental
+description: >
+  Unitree G1 humanoid loco-manipulation (galileo_g1_locomanip_pick_and_place).
+  Never proven end-to-end in this component.
+
+# Assumed by analogy with the GR1 suites (main declared ids only for arena_gr1
+# and arena_gr1_fridge); never observed for this suite. Part of why it is
+# experimental.
+canonical_task_ids: [0]
+
+dataset:
+  repo_id: nvidia/Arena-G1-Loco-Manipulation-Task
+  subdir: lerobot
+  revision: null
+  copy_libero_modality: false
+
+family_overrides:
+  gr00t:
+    n17:
+      embodiment_tag: new_embodiment
+      modality_config: arena_g1_data_config.py
+    # A native `UNITREE_G1` tag DOES exist in the gr00t enum at 376ba890
+    # (arena_gr1_data_config.py:10 records the full list). The vendored G1 config
+    # nonetheless registers under NEW_EMBODIMENT -- register_modality_config()'s
+    # default -- see arena_g1_data_config.py:6-12. Nothing on main establishes
+    # anything about n16's G1 support, so n16 mirrors n17 here and is UNVERIFIED.
+    n16:
+      embodiment_tag: new_embodiment
+      modality_config: arena_g1_data_config.py
+
+arena:
+  task: galileo_g1_locomanip_pick_and_place
+  embodiment: g1_wbc_joint
+  object: brown_box
+  policy_config: null

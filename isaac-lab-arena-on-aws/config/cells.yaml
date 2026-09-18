@@ -1,0 +1,32 @@
+# Named entry points into the existing family/simulator/suite registry.
+# Local support reflects the current worker, not an inferred Cartesian product.
+gr00t-n16-arena:
+  model: gr00t
+  version: n16
+  simulator: isaac_arena
+  suite: arena_gr1_fridge
+  local_profile: arena-gr1
+gr00t-n17-arena:
+  model: gr00t
+  version: n17
+  simulator: isaac_arena
+  suite: arena_gr1_fridge
+  local_profile: null
+gr00t-n17-libero:
+  model: gr00t
+  version: n17
+  simulator: libero
+  suite: libero_spatial
+  local_profile: gr00t-libero
+molmoact2-libero:
+  model: molmoact2
+  version: null
+  simulator: libero
+  suite: libero_spatial
+  local_profile: molmoact2-libero
+openvla-libero:
+  model: openvla
+  version: null
+  simulator: libero
+  suite: libero_spatial
+  local_profile: openvla-libero

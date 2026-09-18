@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vla-pipeline"
+version = "0.1.0"
+description = "VLA sim-gated evaluation pipeline (SageMaker): model x sim registry + trust-chain gate."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10,<3.13"
+dependencies = [
+    "sagemaker==2.257.6",
+    "boto3==1.43.73",
+    "pyyaml>=6,<7",
+]
+
+[project.scripts]
+vla = "vla_pipeline.cli:main"
+
+[project.urls]
+Repository = "https://github.com/aws-samples/sample-aws-physical-ai-toolchain"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8,<9",
+    # Dependencies for the optional model and dataset validation checks.
+    "torch>=2,<3",
+    "numpy>=1.24",
+    "safetensors>=0.4",
+    "pyyaml>=6",
+    "tqdm>=4",
+    # botocore ships the SageMaker service model the registration-digest test reads to
+    # verify our ContentDigest against the real API contract. It arrives transitively with
+    # boto3, but the test skipped when it did not -- so it is declared explicitly.
+    "botocore>=1.34",
+    "tensorflow==2.15.0; python_version < '3.12'",
+    "tensorflow==2.16.2; python_version >= '3.12'",
+    "tensorflow-datasets==4.9.3",
+    "tensorflow-metadata==1.17.3",
+]
+
+# src layout: `pip install -e .` puts vla_pipeline on the path, so the
+# `sys.path.insert(0, "src")` shims in scripts/tests become unnecessary.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vla_pipeline = ["validation_sdk.lock"]
+
+# Owning a pytest config here makes this dir the rootdir, so the repo no longer
+# inherits a parent setup.cfg's addopts (xdist/cov plugins not installed) and no
+# longer needs PYTHONPATH=src -- `pytest` just works from the package root.
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = ""
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+# Explicit, intentional rule set (rather than ruff's broad implicit default):
+# real-correctness (pycodestyle E/W, pyflakes F), import ordering (I), and
+# modern-annotation style (UP). Opinionated categories (blind-except, subprocess
+# check, shebangs, string-concat, simplify, security-lite, try-except) are left
+# out deliberately for a sample repo — enforce them later if desired.
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP"]
+# Line-length (E501) is intentionally not enforced by the linter: line wrapping
+# is a formatter's job (ruff format / black), not a lint gate. UP031 (percent
+# format) is likewise left off — %-formatting in diagnostic/log strings is a
+# legitimate style choice, not a defect. The other E/W/F/I/UP rules stay on.
+ignore = ["E501", "UP031"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

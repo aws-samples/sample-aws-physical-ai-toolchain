@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.venv312/
+venv/
+
+# Test / tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+# S8: the dependency lock file IS committed -- it is what makes a fresh clone select
+# the same provider build. Ignoring it defeated the version pinning in versions.tf.
+# (.terraform/ and state files stay ignored; only the lock is tracked.)
+crash.log
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Application-generated selections, run evidence, source copies and caches.
+# Keep authored scripts, configuration templates and working notes outside here.
+local-dev/
+
+# Authored scratch work, agent instructions and reports remain visible to Git.
+# Review them before staging; temporary work is not automatically publishable.
