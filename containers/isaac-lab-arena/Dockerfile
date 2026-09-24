@@ -37,6 +37,10 @@ COPY isaac-lab-arena-on-aws/entrypoints/train/gr00t/arena_gr1_data_config.py /wo
 # policy's inference noise is unbound while client-side seeding makes the scene sequence
 # look reproducible. The path must match SEEDED_SERVER_ENTRY in eval_entry.py.
 COPY isaac-lab-arena-on-aws/entrypoints/eval/isaac_arena/gr00t/gr00t_seeded_server.py /workspace/gr00t_seeded_server.py
+# Render-camera wrapper for rollout video. eval_entry launches policy_runner THROUGH this
+# file only when EVAL_RECORD_VIDEO=true; without it the headless recording never gets the
+# task's camera pose. The path must match VIDEO_RUNNER_ENTRY in eval_entry.py.
+COPY isaac-lab-arena-on-aws/entrypoints/eval/isaac_arena/gr00t/arena_video_runner.py /workspace/arena_video_runner.py
 
 COPY isaac-lab-arena-on-aws/entrypoints/eval/isaac_arena/gr00t/gr00t_n17_n16_action_adapter.py /tmp/gr00t_n17_n16_action_adapter.py
 COPY isaac-lab-arena-on-aws/entrypoints/eval/isaac_arena/gr00t/gr00t_n17_n16_action_adapter.pth /tmp/gr00t_n17_n16_action_adapter.pth

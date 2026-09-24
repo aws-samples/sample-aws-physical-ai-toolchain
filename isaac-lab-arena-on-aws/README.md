@@ -2873,8 +2873,9 @@ or implementation work. They are not extra deployment prerequisites.
 Evaluation reports a success rate and per-subtask rates; by default it saves no
 imagery, so a 1/3 result does not show which episode succeeded. Isaac Lab Arena
 records rollouts itself through `gymnasium.wrappers.RecordVideo`, wired in
-`isaaclab_arena/evaluation/policy_runner.py`. This component only forwards the
-`--video` and `--video_dir` flags; there is no capture code here to maintain.
+`isaaclab_arena/evaluation/policy_runner.py`. This component forwards the
+`--video` and `--video_dir` flags and poses the recorded camera; there is no
+capture code here to maintain.
 
 **Off by default, and that default is deliberate.** `--video` makes Arena build the
 scene with `render_mode="rgb_array"` instead of `None`. That is a different
@@ -2911,6 +2912,25 @@ bucket:
 aws s3 cp "s3://<handoff-bucket>/eval/v1/<simeval-job-name>/output/model.tar.gz" .
 tar -xzf model.tar.gz && ls videos/
 ```
+
+#### Why the recorded camera is posed here
+
+Headless, the pinned Isaac Lab never applies the task's `ViewerCfg` to the camera
+`RecordVideo` records (`/OmniverseKit_Persp`).
+`ViewportCameraController.update_view_location()` resolves the right eye and lookat,
+then hands them to `sim.set_camera_view()`, which only updates visualizers, and a
+headless run has none. Requesting `--visualizer kit` doesn't help, because
+`KitVisualizer` skips viewport setup when headless. The first recorded rollout
+showed exactly this: a valid 1305-frame mp4 in which the kitchen was a few grey
+pixels, even though the log showed a correctly framed
+`viewer=ViewerCfg(eye=(2.55, -2.08, 2.52), lookat=<the ranch bottle>)`.
+
+So when recording, `eval_entry.py` launches policy_runner through
+`entrypoints/eval/isaac_arena/gr00t/arena_video_runner.py`. Just before `RecordVideo`
+wraps the env, that wrapper authors the env's own resolved eye and lookat onto the
+camera prim, then runs policy_runner unchanged. It backports upstream Isaac Lab's
+later `set_kit_renderer_camera_view()`. The framing still comes from the task:
+nothing in the wrapper is scene-specific. Unrecorded runs don't use the wrapper.
 
 Two limits worth knowing before relying on this:
 
