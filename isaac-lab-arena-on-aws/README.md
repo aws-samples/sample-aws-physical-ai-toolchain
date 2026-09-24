@@ -2865,7 +2865,63 @@ or implementation work. They are not extra deployment prerequisites.
 | [GR00T AV1 decoding](#gr00t-av1-decoding) | Diagnosing an older LIBERO image's video decoder |
 | [Validation runtime and lineage](#validation-runtime-and-training-lineage) | Inspecting SDK packaging or receipt claims |
 | [Tests and development workflow](#tests) | Maintaining the component or reviewing a deployment |
+| [Rollout video capture](#rollout-video-capture) | Seeing what the robot actually did in an episode |
 | [Resource ownership and teardown](#resource-ownership-and-permanent-teardown) | Transferring or permanently removing resources |
+
+#### Rollout video capture
+
+Evaluation reports a success rate and per-subtask rates; by default it saves no
+imagery, so a 1/3 result does not show which episode succeeded. Isaac Lab Arena
+records rollouts itself through `gymnasium.wrappers.RecordVideo`, wired in
+`isaaclab_arena/evaluation/policy_runner.py`. This component only forwards the
+`--video` and `--video_dir` flags; there is no capture code here to maintain.
+
+**Off by default, and that default is deliberate.** `--video` makes Arena build the
+scene with `render_mode="rgb_array"` instead of `None`. That is a different
+environment construction from the argv behind the
+[accepted reference runs](#accepted-reference-runs), and rendering costs time.
+Seeding happens before the `RecordVideo` wrap, so RNG ordering is unaffected, but
+treat a recorded rollout as a diagnostic rather than a reference measurement.
+
+Enable it on the managed pipeline with `--record-video`:
+
+```bash
+vla run --deployment arena-review --cell gr00t-n16-arena --mode managed \
+  --record-video \
+  --max-runtime-seconds 14400 --train-steps 200 --eval-trials 3 --threshold 0.0 \
+  --instance FineTune=ml.g6e.12xlarge --instance SimEval=ml.g6e.12xlarge
+```
+
+Or on the direct Arena submitter:
+
+```bash
+PYTHONPATH=src python scripts/submit_simeval.py --record-video true \
+  --eval-image "$EVAL_IMAGE" --checkpoint-s3 "$CHECKPOINT_S3"
+```
+
+Both set `EVAL_RECORD_VIDEO=true` in the SimEval container. The pipeline parameter
+is `EvalRecordVideo` (`"true"`/`"false"`), so a hand-started
+`StartPipelineExecution` can set it too.
+
+The mp4 is written to `$SM_MODEL_DIR/videos/`, which SageMaker tars into the
+SimEval `ModelArtifacts` beside `metrics.json`. Retrieve it from the handoff
+bucket:
+
+```bash
+aws s3 cp "s3://<handoff-bucket>/eval/v1/<simeval-job-name>/output/model.tar.gz" .
+tar -xzf model.tar.gz && ls videos/
+```
+
+Two limits worth knowing before relying on this:
+
+- **One continuous mp4, not one file per episode.** Arena wires
+  `step_trigger=(step == 0)` with `video_length = num_episodes * max_episode_length`,
+  so a single recording spans every episode and you scrub to find boundaries.
+  Per-episode files would need `episode_trigger`, an upstream Arena change.
+- **Editing the eval entry needs an image rebuild.** The connector's ENTRYPOINT runs
+  the baked `/workspace/eval_entry.py`, so changing how these flags are passed
+  requires a new connector image and digest. See
+  [image and connector contract](#arena-images-and-connector-contract).
 
 #### Other managed entry points
 

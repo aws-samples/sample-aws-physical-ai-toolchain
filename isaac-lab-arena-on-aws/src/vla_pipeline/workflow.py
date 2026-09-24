@@ -32,7 +32,7 @@ def parameter_keys(steps):
             "model_family", "suite", "eval_image", "eval_instance", "eval_volume_size",
             "max_runtime_seconds", "eval_seed", "eval_trials", "eval_task_ids",
             "eval_dose_steps", "eval_source_dir", "use_groot_server", "arena_connector",
-            "eval_sim_config", "gr00t_version",
+            "eval_sim_config", "gr00t_version", "eval_record_video",
         })
     if "Validate" in steps:
         keys.update({

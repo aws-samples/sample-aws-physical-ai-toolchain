@@ -593,7 +593,7 @@ def _simeval_args(**over):
                 arena_connector="groot", eval_seed="100", eval_trials="1",
                 eval_task_ids="all", checkpoint_s3="s3://b/p/x/model.tar.gz",
                 hf_secret="s", posctrl_n16="false", posctrl_repo="",
-                posctrl_revision="")
+                posctrl_revision="", record_video="false")
     base.update(over)
     return types.SimpleNamespace(**base)
 

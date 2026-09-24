@@ -820,6 +820,26 @@ def run_arena_eval(
         cmd.extend(["--policy_config_yaml_path", policy_cfg_yaml])
         cmd.append("--enable_cameras")
 
+    # Rollout video. Arena records this itself (gymnasium RecordVideo, wired in
+    # isaaclab_arena/evaluation/policy_runner.py); we only pass its flags, so there is no
+    # custom capture path to maintain. Written under MODEL_DIR so SageMaker tars it into
+    # the SimEval ModelArtifacts alongside metrics.json -- no extra upload step.
+    #
+    # DEFAULT OFF, and deliberately so: --video makes Arena build the scene with
+    # render_mode="rgb_array" instead of None, which is a different environment
+    # construction from the argv behind the accepted reference runs. Seeding happens
+    # before the RecordVideo wrap, so RNG ordering is unaffected, but rendering costs
+    # time and the configuration is not the measured one. Enable it to inspect a
+    # rollout, not to produce a reference result.
+    #
+    # One continuous mp4 spanning every episode, not one file per episode: Arena wires
+    # step_trigger=(step == 0) with video_length = num_episodes * max_episode_length.
+    # Per-episode files would need episode_trigger, which is an upstream Arena change.
+    if os.environ.get("EVAL_RECORD_VIDEO", "false").lower() == "true":
+        video_dir = f"{MODEL_DIR}/videos"
+        cmd.extend(["--video", "--video_dir", video_dir])
+        log(f"Rollout video: --video --video_dir {video_dir} (render_mode=rgb_array)")
+
     # Positional task AFTER all main optionals (parse_intermixed_args ordering).
     cmd.append(task_name)
 

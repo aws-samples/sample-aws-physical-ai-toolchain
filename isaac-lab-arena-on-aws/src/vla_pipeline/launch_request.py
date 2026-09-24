@@ -148,6 +148,9 @@ def resolve_run(args):
         "MaxRuntimeSeconds": args.max_runtime_seconds,
         "Gr00tVersion": cell["version"] or "n17",
         "UseGrootServer": spec.use_groot_server, "ArenaConnector": spec.arena_connector,
+        # Diagnostic rollout capture, off unless --record-video. Sent as the string the
+        # pipeline parameter's enum declares, not a Python bool.
+        "EvalRecordVideo": "true" if getattr(args, "record_video", False) else "false",
         "VolumeSizeInGB": select_volume_gb(spec, "train", volumes.get("FineTune")),
         "EvalVolumeSizeInGB": select_volume_gb(spec, "eval", volumes.get("SimEval")),
     }
