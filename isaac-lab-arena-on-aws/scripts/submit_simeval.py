@@ -98,6 +98,8 @@ def build_environment(args, suite, knobs: dict) -> dict:
         "EVAL_ARENA_EMBODIMENT": knobs["arena_embodiment"],
         "EVAL_OBJECT": knobs["object"],
         "EVAL_POSCTRL_N16": args.posctrl_n16,
+        # Same knob the managed pipeline sets, so this launcher does not drift from it.
+        "EVAL_RECORD_VIDEO": args.record_video,
         "MUJOCO_GL": "egl",
     }
     if args.posctrl_repo:
@@ -191,6 +193,13 @@ def main():
                    help="If 'true', run the N1.6 native-GR1 positive control (EVAL_POSCTRL_N16): "
                         "ignores the mounted checkpoint, uses the baked N1.6 venv, downloads the NVIDIA "
                         "GN1.6 checkpoint, serves it under embodiment GR1.")
+    # String rather than store_true to match this submitter's other 'true'/'false' knobs,
+    # which are forwarded into the container environment verbatim.
+    p.add_argument("--record-video", dest="record_video", default="false",
+                   choices=["true", "false"],
+                   help="If 'true', pass Arena's --video so the rollout mp4 is written into "
+                        "SimEval's ModelArtifacts. Diagnostic only: rendering changes the "
+                        "environment construction, so it is not the measured configuration.")
     args = p.parse_args()
 
     # Refused HERE, not in the container. The evaluator fails closed on an empty revision, but it does

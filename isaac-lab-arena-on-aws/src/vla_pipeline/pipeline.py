@@ -195,6 +195,16 @@ def build_parameters(*, through="RegisterModel", checkpoint_s3_uri=None) -> dict
         "gr00t_version": ParameterString(
             name="Gr00tVersion", default_value="n17",
             enum_values=["n16", "n17"]),
+        # Rollout video capture. Arena owns the recording (gymnasium RecordVideo); this
+        # only toggles its --video flag, and the mp4 lands in the SimEval ModelArtifacts.
+        # Default "false": --video switches Arena to render_mode="rgb_array", a different
+        # environment construction from the argv behind the accepted reference runs, so a
+        # recorded rollout is a diagnostic rather than a reference measurement.
+        # enum_values so a hand-started StartPipelineExecution cannot pass a value the
+        # eval entry would silently read as "not true" and drop.
+        "eval_record_video": ParameterString(
+            name="EvalRecordVideo", default_value="false",
+            enum_values=["true", "false"]),
     }
     from .workflow import parameter_keys, selected_steps
 
@@ -397,6 +407,9 @@ def build_pipeline(cfg: PipelineConfig, session=None, validate_code_uri=None,
             "EVAL_GR00T_VERSION": params["gr00t_version"].to_string(),
             # Arena connector routing -- docker_entrypoint_multi.sh reads this
             "ARENA_CONNECTOR": params["arena_connector"].to_string(),
+            # "true" makes the baked eval_entry pass Arena's --video/--video_dir, so the
+            # rollout mp4 is tarred into this step's ModelArtifacts next to metrics.json.
+            "EVAL_RECORD_VIDEO": params["eval_record_video"].to_string(),
             # Arena per-run knobs collapsed into one JSON blob the eval entry
             # unpacks. Only this one var is injected -- no more
             # all-sim union of discrete SM_HP_*/EVAL_* knobs. eval_entry seeds the

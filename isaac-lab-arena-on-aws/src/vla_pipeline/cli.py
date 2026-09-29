@@ -99,6 +99,9 @@ Inspect supported choices and declared resources with vla cells --details.""",
     run.add_argument("--eval-trials", type=int,
                      help="Required with SimEval: episodes total for Arena, per task for LIBERO")
     run.add_argument("--eval-seed", type=int, help="Rollout seed (default: Arena 100, LIBERO 1000)")
+    run.add_argument("--record-video", action="store_true",
+                     help="Arena only: save a rollout mp4 into SimEval's artifacts. Diagnostic; "
+                          "renders the scene, so it is not the measured reference configuration")
     run.add_argument("--threshold", type=float,
                      help="Required with SuccessGate: success rate from 0 to 1; 0 checks workflow only")
     run.add_argument("--max-runtime-seconds", type=int, help="GPU job deadline; does not limit a status watcher")

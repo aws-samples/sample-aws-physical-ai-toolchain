@@ -38,6 +38,9 @@ dev = [
     "tensorflow==2.16.2; python_version >= '3.12'",
     "tensorflow-datasets==4.9.3",
     "tensorflow-metadata==1.17.3",
+    # pxr, so the rollout-video camera pose is checked against real USD transform
+    # semantics rather than only this repo's own look-at math.
+    "usd-core>=24",
 ]
 
 # src layout: `pip install -e .` puts vla_pipeline on the path, so the

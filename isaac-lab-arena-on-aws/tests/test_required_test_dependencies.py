@@ -21,6 +21,7 @@ _REQUIRED = {
     "yaml": "GR1 action-contract permutation derivation from real Arena configs",
     "tqdm": "LIBERO evaluator harness import",
     "botocore": "registration ContentDigest checked against the SageMaker model",
+    "pxr": "rollout-video camera pose authored onto the render camera prim",
 }
 
 
@@ -44,8 +45,8 @@ def test_every_importorskip_module_is_declared_in_dev_extras():
     for path in (root / "tests").glob("test_*.py"):
         used.update(re.findall(r'importorskip\(\s*"([a-z_]+)"', path.read_text()))
     declared = (root / "pyproject.toml").read_text()
-    # yaml ships as pyyaml; map the import name to the distribution name.
-    dist = {"yaml": "pyyaml"}
+    # yaml ships as pyyaml and pxr as usd-core; map the import name to the distribution name.
+    dist = {"yaml": "pyyaml", "pxr": "usd-core"}
     missing = sorted(m for m in used if dist.get(m, m) not in declared)
     assert not missing, (
         f"these modules are importorskip'd by the test suite but not declared in the dev "

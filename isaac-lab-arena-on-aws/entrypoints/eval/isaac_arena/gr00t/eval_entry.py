@@ -223,6 +223,11 @@ GR00T_N16_VENV = f"{GR00T_N16_DIR}/.venv/bin/python"
 # absolute in-image path rather than relative to this file.
 SEEDED_SERVER_ENTRY = os.environ.get(
     "GR00T_SEEDED_SERVER_ENTRY", "/workspace/gr00t_seeded_server.py")
+# Component-owned wrapper that poses the render camera from the env's ViewerCfg before
+# Arena's RecordVideo starts, then runs policy_runner unchanged. Only used with rollout
+# video; see arena_video_runner.py for why the pinned Isaac Lab never poses it headless.
+VIDEO_RUNNER_ENTRY = os.environ.get(
+    "ARENA_VIDEO_RUNNER_ENTRY", "/workspace/arena_video_runner.py")
 GR00T_N16_SERVER_LOG = "/tmp/gr00t_server_n16.log"
 N16_POSCTRL_CKPT_REPO = os.environ.get(
     "N16_POSCTRL_CKPT_REPO", "nvidia/GN1.6-Tuned-Arena-GR1-PlaceItemCloseDoor-Task")
@@ -819,6 +824,33 @@ def run_arena_eval(
         # policy_cfg_yaml is guaranteed non-empty above (fail-loud on AUTO/unset).
         cmd.extend(["--policy_config_yaml_path", policy_cfg_yaml])
         cmd.append("--enable_cameras")
+
+    # Rollout video. Arena records this itself (gymnasium RecordVideo, wired in
+    # isaaclab_arena/evaluation/policy_runner.py); we only pass its flags, so there is no
+    # custom capture path to maintain. Written under MODEL_DIR so SageMaker tars it into
+    # the SimEval ModelArtifacts alongside metrics.json -- no extra upload step.
+    #
+    # DEFAULT OFF, and deliberately so: --video makes Arena build the scene with
+    # render_mode="rgb_array" instead of None, which is a different environment
+    # construction from the argv behind the accepted reference runs. Seeding happens
+    # before the RecordVideo wrap, so RNG ordering is unaffected, but rendering costs
+    # time and the configuration is not the measured one. Enable it to inspect a
+    # rollout, not to produce a reference result.
+    #
+    # One continuous mp4 spanning every episode, not one file per episode: Arena wires
+    # step_trigger=(step == 0) with video_length = num_episodes * max_episode_length.
+    # Per-episode files would need episode_trigger, which is an upstream Arena change.
+    #
+    # policy_runner runs THROUGH arena_video_runner.py when recording. Without it the mp4
+    # shows the scene as a few-pixel speck: headless, nothing in the pinned Isaac Lab
+    # applies ViewerCfg to the recorded camera. The wrapper poses it from the env's own
+    # ViewerCfg, so the framing still comes from the task, not from this file.
+    if os.environ.get("EVAL_RECORD_VIDEO", "false").lower() == "true":
+        video_dir = f"{MODEL_DIR}/videos"
+        cmd.insert(1, VIDEO_RUNNER_ENTRY)
+        cmd.extend(["--video", "--video_dir", video_dir])
+        log(f"Rollout video: --video --video_dir {video_dir} (render_mode=rgb_array), "
+            f"camera posed by {VIDEO_RUNNER_ENTRY}")
 
     # Positional task AFTER all main optionals (parse_intermixed_args ordering).
     cmd.append(task_name)

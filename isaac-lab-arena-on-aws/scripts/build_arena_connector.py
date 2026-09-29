@@ -72,6 +72,7 @@ def _required_zip_members(connector: str) -> list:
         # reaches CodeBuild, so the image would launch the pinned server directly and the
         # policy RNG would be unbound again with no visible failure.
         f"{COMPONENT}/entrypoints/eval/isaac_arena/gr00t/gr00t_seeded_server.py",
+        f"{COMPONENT}/entrypoints/eval/isaac_arena/gr00t/arena_video_runner.py",
         f"{COMPONENT}/entrypoints/train/gr00t/arena_gr1_data_config.py",
         f"{COMPONENT}/entrypoints/train/gr00t/defaults.json",
         f"{COMPONENT}/src/vla_pipeline/common/validator.py",
