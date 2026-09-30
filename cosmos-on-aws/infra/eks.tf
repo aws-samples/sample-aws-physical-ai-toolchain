@@ -42,6 +42,12 @@ variable "eks_admin_principal_arns" {
   default     = []
 }
 
+variable "eks_pod_extra_s3_buckets" {
+  description = "Additional S3 bucket NAMES (not ARNs) the Cosmos3 generation pod may read and write, beyond the Foundation datasets bucket. Set this to the per-participant data bucket created by the workshop CloudFormation stack (physical-ai-data-<account>), which does not follow this module's <project>-<environment>-datasets-<account> naming and would otherwise be unreachable from the pod."
+  type        = list(string)
+  default     = []
+}
+
 variable "eks_system_node_instance_types" {
   description = "Instance types for the always-on system node group"
   type        = list(string)
@@ -322,24 +328,30 @@ resource "aws_iam_policy" "cosmos3_pod_s3" {
   name        = "${local.prefix}-cosmos3-pod-s3"
   description = "S3 read/write for the Cosmos3 generation pod (cosmos-samples/ output, dataset input)"
 
+  # The Foundation datasets bucket plus any buckets created outside this Terraform.
+  #
+  # The workshop's per-participant data bucket (physical-ai-data-<account>) is created
+  # by CloudFormation, not here, and it does not follow the
+  # <project>-<environment>-datasets-<account> naming this module assumes. Without it
+  # listed, a generation pod cannot read the teleoperation dataset the lab tells
+  # attendees to use - the pod fails with AccessDenied even though the object exists.
+  # Computed inline rather than in a `locals` block: the account-id data source is
+  # count-gated on enable_eks_cluster, so a top-level local would fail to evaluate when
+  # the cluster is disabled.
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "ListDatasetsBucket"
-        Effect = "Allow"
-        Action = ["s3:ListBucket"]
-        Resource = [
-          "arn:aws:s3:::${var.project_name}-${var.environment}-datasets-${data.aws_caller_identity.eks_current[0].account_id}"
-        ]
+        Sid      = "ListBuckets"
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = [for b in concat(["${var.project_name}-${var.environment}-datasets-${data.aws_caller_identity.eks_current[0].account_id}"], var.eks_pod_extra_s3_buckets) : "arn:aws:s3:::${b}"]
       },
       {
-        Sid    = "ReadWriteDatasetsObjects"
-        Effect = "Allow"
-        Action = ["s3:GetObject", "s3:PutObject"]
-        Resource = [
-          "arn:aws:s3:::${var.project_name}-${var.environment}-datasets-${data.aws_caller_identity.eks_current[0].account_id}/*"
-        ]
+        Sid      = "ReadWriteObjects"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = [for b in concat(["${var.project_name}-${var.environment}-datasets-${data.aws_caller_identity.eks_current[0].account_id}"], var.eks_pod_extra_s3_buckets) : "arn:aws:s3:::${b}/*"]
       }
     ]
   })

@@ -128,6 +128,18 @@ if [ -n "$WORKSTATION_ROLE_ARN" ] && [ "$WORKSTATION_ROLE_ARN" != "$SELF_ARN" ];
   ADMIN_ARNS="[\"${SELF_ARN}\", \"${WORKSTATION_ROLE_ARN}\"]"
 fi
 log "Cluster admins: ${ADMIN_ARNS}"
+
+# The per-participant data bucket is created by the workshop CloudFormation stack and
+# does not match this module's <project>-<environment>-datasets-<account> naming, so the
+# pod IRSA policy will not cover it unless it is passed in explicitly. Without this the
+# generation pod gets AccessDenied reading the teleoperation dataset the lab points at.
+if [ -n "${DATA_BUCKET:-}" ]; then
+  EXTRA_BUCKETS="[\"${DATA_BUCKET}\"]"
+else
+  EXTRA_BUCKETS="[]"
+fi
+log "Pod S3 extra buckets: ${EXTRA_BUCKETS}"
+
 cat > terraform.tfvars <<EOF
 aws_region                      = "${AWS_REGION_NAME}"
 environment                     = "${ENVIRONMENT}"
@@ -142,6 +154,8 @@ eks_gpu_capacity_reservation_id = "${GPU_CR_ID}"
 # Helm provider cannot reach the Kubernetes API and even `terraform plan` fails with
 # "Kubernetes cluster unreachable".
 eks_admin_principal_arns        = ${ADMIN_ARNS}
+# Grants the generation pod read/write on the CloudFormation-created data bucket.
+eks_pod_extra_s3_buckets        = ${EXTRA_BUCKETS}
 EOF
 log "Wrote terraform.tfvars"
 cat terraform.tfvars

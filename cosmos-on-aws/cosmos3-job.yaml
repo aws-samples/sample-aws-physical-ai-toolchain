@@ -65,7 +65,9 @@ spec:
           args:
             - |
               set -euo pipefail
-              mkdir -p /workspace/hf-cache /workspace/io
+              # /models is the node-local hostPath (see volumes below); HF_HOME points
+              # into it so a cached download survives pod restarts.
+              mkdir -p /models/hf-cache /workspace/io
 
               # --- Resolve model + serve flags from COSMOS_MODEL ---
               case "${COSMOS_MODEL}" in
@@ -75,9 +77,12 @@ spec:
                   ;;
                 nano)
                   MODEL_ID="nvidia/Cosmos3-Nano"
+                  LOCAL_MODEL_DIR="/models/cosmos3-nano"
                   # --vae-use-tiling is required on single-GPU nodes (e.g.
                   # g6e.4xlarge, ~44GB usable VRAM) — without it, VAE decode
                   # OOMs at the default 189-frame/720p generation size.
+                  # Measured on an L40S: peak 43.5 GB of 46 GB even WITH tiling,
+                  # so 48 GB is the practical floor for this model.
                   SERVE_ARGS="--vae-use-tiling"
                   ;;
                 *)
@@ -85,6 +90,27 @@ spec:
                   exit 1
                   ;;
               esac
+
+              # --- Prefer node-local staged weights over a gated HF download ---
+              # event-provision.sh stages weights onto the node's disk (hostPath
+              # /opt/cosmos3, mounted here at /models). Serving straight from that
+              # directory skips the ~33 GB gated Hugging Face download, so participants
+              # need neither an HF token nor an accepted model licence.
+              #
+              # Falling back to the Hugging Face repo id keeps the path that is actually
+              # validated end-to-end (measured on g6e.4xlarge: 7m44s to ready, 11m22s to
+              # generate) working unchanged when nothing has been staged.
+              if [ -n "${LOCAL_MODEL_DIR:-}" ] && [ -d "$LOCAL_MODEL_DIR" ] \
+                 && [ -n "$(ls -A "$LOCAL_MODEL_DIR" 2>/dev/null)" ]; then
+                echo "=== Using node-local staged weights: $LOCAL_MODEL_DIR ==="
+                MODEL_ID="$LOCAL_MODEL_DIR"
+              else
+                echo "=== No staged weights at ${LOCAL_MODEL_DIR:-<unset>} - falling back to Hugging Face (${MODEL_ID}) ==="
+              fi
+
+              # Derived AFTER the override on purpose: /v1/models reports whatever was
+              # passed to `vllm serve`, so deriving this from the Hugging Face id would
+              # make the readiness grep below never match a local-path launch.
               MODEL_SHORT_NAME=$(basename "$MODEL_ID")
 
               # --- Ensure the AWS CLI is available (image doesn't ship it) ---
@@ -189,7 +215,9 @@ spec:
               wait "$SERVER_PID" 2>/dev/null || true
               echo "Job complete."
           env:
-            - { name: HF_HOME, value: "/workspace/hf-cache" }
+            # On the node's disk, not the pod's emptyDir: an emptyDir is destroyed with
+            # the pod, so a retried or second run would re-download the full ~33 GB.
+            - { name: HF_HOME, value: "/models/hf-cache" }
             - name: HF_TOKEN
               valueFrom:
                 secretKeyRef: { name: hf-token, key: token }
@@ -224,6 +252,10 @@ spec:
           volumeMounts:
             - { name: workspace, mountPath: /workspace }
             - { name: shm, mountPath: /dev/shm }
+            # Node-local weight staging area. Without this mount the staged weights
+            # written by event-provision.sh are invisible to the pod and every run
+            # re-downloads ~33 GB from Hugging Face.
+            - { name: models, mountPath: /models }
       volumes:
         - name: workspace
           emptyDir:
@@ -232,3 +264,12 @@ spec:
           emptyDir:
             medium: Memory
             sizeLimit: 64Gi
+        # hostPath rather than a PVC: eks.tf builds the cluster in the Foundation VPC
+        # and installs only aws-ebs-csi-driver (no EFS), and the GPU node group is a
+        # single node, so node-local disk is both sufficient and the fastest option.
+        # DirectoryOrCreate keeps the pod schedulable on a node that was never staged,
+        # in which case the Hugging Face fallback above takes over.
+        - name: models
+          hostPath:
+            path: /opt/cosmos3
+            type: DirectoryOrCreate
