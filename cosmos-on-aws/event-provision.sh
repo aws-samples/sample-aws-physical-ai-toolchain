@@ -16,6 +16,15 @@
 # Environment:
 #   AWS_REGION_NAME     (required) Region to deploy into
 #   STATE_BUCKET        (required) S3 bucket for Terraform remote state
+#   ENVIRONMENT         Name prefix for created resources (default dev). Change it to
+#                       isolate this deployment when the account already has a Cosmos 3
+#                       cluster: the prefix appears in the cluster name AND in IAM role
+#                       names that hardcode "cosmos3", so a different eks_cluster_name
+#                       alone is NOT enough to avoid collisions.
+#                       NOTE: the IRSA policy scopes S3 to
+#                       physical-ai-<ENVIRONMENT>-datasets-<account>, so a non-default
+#                       value needs a matching Foundation deployment for pods to read S3.
+#   EKS_CLUSTER_NAME    Cluster name suffix               (default cosmos3)
 #   GPU_INSTANCE_TYPE   GPU node instance type            (default g6e.4xlarge)
 #   GPU_AZ              AZ to pin the GPU node group to   (default: any private subnet)
 #   GPU_CR_ID           Capacity Block ID, if using one   (default: on-demand)
@@ -28,6 +37,8 @@ set -euo pipefail
 
 : "${AWS_REGION_NAME:?set AWS_REGION_NAME}"
 : "${STATE_BUCKET:?set STATE_BUCKET}"
+ENVIRONMENT="${ENVIRONMENT:-dev}"
+EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-cosmos3}"
 GPU_INSTANCE_TYPE="${GPU_INSTANCE_TYPE:-g6e.4xlarge}"
 GPU_AZ="${GPU_AZ:-}"
 GPU_CR_ID="${GPU_CR_ID:-}"
@@ -79,14 +90,16 @@ terraform {
 }
 EOF
 log "Wrote backend.tf -> s3://${STATE_BUCKET}/cosmos-on-aws/eks/terraform.tfstate"
+log "Environment prefix: ${ENVIRONMENT}  Cluster suffix: ${EKS_CLUSTER_NAME}"
 
 terraform init -input=false -upgrade
 log "Applying Terraform (EKS cluster + GPU node group)"
 terraform apply -input=false -auto-approve \
   -var "aws_region=${AWS_REGION_NAME}" \
-  -var "environment=dev" \
+  -var "environment=${ENVIRONMENT}" \
   -var "enable_eks_cluster=true" \
   -var "enable_ec2_server=false" \
+  -var "eks_cluster_name=${EKS_CLUSTER_NAME}" \
   -var "eks_gpu_node_instance_type=${GPU_INSTANCE_TYPE}" \
   -var "eks_gpu_node_desired_size=${GPU_DESIRED_SIZE}" \
   -var "eks_gpu_availability_zone=${GPU_AZ}" \
