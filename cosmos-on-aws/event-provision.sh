@@ -29,6 +29,9 @@
 #   GPU_AZ              AZ to pin the GPU node group to   (default: any private subnet)
 #   GPU_CR_ID           Capacity Block ID, if using one   (default: on-demand)
 #   GPU_DESIRED_SIZE    GPU nodes to pre-warm             (default 1)
+#   WORKSTATION_ROLE_ARN  IAM role granted EKS cluster-admin, so the workshop
+#                       workstation can run kubectl and `terraform plan` (the Helm
+#                       provider must reach the Kubernetes API to refresh state).
 #   CENTRAL_WEIGHTS_S3  Central S3 prefix with Cosmos 3 Nano weights (optional)
 #   COSMOS_IMAGE_URI    ECR image for vllm-omni cosmos3; also warms the node's image cache
 #   TF_DIR              Terraform directory               (default: <repo>/cosmos-on-aws/infra)
@@ -45,6 +48,7 @@ GPU_CR_ID="${GPU_CR_ID:-}"
 GPU_DESIRED_SIZE="${GPU_DESIRED_SIZE:-1}"
 CENTRAL_WEIGHTS_S3="${CENTRAL_WEIGHTS_S3:-}"
 COSMOS_IMAGE_URI="${COSMOS_IMAGE_URI:-}"
+WORKSTATION_ROLE_ARN="${WORKSTATION_ROLE_ARN:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TF_DIR="${TF_DIR:-$SCRIPT_DIR/infra}"
 TERRAFORM_VERSION="${TERRAFORM_VERSION:-1.16.4}"
@@ -92,18 +96,41 @@ EOF
 log "Wrote backend.tf -> s3://${STATE_BUCKET}/cosmos-on-aws/eks/terraform.tfstate"
 log "Environment prefix: ${ENVIRONMENT}  Cluster suffix: ${EKS_CLUSTER_NAME}"
 
+# Write the variable values to terraform.tfvars instead of passing them as -var flags.
+# Terraform auto-loads this file, so an attendee can later run a bare
+# `terraform init && terraform plan` and get "No changes" - with -var flags they would
+# have to retype every value identically or the plan would show spurious drift.
+# The file is also copied to the state bucket so the workstation can fetch the exact
+# same values.
+ADMIN_ARNS="[]"
+if [ -n "$WORKSTATION_ROLE_ARN" ]; then
+  ADMIN_ARNS="[\"${WORKSTATION_ROLE_ARN}\"]"
+fi
+cat > terraform.tfvars <<EOF
+aws_region                      = "${AWS_REGION_NAME}"
+environment                     = "${ENVIRONMENT}"
+enable_eks_cluster              = true
+enable_ec2_server               = false
+eks_cluster_name                = "${EKS_CLUSTER_NAME}"
+eks_gpu_node_instance_type      = "${GPU_INSTANCE_TYPE}"
+eks_gpu_node_desired_size       = ${GPU_DESIRED_SIZE}
+eks_gpu_availability_zone       = "${GPU_AZ}"
+eks_gpu_capacity_reservation_id = "${GPU_CR_ID}"
+# Grants the workstation IAM role EKS cluster-admin. Without an access entry the
+# Helm provider cannot reach the Kubernetes API and even `terraform plan` fails with
+# "Kubernetes cluster unreachable".
+eks_admin_principal_arns        = ${ADMIN_ARNS}
+EOF
+log "Wrote terraform.tfvars"
+cat terraform.tfvars
+
 terraform init -input=false -upgrade
 log "Applying Terraform (EKS cluster + GPU node group)"
-terraform apply -input=false -auto-approve \
-  -var "aws_region=${AWS_REGION_NAME}" \
-  -var "environment=${ENVIRONMENT}" \
-  -var "enable_eks_cluster=true" \
-  -var "enable_ec2_server=false" \
-  -var "eks_cluster_name=${EKS_CLUSTER_NAME}" \
-  -var "eks_gpu_node_instance_type=${GPU_INSTANCE_TYPE}" \
-  -var "eks_gpu_node_desired_size=${GPU_DESIRED_SIZE}" \
-  -var "eks_gpu_availability_zone=${GPU_AZ}" \
-  -var "eks_gpu_capacity_reservation_id=${GPU_CR_ID}"
+terraform apply -input=false -auto-approve
+
+# Publish the tfvars next to the state so the workstation uses identical values.
+aws s3 cp terraform.tfvars "s3://${STATE_BUCKET}/cosmos-on-aws/eks/terraform.tfvars" \
+  --only-show-errors || log "WARNING: could not publish terraform.tfvars"
 
 CLUSTER="$(terraform output -raw eks_cluster_name)"
 IRSA_ROLE="$(terraform output -raw eks_pod_irsa_role_arn)"
