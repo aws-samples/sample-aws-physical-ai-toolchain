@@ -153,6 +153,16 @@ module "cosmos3_eks" {
   # Grant access explicitly via eks_admin_principal_arns instead (below).
   enable_cluster_creator_admin_permissions = false
 
+  # Keys are positional ("admin-0", "admin-1", ...). Append to
+  # eks_admin_principal_arns only - never reorder or remove from the middle. Doing so
+  # shifts an existing principal to a new key, and Terraform then destroys and
+  # recreates the *same* access entry in parallel (the two keys have no dependency
+  # between them). EKS has not propagated the delete by the time the create lands, so
+  # the apply fails with:
+  #   ResourceInUseException: The specified access entry resource is already in use
+  # Recovering means re-running the apply once the delete settles. A fresh cluster is
+  # unaffected: there is nothing to destroy, so the ordering only matters when editing
+  # this list against a live cluster.
   access_entries = {
     for idx, principal_arn in var.eks_admin_principal_arns : "admin-${idx}" => {
       principal_arn = principal_arn
