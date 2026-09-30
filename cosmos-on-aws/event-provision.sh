@@ -70,7 +70,10 @@ if ! command -v kubectl >/dev/null 2>&1; then
     "https://dl.k8s.io/release/$(curl -fsSL https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
   chmod +x /usr/local/bin/kubectl
 fi
-terraform version | head -1
+# NOTE: do not pipe into `head` here. Under `set -o pipefail`, head closing the pipe
+# early sends SIGPIPE to terraform and the script dies with exit 141 - which happened
+# as soon as terraform printed an extra upgrade-notice line.
+terraform version
 
 #-----------------------------------------------------------------------------------
 # 2. Terraform: EKS cluster with a PRE-WARMED GPU node group
