@@ -42,6 +42,12 @@ variable "eks_admin_principal_arns" {
   default     = []
 }
 
+variable "eks_view_principal_arns" {
+  description = "IAM principal ARNs granted read-only (AmazonEKSViewPolicy) access to the cluster. Intended for workshop participant roles so the EKS console's Resources tab can show Jobs, pods, and logs. Read-only on purpose: workloads are submitted with kubectl against the manifests in this repository, not from the console."
+  type        = list(string)
+  default     = []
+}
+
 variable "eks_pod_extra_s3_buckets" {
   description = "Additional S3 bucket NAMES (not ARNs) the Cosmos3 generation pod may read and write, beyond the Foundation datasets bucket. Set this to the per-participant data bucket created by the workshop CloudFormation stack (physical-ai-data-<account>), which does not follow this module's <project>-<environment>-datasets-<account> naming and would otherwise be unreachable from the pod."
   type        = list(string)
@@ -169,17 +175,41 @@ module "cosmos3_eks" {
   # Recovering means re-running the apply once the delete settles. A fresh cluster is
   # unaffected: there is nothing to destroy, so the ordering only matters when editing
   # this list against a live cluster.
-  access_entries = {
-    for idx, principal_arn in var.eks_admin_principal_arns : "admin-${idx}" => {
-      principal_arn = principal_arn
-      policy_associations = {
-        admin = {
-          policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = { type = "cluster" }
+  #
+  # The same positional-key rule applies to eks_view_principal_arns ("view-0", ...).
+  # The two maps are kept separate so a view principal can never shift into an admin
+  # key, or vice versa.
+  access_entries = merge(
+    {
+      for idx, principal_arn in var.eks_admin_principal_arns : "admin-${idx}" => {
+        principal_arn = principal_arn
+        policy_associations = {
+          admin = {
+            policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+            access_scope = { type = "cluster" }
+          }
         }
       }
-    }
-  }
+    },
+    # Read-only principals. The EKS console's Resources tab needs both the IAM
+    # permission eks:AccessKubernetesApi AND a Kubernetes RBAC binding; without an
+    # access entry it reports that the principal has no access to Kubernetes objects.
+    # Workshop participants get AmazonEKSViewPolicy rather than ClusterAdmin so they
+    # can watch Jobs, pods, and logs in the console without being able to mutate the
+    # cluster from it - submission stays an explicit `kubectl apply` of the manifest in
+    # the toolchain repository.
+    {
+      for idx, principal_arn in var.eks_view_principal_arns : "view-${idx}" => {
+        principal_arn = principal_arn
+        policy_associations = {
+          view = {
+            policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"
+            access_scope = { type = "cluster" }
+          }
+        }
+      }
+    },
+  )
 
   cluster_addons = {
     coredns    = { most_recent = true }

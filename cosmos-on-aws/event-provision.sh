@@ -129,6 +129,21 @@ if [ -n "$WORKSTATION_ROLE_ARN" ] && [ "$WORKSTATION_ROLE_ARN" != "$SELF_ARN" ];
 fi
 log "Cluster admins: ${ADMIN_ARNS}"
 
+# Read-only cluster access for the workshop participant role, so the EKS console's
+# Resources tab can show Jobs, pods and logs. Resolved by name and skipped silently when
+# the role does not exist, which is the normal case outside an AWS-hosted event (for
+# example a bring-your-own-account run, where the operator is already an admin).
+VIEW_ARNS="[]"
+if [ -n "${PARTICIPANT_ROLE_NAME:-}" ]; then
+  if PARTICIPANT_ARN="$(aws iam get-role --role-name "${PARTICIPANT_ROLE_NAME}" \
+       --query 'Role.Arn' --output text 2>/dev/null)" && [ -n "$PARTICIPANT_ARN" ]; then
+    VIEW_ARNS="[\"${PARTICIPANT_ARN}\"]"
+    log "Participant role granted read-only cluster access: ${PARTICIPANT_ARN}"
+  else
+    log "Participant role '${PARTICIPANT_ROLE_NAME}' not found - skipping console view access"
+  fi
+fi
+
 # The per-participant data bucket is created by the workshop CloudFormation stack and
 # does not match this module's <project>-<environment>-datasets-<account> naming, so the
 # pod IRSA policy will not cover it unless it is passed in explicitly. Without this the
@@ -154,6 +169,8 @@ eks_gpu_capacity_reservation_id = "${GPU_CR_ID}"
 # Helm provider cannot reach the Kubernetes API and even `terraform plan` fails with
 # "Kubernetes cluster unreachable".
 eks_admin_principal_arns        = ${ADMIN_ARNS}
+# Read-only access so participants can observe the cluster in the EKS console.
+eks_view_principal_arns         = ${VIEW_ARNS}
 # Grants the generation pod read/write on the CloudFormation-created data bucket.
 eks_pod_extra_s3_buckets        = ${EXTRA_BUCKETS}
 EOF
