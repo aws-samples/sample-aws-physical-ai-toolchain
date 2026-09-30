@@ -102,10 +102,29 @@ log "Environment prefix: ${ENVIRONMENT}  Cluster suffix: ${EKS_CLUSTER_NAME}"
 # have to retype every value identically or the plan would show spurious drift.
 # The file is also copied to the state bucket so the workstation can fetch the exact
 # same values.
-ADMIN_ARNS="[]"
-if [ -n "$WORKSTATION_ROLE_ARN" ]; then
-  ADMIN_ARNS="[\"${WORKSTATION_ROLE_ARN}\"]"
+# Grant cluster-admin explicitly to (a) the identity running this script, so it can
+# install the Helm release and run kubectl, and (b) the workstation role, so attendees
+# can use kubectl and run `terraform plan`.
+#
+# Both are listed explicitly because the EKS module's
+# enable_cluster_creator_admin_permissions is disabled: that option derives an access
+# entry from the current caller, which makes every plan run by a different principal
+# show spurious drift.
+SELF_ARN="$(aws sts get-caller-identity --query Arn --output text)"
+# Assumed-role session ARNs (arn:aws:sts::<acct>:assumed-role/<role>/<session>) are not
+# valid access-entry principals - convert to the underlying role ARN.
+case "$SELF_ARN" in
+  *:assumed-role/*)
+    ACCT="$(aws sts get-caller-identity --query Account --output text)"
+    ROLE_NAME="$(echo "$SELF_ARN" | cut -d/ -f2)"
+    SELF_ARN="arn:aws:iam::${ACCT}:role/${ROLE_NAME}"
+    ;;
+esac
+ADMIN_ARNS="[\"${SELF_ARN}\"]"
+if [ -n "$WORKSTATION_ROLE_ARN" ] && [ "$WORKSTATION_ROLE_ARN" != "$SELF_ARN" ]; then
+  ADMIN_ARNS="[\"${SELF_ARN}\", \"${WORKSTATION_ROLE_ARN}\"]"
 fi
+log "Cluster admins: ${ADMIN_ARNS}"
 cat > terraform.tfvars <<EOF
 aws_region                      = "${AWS_REGION_NAME}"
 environment                     = "${ENVIRONMENT}"

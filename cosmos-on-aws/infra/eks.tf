@@ -141,8 +141,17 @@ module "cosmos3_eks" {
   cluster_endpoint_public_access  = true
   cluster_endpoint_private_access = true
 
-  enable_irsa                              = true
-  enable_cluster_creator_admin_permissions = true
+  enable_irsa = true
+
+  # Deliberately false: this option derives a "cluster_creator" access entry from
+  # whoever ran `terraform apply` (data.aws_caller_identity), so a later plan or apply
+  # by any other principal reports the access entry and its policy association as
+  # needing replacement - drift that has nothing to do with the configuration. That
+  # matters when automation applies and a human later inspects: in the workshop the
+  # cluster is created by CodeBuild, then attendees run `terraform plan` from the
+  # workstation and must see "No changes".
+  # Grant access explicitly via eks_admin_principal_arns instead (below).
+  enable_cluster_creator_admin_permissions = false
 
   access_entries = {
     for idx, principal_arn in var.eks_admin_principal_arns : "admin-${idx}" => {
