@@ -220,7 +220,10 @@ spec:
             - { name: HF_HOME, value: "/models/hf-cache" }
             - name: HF_TOKEN
               valueFrom:
-                secretKeyRef: { name: hf-token, key: token }
+                # optional: the pod must still start when the Secret is absent and the
+                # model is served from staged node-local weights. Without this flag a
+                # missing Secret wedges the pod in CreateContainerConfigError.
+                secretKeyRef: { name: hf-token, key: token, optional: true }
             # "super" (64B, 8 GPUs) or "nano" (16B, 1 GPU) — see the note at
             # the top of this file. Must be kept in sync with
             # resources.requests/limits below.

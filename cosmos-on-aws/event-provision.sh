@@ -203,6 +203,42 @@ kubectl annotate serviceaccount cosmos3-generator -n default \
   "eks.amazonaws.com/role-arn=${IRSA_ROLE}" --overwrite
 log "ServiceAccount cosmos3-generator -> ${IRSA_ROLE}"
 
+#-----------------------------------------------------------------------------------
+# 3b. hf-token Secret.
+#
+# The generation Job declares HF_TOKEN with a secretKeyRef, and Kubernetes refuses to
+# create the container when the referenced Secret is absent - the pod sits in
+# CreateContainerConfigError. That happens even when the model is served from staged
+# node-local weights and the token is never read, so the Secret has to exist either way.
+#
+# Created empty when Secrets Manager has no token: that is enough to let the pod start
+# on the staged-weights path, and the Hugging Face fallback then fails with a clear 401
+# rather than an opaque scheduling error.
+#-----------------------------------------------------------------------------------
+HF_TOKEN_VALUE="$(aws secretsmanager get-secret-value --secret-id physical-ai/hf-token \
+  --region "$AWS_REGION_NAME" --query SecretString --output text 2>/dev/null \
+  | python3 -c "
+import sys, json
+s = sys.stdin.read().strip()
+if not s:
+    print('')
+else:
+    try:
+        d = json.loads(s)
+        print(d.get('token') or d.get('HF_TOKEN') or next(iter(d.values()), ''))
+    except Exception:
+        print(s)
+" 2>/dev/null || echo '')"
+
+kubectl create secret generic hf-token -n default \
+  --from-literal=token="${HF_TOKEN_VALUE}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+if [ -n "$HF_TOKEN_VALUE" ]; then
+  log "Secret hf-token created (${#HF_TOKEN_VALUE} chars from Secrets Manager)"
+else
+  log "Secret hf-token created EMPTY - no physical-ai/hf-token in Secrets Manager. Staged weights will work; Hugging Face downloads will not."
+fi
+
 if [ -z "$CENTRAL_WEIGHTS_S3" ] && [ -z "$COSMOS_IMAGE_URI" ]; then
   log "No central artifacts configured (CENTRAL_WEIGHTS_S3 / COSMOS_IMAGE_URI) - skipping staging"
   log "Pre-provisioning complete (cluster only)"
