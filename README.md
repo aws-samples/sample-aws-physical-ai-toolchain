@@ -1,4 +1,4 @@
-# AWS Physical AI Toolchain
+# The Physical AI Toolchain on AWS
 
 A curated collection of reference architectures, Infrastructure as Code, and deployment automation for running the Physical AI stack on Amazon Web Services.
 
