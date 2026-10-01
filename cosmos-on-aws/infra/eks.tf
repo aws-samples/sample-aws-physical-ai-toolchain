@@ -155,6 +155,20 @@ module "cosmos3_eks" {
 
   enable_irsa = true
 
+  # Pin the KMS key administrators instead of letting the module infer them.
+  #
+  # The module defaults to
+  #   coalescelist(var.kms_key_administrators, [data.aws_iam_session_context.current.issuer_arn])
+  # so the cluster's envelope-encryption key policy names whoever ran Terraform. In this
+  # workshop CodeBuild applies and the workstation later plans, so the key policy flips
+  # between the two roles and every plan reports a one-resource in-place update that has
+  # nothing to do with the configuration:
+  #   ~ Principal.AWS = ".../TerraformBuildRole-..." -> ".../InstanceRole-..."
+  # That is the same caller-derived drift that enable_cluster_creator_admin_permissions
+  # caused for access entries, and it is the last thing standing between an attendee and a
+  # clean "No changes" plan.
+  kms_key_administrators = var.eks_admin_principal_arns
+
   # Deliberately false: this option derives a "cluster_creator" access entry from
   # whoever ran `terraform apply` (data.aws_caller_identity), so a later plan or apply
   # by any other principal reports the access entry and its policy association as
