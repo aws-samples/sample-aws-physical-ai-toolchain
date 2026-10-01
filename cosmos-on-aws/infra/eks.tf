@@ -72,6 +72,12 @@ variable "eks_gpu_node_desired_size" {
   default     = 0
 }
 
+variable "eks_nvidia_device_plugin_version" {
+  description = "Helm chart version for the NVIDIA device plugin, which advertises nvidia.com/gpu as a schedulable resource. Without it GPU pods stay Pending on healthy GPU nodes."
+  type        = string
+  default     = "0.17.1"
+}
+
 variable "eks_cluster_autoscaler_version" {
   description = "Helm chart version for cluster-autoscaler (defaults to latest tested against eks_kubernetes_version 1.31)"
   type        = string
@@ -549,4 +555,62 @@ output "eks_cluster_endpoint" {
 output "eks_pod_irsa_role_arn" {
   description = "IRSA role ARN for the cosmos3-generator service account (if enabled)"
   value       = var.enable_eks_cluster ? module.cosmos3_pod_irsa[0].iam_role_arn : null
+}
+
+#=====================================================================================
+# NVIDIA DEVICE PLUGIN
+#
+# Kubernetes does not know a node has GPUs on its own. The device plugin is what
+# advertises nvidia.com/gpu as an allocatable resource; without it a pod requesting
+# nvidia.com/gpu stays Pending forever, even on a healthy GPU node that has joined and
+# reports Ready. The failure is quiet and misleading:
+#
+#   kubectl describe node  ->  allocatable has no nvidia.com/gpu entry
+#   kubectl describe pod   ->  "0/1 nodes are available: 1 node(s) didn't match
+#                               Pod's node affinity/selector"
+#
+# and Cluster Autoscaler then taints the idle node DeletionCandidateOfClusterAutoscaler
+# and reclaims it, so the pending pod triggers another scale-up and the cycle repeats
+# indefinitely. Confirmed on this cluster: a generation Job sat Pending for 9 minutes
+# beside a Ready g6e.4xlarge until the plugin was installed, after which it scheduled
+# immediately.
+#
+# This is NOT bundled: the EKS GPU AMI ships the driver but not the plugin, and
+# nvidia-device-plugin is not available as an EKS managed addon
+# (`aws eks describe-addon-versions --addon-name nvidia-device-plugin` returns nothing),
+# so it has to be installed explicitly.
+#=====================================================================================
+resource "helm_release" "nvidia_device_plugin" {
+  count      = var.enable_eks_cluster ? 1 : 0
+  name       = "nvidia-device-plugin"
+  repository = "https://nvidia.github.io/k8s-device-plugin"
+  chart      = "nvidia-device-plugin"
+  version    = var.eks_nvidia_device_plugin_version
+  namespace  = "kube-system"
+
+  # Only GPU nodes. nvidia.com/gpu.present is set by the EKS GPU AMI, so this keeps the
+  # DaemonSet off the t3.medium system nodes where it has no device to manage.
+  set {
+    name  = "nodeSelector.nvidia\\.com/gpu\\.present"
+    value = "true"
+  }
+
+  # The GPU node group carries a nvidia.com/gpu=true:NoSchedule taint to keep ordinary
+  # workloads off it. The plugin has to tolerate that taint or it cannot run on the very
+  # nodes whose GPUs it exists to advertise - which would leave the cluster in exactly
+  # the state described above.
+  set {
+    name  = "tolerations[0].key"
+    value = "nvidia.com/gpu"
+  }
+  set {
+    name  = "tolerations[0].operator"
+    value = "Exists"
+  }
+  set {
+    name  = "tolerations[0].effect"
+    value = "NoSchedule"
+  }
+
+  depends_on = [module.cosmos3_eks]
 }
