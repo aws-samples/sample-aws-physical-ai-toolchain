@@ -201,6 +201,19 @@ module "cosmos3_eks" {
     {
       for idx, principal_arn in var.eks_view_principal_arns : "view-${idx}" => {
         principal_arn = principal_arn
+        # AmazonEKSViewPolicy maps to Kubernetes' built-in "view" ClusterRole, which covers
+        # namespaced resources but NOT cluster-scoped ones. Nodes are cluster-scoped, so the
+        # EKS console's Compute tab fails with
+        #   nodes is forbidden: User "..." cannot list resource "nodes" at the cluster scope
+        # while the Node groups panel beside it loads fine, because that reads the EKS API
+        # rather than the Kubernetes API.
+        #
+        # AmazonEKSAdminViewPolicy would fix it in one line, but it grants get/list/watch on
+        # every resource including Secrets. At event scale the hf-token Secret may hold a
+        # credential shared across accounts, so handing every participant read access to it
+        # is not acceptable. Instead the entry joins a Kubernetes group, and
+        # event-provision.sh binds that group to a ClusterRole covering just nodes.
+        kubernetes_groups = ["cosmos3-viewers"]
         policy_associations = {
           view = {
             policy_arn   = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy"

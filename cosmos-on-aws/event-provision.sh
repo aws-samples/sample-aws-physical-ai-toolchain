@@ -230,6 +230,47 @@ else:
         print(s)
 " 2>/dev/null || echo '')"
 
+#-----------------------------------------------------------------------------------
+# 3c. Cluster-scoped read access for the "cosmos3-viewers" group.
+#
+# eks.tf puts the participant's access entry in this group. The group exists so the
+# entry can keep AmazonEKSViewPolicy - which does NOT cover cluster-scoped resources -
+# and still read nodes, which the EKS console's Compute tab requires. Without this the
+# console reports:
+#   nodes is forbidden: User "..." cannot list resource "nodes" at the cluster scope
+#
+# Deliberately narrow. AmazonEKSAdminViewPolicy would grant the same visibility in one
+# line, but it also exposes every Secret in the cluster, including hf-token - which at
+# event scale may be a credential shared across participant accounts.
+#-----------------------------------------------------------------------------------
+cat <<'EOF' | kubectl apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cosmos3-cluster-viewer
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes", "pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cosmos3-cluster-viewer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cosmos3-cluster-viewer
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: cosmos3-viewers
+EOF
+log "ClusterRole cosmos3-cluster-viewer bound to group cosmos3-viewers (node read for the console)"
+
 kubectl create secret generic hf-token -n default \
   --from-literal=token="${HF_TOKEN_VALUE}" \
   --dry-run=client -o yaml | kubectl apply -f -
