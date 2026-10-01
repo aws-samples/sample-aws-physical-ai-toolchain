@@ -590,9 +590,14 @@ resource "helm_release" "nvidia_device_plugin" {
 
   # Only GPU nodes. nvidia.com/gpu.present is set by the EKS GPU AMI, so this keeps the
   # DaemonSet off the t3.medium system nodes where it has no device to manage.
+  # type = "string" is required. Without it Helm's default "auto" coercion turns "true"
+  # into a YAML boolean, and nodeSelector values must be strings, so the rendered
+  # DaemonSet is rejected by the API server with:
+  #   cannot unmarshal bool into Go struct field PodSpec.spec.template.spec.nodeSelector
   set {
     name  = "nodeSelector.nvidia\\.com/gpu\\.present"
     value = "true"
+    type  = "string"
   }
 
   # The GPU node group carries a nvidia.com/gpu=true:NoSchedule taint to keep ordinary
