@@ -162,6 +162,10 @@ resource "aws_iam_role_policy" "codebuild" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Returns a registry-wide token and does not support resource-level permissions:
+        # IAM rejects any Resource other than "*". Kept in its own statement so the push
+        # actions below stay scoped to this project's two repositories.
+        Sid      = "EcrAuthTokenRegistryWide"
         Effect   = "Allow"
         Action   = ["ecr:GetAuthorizationToken"]
         Resource = ["*"]
@@ -183,13 +187,19 @@ resource "aws_iam_role_policy" "codebuild" {
         ]
       },
       {
+        # Scoped to this project's CodeBuild groups rather than account-wide. CreateLogGroup
+        # is included because the group does not exist before the first build.
+        Sid    = "WriteOwnBuildLogs"
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = ["*"]
+        Resource = [
+          "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/codebuild/${local.prefix}-*",
+          "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/codebuild/${local.prefix}-*:*",
+        ]
       }
     ]
   })

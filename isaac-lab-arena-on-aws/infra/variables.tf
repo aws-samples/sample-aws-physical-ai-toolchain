@@ -91,3 +91,9 @@ variable "additional_input_s3_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "dlc_account_id" {
+  description = "AWS account that hosts the Deep Learning Container images these SageMaker jobs start from. Exposed as a variable rather than hardcoded because the DLC registry account differs by Region - a deployment outside the default Region needs the matching account or ECR pulls fail with AccessDenied."
+  type        = string
+  default     = "763104351884"
+}

@@ -146,6 +146,10 @@ resource "aws_iam_role_policy" "codebuild" {
     Version = "2012-10-17"
     Statement = [
       {
+        # Returns a registry-wide token and does not support resource-level permissions:
+        # IAM rejects any Resource other than "*". Kept in its own statement so the push and
+        # pull actions below stay scoped.
+        Sid      = "EcrAuthTokenRegistryWide"
         Effect   = "Allow"
         Action   = ["ecr:GetAuthorizationToken"]
         Resource = ["*"]
@@ -168,18 +172,37 @@ resource "aws_iam_role_policy" "codebuild" {
         ]
       },
       {
+        # Scoped to this component's own build log groups rather than account-wide.
+        # CreateLogGroup is required because the group does not exist before the first build.
+        Sid    = "WriteOwnBuildLogs"
         Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
         ]
-        Resource = ["*"]
+        Resource = [
+          "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/codebuild/${local.prefix}-gr00t-*",
+          "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/codebuild/${local.prefix}-gr00t-*:*",
+        ]
       },
       {
+        # These projects are declared NO_SOURCE and are started with
+        # --source-type-override S3 --source-location-override pointing at a packaged
+        # source.zip in the Foundation datasets bucket (see batch-training-guide.md step 3).
+        # CodeBuild fetches that archive under this role, which is the only S3 read the build
+        # performs -- the buildspec itself touches no other bucket. Scoped to that one bucket
+        # rather than every bucket in the account.
+        Sid      = "ReadBuildSourceArchive"
         Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:GetBucketLocation", "s3:ListBucket"]
-        Resource = ["*"]
+        Action   = ["s3:GetObject", "s3:GetObjectVersion"]
+        Resource = ["arn:aws:s3:::${data.aws_ssm_parameter.datasets_bucket.value}/*"]
+      },
+      {
+        Sid      = "ListBuildSourceBucket"
+        Effect   = "Allow"
+        Action   = ["s3:GetBucketLocation", "s3:ListBucket"]
+        Resource = ["arn:aws:s3:::${data.aws_ssm_parameter.datasets_bucket.value}"]
       },
       {
         Effect   = "Allow"

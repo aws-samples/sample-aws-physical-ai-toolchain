@@ -269,6 +269,89 @@ data "aws_iam_policy_document" "sagemaker_assume" {
 # FineTune + SimEval. Deliberately has NO iam:PassRole and no SageMaker mutation actions:
 # a worker that can pass a role or create a job can launch work under an identity it was
 # not given, which is the indirect path a separate validation role alone would not close.
+# Runtime grants every SageMaker job identity needs regardless of what it may write: pull its
+# image, emit logs, publish training metrics. Previously each of the three roles below carried
+# an identical copy of this as a single statement on Resource "*", which had two problems.
+#
+# The first is blast radius: one statement mixing ECR, Logs and CloudWatch on "*" grants far
+# more than any job needs, and hides which part actually requires a wildcard. Split here into
+# one statement per service, each scoped as tightly as the API allows.
+#
+# The second is drift: three identical copies could diverge silently, and the boundary this
+# file establishes depends on the three roles differing ONLY in their S3 grants. Defining the
+# shared part once and merging it via source_policy_documents makes that structural rather
+# than a thing a reviewer has to diff by eye.
+data "aws_iam_policy_document" "job_runtime_common" {
+  # ecr:GetAuthorizationToken returns a registry-wide token and does not support
+  # resource-level permissions -- IAM rejects any Resource other than "*". Isolated in its own
+  # statement so the exception is explicit and auditable, and so the pull actions below stay
+  # scoped. This is the only genuinely unconstrainable grant in this document.
+  statement {
+    sid       = "EcrAuthTokenRegistryWide"
+    effect    = "Allow"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  # Pull only, and only the images these jobs actually run: this project's own repositories
+  # and the AWS Deep Learning Container that SageMaker training and processing jobs start
+  # from. Matches the DLC scoping already used for the CodeBuild role in main.tf.
+  statement {
+    sid    = "EcrPullJobImages"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+    ]
+    resources = [
+      "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/*",
+      "arn:aws:ecr:${local.region}:${var.dlc_account_id}:repository/pytorch-training",
+    ]
+  }
+
+  # SageMaker writes job logs under /aws/sagemaker/. CreateLogGroup is included because a
+  # fresh deployment has no group yet, and it is scoped to the same prefix rather than left
+  # account-wide, so a job cannot create or write groups belonging to anything else.
+  statement {
+    sid    = "WriteJobLogsUnderSageMakerPrefix"
+    effect = "Allow"
+    actions = [
+      "logs:CreateLogGroup",
+      "logs:CreateLogStream",
+      "logs:PutLogEvents",
+      "logs:DescribeLogStreams",
+    ]
+    resources = [
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/sagemaker/*",
+      "arn:aws:logs:${local.region}:${local.account_id}:log-group:/aws/sagemaker/*:log-stream:*",
+    ]
+  }
+
+  # cloudwatch:PutMetricData has no resource ARN -- it can only be constrained by condition.
+  # Restricting the namespace keeps a job from writing metrics into another system's
+  # namespace, which matters here because downstream promotion decisions read these metrics:
+  # an unconstrained grant would let a training worker publish into whatever namespace a
+  # reviewer or alarm happens to watch.
+  statement {
+    sid       = "PublishMetricsToOwnNamespacesOnly"
+    effect    = "Allow"
+    actions   = ["cloudwatch:PutMetricData"]
+    resources = ["*"]
+
+    condition {
+      test     = "StringLike"
+      variable = "cloudwatch:namespace"
+      values = [
+        "/aws/sagemaker/*",
+        "AWS/SageMaker",
+        var.project_name,
+        "${var.project_name}/*",
+      ]
+    }
+  }
+}
+
 resource "aws_iam_role" "workload" {
   name               = "${local.prefix}-workload"
   assume_role_policy = data.aws_iam_policy_document.sagemaker_assume.json
@@ -279,6 +362,9 @@ resource "aws_iam_role" "workload" {
 }
 
 data "aws_iam_policy_document" "workload" {
+  # Image pull, job logs and metrics, scoped per service. See job_runtime_common above.
+  source_policy_documents = [data.aws_iam_policy_document.job_runtime_common.json]
+
   statement {
     sid    = "ReadInputs"
     effect = "Allow"
@@ -359,22 +445,6 @@ data "aws_iam_policy_document" "workload" {
   # The trust bucket is NOT granted here. Workers must not be able to write promoted
   # artifacts or attestations, which is the point of the boundary.
 
-  statement {
-    sid    = "PullImagesAndWriteLogs"
-    effect = "Allow"
-    actions = [
-      "ecr:GetAuthorizationToken",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:BatchGetImage",
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:DescribeLogStreams",
-      "cloudwatch:PutMetricData",
-    ]
-    resources = ["*"]
-  }
 }
 
 resource "aws_iam_role_policy" "workload" {
@@ -397,6 +467,9 @@ resource "aws_iam_role" "training" {
 }
 
 data "aws_iam_policy_document" "training" {
+  # Image pull, job logs and metrics, scoped per service. See job_runtime_common above.
+  source_policy_documents = [data.aws_iam_policy_document.job_runtime_common.json]
+
   statement {
     sid    = "ReadInputs"
     effect = "Allow"
@@ -445,22 +518,6 @@ data "aws_iam_policy_document" "training" {
   # identity gave it S3 reads and writes only, so on a FRESH deployment it could not pull its
   # image or write logs -- a broad sandbox grant would have hidden that until someone deployed
   # clean. Every job identity needs these regardless of what it is allowed to write.
-  statement {
-    sid    = "PullImagesAndWriteLogs"
-    effect = "Allow"
-    actions = [
-      "ecr:GetAuthorizationToken",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:BatchGetImage",
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:DescribeLogStreams",
-      "cloudwatch:PutMetricData",
-    ]
-    resources = ["*"]
-  }
 }
 
 resource "aws_iam_role_policy" "training" {
@@ -482,6 +539,9 @@ resource "aws_iam_role" "validation" {
 }
 
 data "aws_iam_policy_document" "validation" {
+  # Image pull, job logs and metrics, scoped per service. See job_runtime_common above.
+  source_policy_documents = [data.aws_iam_policy_document.job_runtime_common.json]
+
   statement {
     sid    = "ReadCheckpointEvaluationAndTrustedCode"
     effect = "Allow"
@@ -533,22 +593,6 @@ data "aws_iam_policy_document" "validation" {
     ]
   }
 
-  statement {
-    sid    = "WriteJobOutputsAndLogs"
-    effect = "Allow"
-    actions = [
-      "logs:CreateLogGroup",
-      "logs:CreateLogStream",
-      "logs:PutLogEvents",
-      "logs:DescribeLogStreams",
-      "ecr:GetAuthorizationToken",
-      "ecr:BatchCheckLayerAvailability",
-      "ecr:GetDownloadUrlForLayer",
-      "ecr:BatchGetImage",
-      "cloudwatch:PutMetricData",
-    ]
-    resources = ["*"]
-  }
 
   # SageMaker uploads the ProcessingOutput here. Scoped rather than bucket-wide: an
   # unrestricted PutObject let the validation role replace the very validation code it

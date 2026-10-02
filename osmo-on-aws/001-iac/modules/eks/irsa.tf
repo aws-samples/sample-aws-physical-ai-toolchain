@@ -246,6 +246,25 @@ resource "aws_iam_policy" "osmo_backend_ecr" {
         Resource = "*"
       },
       {
+        # KNOWN FINDING, DEFERRED: checkov CKV_AWS_355 - pull actions on Resource "*".
+        #
+        # The equivalent policies in foundation/, cosmos-on-aws/ and isaac-gr00t-on-aws/ were
+        # scoped to named repositories. This one was left as-is on purpose, for two reasons.
+        #
+        # First, OSMO is a workflow orchestrator: the images its backend pulls are whatever a
+        # submitted workflow references, so the set of repositories is not knowable at deploy
+        # time the way it is for a fixed training or inference image. A naive scoping here
+        # would fail at workflow-submission time rather than at apply.
+        #
+        # Second, this module backs live infrastructure - the osmo-prod-* IRSA roles and
+        # cluster - and an IAM tightening that is wrong surfaces as a runtime AccessDenied,
+        # not a plan error. That needs the component owner to confirm which registries real
+        # workflows pull from.
+        #
+        # The fix, once that list is known, is the pattern used elsewhere in this repo:
+        #   Resource = [
+        #     "arn:aws:ecr:${"$"}{region}:${"$"}{account}:repository/<each-known-repo>",
+        #   ]
         Sid    = "ECRPullImages"
         Effect = "Allow"
         Action = [

@@ -150,16 +150,35 @@ resource "aws_iam_role_policy" "sagemaker_ecr" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect = "Allow"
-      Action = [
-        "ecr:GetAuthorizationToken",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage"
-      ]
-      Resource = ["*"]
-    }]
+    Statement = [
+      {
+        # Returns a registry-wide token and does not support resource-level permissions:
+        # IAM rejects any Resource other than "*". Isolated so the pull actions below stay
+        # scoped, and so this exception is visible rather than buried in a broader grant.
+        Sid      = "EcrAuthTokenRegistryWide"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = ["*"]
+      },
+      {
+        # Pull only, and only the images SageMaker jobs in this project actually start from:
+        # this project's own repositories plus the AWS Deep Learning Container registry.
+        # var.dlc_account_id rather than a literal because the DLC registry account differs
+        # by Region - a deployment elsewhere needs the matching account or pulls fail with
+        # AccessDenied.
+        Sid    = "EcrPullProjectAndDlcImages"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage"
+        ]
+        Resource = [
+          "arn:aws:ecr:${local.region}:${local.account_id}:repository/${var.project_name}/*",
+          "arn:aws:ecr:${local.region}:${var.dlc_account_id}:repository/*",
+        ]
+      }
+    ]
   })
 }
 

@@ -99,6 +99,12 @@ resource "aws_iam_policy" "osmo_ecr_access" {
         Resource = "*"
       },
       {
+        # KNOWN FINDING, DEFERRED: checkov CKV_AWS_355 - pull actions on Resource "*".
+        # Same reasoning as modules/eks/irsa.tf osmo_backend_ecr: OSMO pulls whatever images a
+        # submitted workflow references, so the repository set is not known at deploy time,
+        # and this module backs the live osmo-prod-* deployment where a wrong tightening shows
+        # up as a runtime AccessDenied rather than a plan error. Needs the component owner to
+        # confirm the real registry list before scoping.
         Sid    = "ECRPullImages"
         Effect = "Allow"
         Action = [
